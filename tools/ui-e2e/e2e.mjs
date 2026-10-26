@@ -99,10 +99,20 @@ ws.addEventListener('message', (ev) => {
     if (msg.error) p.reject(new Error(JSON.stringify(msg.error))); else p.resolve(msg.result);
   } else if (msg.method) { events.push(msg); }
 });
-const send = (method, params) => new Promise((resolve, reject) => {
+// 每条 CDP 命令都要有个头。可见浏览器点测时遇到过 Page.captureScreenshot 永不返回：
+// 连接还在、进程还在，脚本却永久卡住，除了按端口杀进程没有别的办法。
+const CDP_TIMEOUT_MS = 20000;
+const send = (method, params, timeoutMs) => new Promise((resolve, reject) => {
   const myId = nextId + 1;
   nextId = myId;
-  pending.set(myId, { resolve, reject });
+  const timer = setTimeout(() => {
+    pending.delete(myId);
+    reject(new Error('调试调用超时（' + String(timeoutMs || CDP_TIMEOUT_MS) + ' 毫秒）：' + method));
+  }, timeoutMs || CDP_TIMEOUT_MS);
+  pending.set(myId, {
+    resolve: (value) => { clearTimeout(timer); resolve(value); },
+    reject: (error) => { clearTimeout(timer); reject(error); },
+  });
   ws.send(JSON.stringify({ id: myId, method, params: params || {} }));
 });
 async function evalJs(expression) {

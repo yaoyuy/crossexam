@@ -24,6 +24,10 @@ const NL = '\n';
 
 const VIEWPORT = { width: 1600, height: 1000 };
 const RUN_TIMEOUT_MS = 60000;
+// 每条 CDP 命令都要有个头。可见浏览器点测时遇到过 Page.captureScreenshot 永不返回：
+// 连接还在、进程还在，脚本却永久卡住，除了按端口杀进程没有别的办法。
+// 有超时之后，最坏情况是少一张图，而不是整轮没有结论。
+const CDP_TIMEOUT_MS = 20000;
 
 function log(message) {
   process.stdout.write(message + NL);
@@ -152,11 +156,18 @@ class Cdp {
     });
   }
 
-  send(method, params) {
+  send(method, params, timeoutMs = CDP_TIMEOUT_MS) {
     const id = this.nextId;
     this.nextId += 1;
     return new Promise((resolve_, reject) => {
-      this.pending.set(id, { resolve: resolve_, reject });
+      const timer = setTimeout(() => {
+        this.pending.delete(id);
+        reject(new Error('调试调用超时（' + String(timeoutMs) + ' 毫秒）：' + method));
+      }, timeoutMs);
+      this.pending.set(id, {
+        resolve: (value) => { clearTimeout(timer); resolve_(value); },
+        reject: (error) => { clearTimeout(timer); reject(error); },
+      });
       this.ws.send(JSON.stringify({ id, method, params: params ?? {} }));
     });
   }
