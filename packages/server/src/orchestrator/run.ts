@@ -91,6 +91,8 @@ export interface RunSessionResult {
   suggestions: Suggestion[];
   suggestionDetails: SuggestOutcome[];
   budget: BudgetSnapshot;
+  /** 预算的原始状态：落库与续跑要的是它，快照只是给人看的视图 */
+  budgetState: BudgetState;
   rounds: number;
   /** 如实记录"哪里没跑通"，不假装一切顺利 */
   notices: string[];
@@ -262,6 +264,7 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionResu
       suggestions,
       suggestionDetails: advised.outcomes,
       budget: budgetSnapshot(budget),
+      budgetState: budget,
       rounds,
       notices,
       usage,
