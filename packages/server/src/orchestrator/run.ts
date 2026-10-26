@@ -66,6 +66,12 @@ export interface RunSessionInput {
   resumeText: string;
   jdText?: string;
   panel?: readonly InterviewerRole[];
+  /**
+   * 直接给契约（自定义面试官走这条）。
+   * 传了它就完全以它为准，panel 只作为「谁上场」的 id 视图被推导出来——
+   * 两处各算一遍契约，迟早会出现「界面上是这一份、跑的是另一份」。
+   */
+  contracts?: readonly IntentContract[];
   budgetConfig?: BudgetConfig;
   maxRounds?: number;
   maxClaims?: number;
@@ -118,7 +124,12 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionResu
   const maxRounds = input.maxRounds ?? DEFAULT_MAX_ROUNDS;
   const jdText = input.jdText ?? '';
   const outline = input.outline ?? segmentResume(input.resumeText);
-  const contracts = buildContracts(panel, budgetConfig, 1);
+  const contracts: IntentContract[] =
+    input.contracts !== undefined && input.contracts.length > 0
+      ? [...input.contracts]
+      : buildContracts(panel, budgetConfig, 1);
+  // 谁上场以契约 id 为准：预算闸门按 id 记账，界面也按 id 渲染卡片，两边必须是同一份名单。
+  const roster: readonly string[] = contracts.map((contract) => contract.id);
   const notices: string[] = [];
 
   let usage = EMPTY_USAGE;
@@ -156,7 +167,7 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionResu
     const history: Probe[] = [];
     let rounds = 0;
 
-    while (rounds < maxRounds && probeableClaims(budget, panel).length > 0) {
+    while (rounds < maxRounds && probeableClaims(budget, roster).length > 0) {
       rounds += 1;
       const round = rounds;
       await emit({ type: 'stage', stage: 'probe', round });
@@ -253,7 +264,7 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionResu
       resumeText: input.resumeText,
       jdText,
       outline,
-      panel,
+      panel: roster as readonly InterviewerRole[],
       contracts,
       claims,
       rejectedClaims: extracted.rejected,

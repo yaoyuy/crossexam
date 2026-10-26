@@ -18,7 +18,7 @@ import type { LlmRequest } from '../llm/types.ts';
 
 const NL = String.fromCharCode(10);
 
-export type StageName = 'extract' | 'probe' | 'answer' | 'verdict' | 'suggest';
+export type StageName = 'extract' | 'probe' | 'answer' | 'verdict' | 'suggest' | 'contract';
 
 /**
  * 每个阶段的采样参数。temperature 全部取 0 附近：
@@ -31,6 +31,8 @@ export const STAGE_SETTINGS: Record<StageName, { temperature: number; maxTokens:
   answer: { temperature: 0.3, maxTokens: 800 },
   verdict: { temperature: 0.1, maxTokens: 1500 },
   suggest: { temperature: 0.3, maxTokens: 1500 },
+  // 设计师阶段：输出结构比文采重要，温度同样压到 0 附近。
+  contract: { temperature: 0.2, maxTokens: 1200 },
 };
 
 export function stageRequest(stage: StageName, system: string, user: string, channel?: string): LlmRequest {
@@ -299,3 +301,72 @@ export function buildSuggestPrompt(input: {
   lines.push(renderInterview(input.probes, input.answers));
   return lines.join(NL);
 }
+
+// ---------------------------------------------------------------- 阶段六：设计面试官（用户自定义）
+//
+// 这一阶段的产物**不是**这一场沙盘的一部分：它把用户的一句人话变成一份可评审的契约草稿，
+// 之后这位面试官可以出现在任何一场沙盘里。所以它的提示词写的不是「怎么问简历」，
+// 而是「怎么设计一个会问简历的人」。这是本项目和「换个 prompt 就完事」的工具最不一样的地方：
+// 用户改的是**意图的结构**，不是一段散文。
+
+export const CONTRACT_OPTIMIZER_SYSTEM = [
+  '你是「面试官设计师」。用户会用一句人话描述他想要一位什么样的面试官，',
+  '你要把它变成一份结构化的面试官契约草稿（JSON）。',
+  '',
+  '## 字段要求',
+  '- name：这位面试官的称呼，2-12 字，例如「市场总监」「护理部主管」「语文教研组长」。',
+  '- domain：他所在的专业领域，不超过 20 字；用户没提就按目标岗位推断，推断不出就留空串。',
+  '- seniority：只能取 junior / mid / senior / principal。',
+  '- tone：只能取 neutral / skeptical / warm / blunt。',
+  '- blurb：一句话自我介绍，4-60 字，用第一人称。',
+  '- goal：这一场你想问出什么，8-200 字。要具体到「判断候选人哪一项能力」，不要写「全面了解候选人」。',
+  '- tactics：2-5 条追问手法，每条 4-120 字，必须是**可执行的动作**，',
+  '  例如「听到百分比就追问分母是多少」「听到负责就追问你具体交付了哪一部分」。',
+  '',
+  '## 纪律',
+  '1. 只输出一个 JSON 对象，不要解释，不要 markdown 代码块。',
+  '2. **不要假设用户是程序员。** 用户可能来自医护、财会、教师、公考、外贸、制造、法律等行业，',
+  '   tactics 必须用该行业的行话，而不是通用的「技术深度」「八股」。',
+  '3. tactics 是「怎么问」，不是「问什么」。不要把你猜到的某条简历内容写进 tactics——',
+  '   这位面试官要能被用在任何一份简历上，写死一条经历等于只对一份简历有效。',
+  '4. 用户没提供的信息不要编造：推断不出来就留空串或保持宽泛，不要凭空写「十年经验」。',
+  '5. 语气要像一个真的要面你的人，不要写成 HR 手册。',
+  '',
+  '## 输出要求（只输出一个 JSON 对象）',
+  '{"name":"市场总监","domain":"市场营销","seniority":"senior","tone":"skeptical",' +
+    '"blurb":"我关心你做的活动到底带来了多少可归因的生意。","goal":"判断候选人的营销成果里有多少是他自己推动的",' +
+    '"tactics":["听到增长数字就追问口径和基线","听到负责就追问哪一部分是你亲手做的","听到投放就追问预算与回收周期"]}',
+].join(NL);
+
+/**
+ * 给设计师的输入。岗位与简历都只给**摘要**：
+ * 目的是让 tactics 说得像这个行业的人，而不是让模型去逐条点评这份简历
+ * （那是沙盘本身要干的事，提前做等于让面试官先看了答案）。
+ */
+export function buildContractPrompt(input: {
+  description: string;
+  jobTitle?: string;
+  jdText?: string;
+  resumeText?: string;
+}): string {
+  const lines: string[] = [];
+  lines.push('## 用户的描述');
+  lines.push(input.description.trim());
+  lines.push('');
+  lines.push('## 目标岗位');
+  lines.push((input.jobTitle ?? '').trim() === '' ? '（用户没填）' : (input.jobTitle ?? '').trim());
+  const jd = (input.jdText ?? '').trim();
+  if (jd !== '') {
+    lines.push('');
+    lines.push('## 岗位要求（节选）');
+    lines.push(jd.slice(0, 400));
+  }
+  const resume = (input.resumeText ?? '').trim();
+  if (resume !== '') {
+    lines.push('');
+    lines.push('## 求职者简历（节选，只用于判断行业与层级，不要针对其中内容写 tactics）');
+    lines.push(resume.slice(0, 600));
+  }
+  return lines.join(NL);
+}
+

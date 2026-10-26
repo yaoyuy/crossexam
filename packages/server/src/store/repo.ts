@@ -15,6 +15,7 @@ import type {
   BudgetState,
   Claim,
   ClaimCategory,
+  IntentContract,
   Probe,
   Suggestion,
   Verdict,
@@ -533,3 +534,100 @@ export function llmStats(db: Db, sessionId?: string): LlmStats {
     reasoningTokens: toInt(row?.['reasoning_tokens']),
   };
 }
+
+/* ---------------------------------------------------------------- interviewer */
+
+/**
+ * 自定义面试官（v4 全局库）。
+ *
+ * 存的是**契约本体**而不是「用户的原始描述」：页面渲染 System Prompt、会话对账指纹、
+ * 回放时重建阵容，三处都要契约原文。原始描述只作为草稿的一次性输入，不留档——
+ * 用户改过三次名字以后，没有人能说清哪一版才是当初那份输入。
+ */
+export interface InterviewerRow {
+  id: string;
+  version: number;
+  digest: string;
+  source: 'llm' | 'local';
+  domain: string;
+  contract: IntentContract;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface InterviewerDbRow {
+  id: string;
+  version: number;
+  digest: string;
+  source: string;
+  domain: string;
+  contract_json: string;
+  created_at: string;
+  updated_at: string;
+}
+
+function mapInterviewer(row: InterviewerDbRow): InterviewerRow {
+  const contract = parseJson<IntentContract | null>(row.contract_json, null);
+  if (contract === null) {
+    throw new Error('面试官 ' + row.id + ' 的契约不是合法 JSON，库可能被外部改过。');
+  }
+  return {
+    id: row.id,
+    version: toInt(row.version),
+    digest: row.digest,
+    source: row.source === 'llm' ? 'llm' : 'local',
+    domain: row.domain,
+    contract,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+/** 同一个 id 再次保存 = 覆盖这一版（version 由调用方决定要不要 +1）。 */
+export function saveInterviewer(
+  db: Db,
+  input: {
+    id: string;
+    version: number;
+    digest: string;
+    source: 'llm' | 'local';
+    domain: string;
+    contract: IntentContract;
+    at?: string;
+  },
+): void {
+  const at = input.at ?? nowIso();
+  db.prepare(
+    'INSERT INTO interviewer (id, version, digest, source, domain, contract_json, created_at, updated_at)' +
+      ' VALUES (?, ?, ?, ?, ?, ?, ?, ?)' +
+      ' ON CONFLICT(id) DO UPDATE SET version = excluded.version, digest = excluded.digest,' +
+      ' source = excluded.source, domain = excluded.domain, contract_json = excluded.contract_json,' +
+      ' updated_at = excluded.updated_at',
+  ).run(
+    input.id,
+    input.version,
+    input.digest,
+    input.source,
+    input.domain,
+    JSON.stringify(input.contract),
+    at,
+    at,
+  );
+}
+
+export function listInterviewers(db: Db): InterviewerRow[] {
+  const rows = asRows<InterviewerDbRow>(db.prepare('SELECT * FROM interviewer ORDER BY created_at, id').all());
+  return rows.map(mapInterviewer);
+}
+
+export function getInterviewer(db: Db, id: string): InterviewerRow | null {
+  const row = db.prepare('SELECT * FROM interviewer WHERE id = ?').get(id) as InterviewerDbRow | undefined;
+  return row === undefined ? null : mapInterviewer(row);
+}
+
+/** 返回是否真的删掉了一行——删不存在的东西不该被当成成功。 */
+export function deleteInterviewer(db: Db, id: string): boolean {
+  const result = db.prepare('DELETE FROM interviewer WHERE id = ?').run(id) as { changes?: number };
+  return (result.changes ?? 0) > 0;
+}
+

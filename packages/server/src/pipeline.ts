@@ -10,12 +10,11 @@
  * 这样前端"重放一遍"与"查表"看到的是同一件事，不需要把 JSON 拆成十个列。
  */
 
-import { buildContracts, contractDigest, renderSystemPrompt, shortHash } from '@crossexam/shared';
+import { contractDigest, renderSystemPrompt, shortHash } from '@crossexam/shared';
 import type {
   BudgetConfig,
   ContractBudgetView,
   IntentContract,
-  InterviewerRole,
   RejectedClaim,
   Suggestion,
 } from '@crossexam/shared';
@@ -24,6 +23,7 @@ import { EMPTY_USAGE } from './llm/types.ts';
 import { withStreaming } from './llm/streaming.ts';
 import type { StreamSink } from './llm/streaming.ts';
 import { DEFAULT_MAX_ROUNDS, DEFAULT_PANEL, runSession } from './orchestrator/run.ts';
+import { budgetView, presetContracts, resolvePanel } from './orchestrator/panel.ts';
 import type { RunEvent, RunSessionResult } from './orchestrator/run.ts';
 import type { VerdictOutcome } from './orchestrator/verdict.ts';
 import type { SuggestOutcome } from './orchestrator/suggest.ts';
@@ -107,7 +107,11 @@ export interface PersistRunInput {
   sessionId: string;
   client: LlmClient;
   model?: string;
-  panel?: readonly InterviewerRole[];
+  /**
+   * 这一场上场的面试官 id（预设角色名或自定义契约 id）。
+   * 不传就读会话行里记的那一份——重跑必须和当初跑的是同一批人。
+   */
+  panelIds?: readonly string[];
   budgetConfig?: BudgetConfig;
   maxRounds?: number;
   maxClaims?: number;
@@ -152,6 +156,17 @@ export async function runAndPersist(input: PersistRunInput): Promise<RunSessionR
     if (input.onEvent) await input.onEvent(event, seq);
   }
 
+  // 阵容以会话行里记的那份为准：同一场会话重跑，不能因为页面此刻勾了别人就换人。
+  // 自定义面试官的契约全文在库里，所以这一步必须查库——它也是唯一需要库的一步。
+  const budgetConfig = input.budgetConfig ?? session.budget.config;
+  const wanted = input.panelIds ?? metaPanelIds(session.meta);
+  const roster = resolvePanel(db, wanted.length > 0 ? wanted : DEFAULT_PANEL, budgetConfig);
+  if (roster.missing.length > 0) {
+    throw new Error(
+      '会话里记的面试官已经不在库里了：' + roster.missing.join('、') + '。请新建会话，或在「面试组阵容」里去掉这几位。',
+    );
+  }
+
   updateSessionStatus(db, sessionId, 'extracting');
   const base = input.onStream === undefined ? input.client : withStreaming(input.client, input.onStream);
   try {
@@ -159,7 +174,7 @@ export async function runAndPersist(input: PersistRunInput): Promise<RunSessionR
       client: withAccounting(base, { db, sessionId, model: input.model }),
       resumeText: session.resumeText,
       jdText: session.jdText,
-      panel: input.panel ?? DEFAULT_PANEL,
+      contracts: roster.contracts,
       budgetConfig: input.budgetConfig,
       maxRounds: input.maxRounds ?? DEFAULT_MAX_ROUNDS,
       maxClaims: input.maxClaims,
@@ -197,11 +212,17 @@ export function persistResult(db: Db, sessionId: string, result: RunSessionResul
     saveSessionBudget(db, sessionId, result.budgetState);
     saveSessionMeta(db, sessionId, {
       panel: result.panel,
+      // 自定义面试官的契约全文一起留档：它不在代码里，重算不出来
+      custom: result.contracts.filter((c) => c.persona.role === 'custom'),
       rounds: result.rounds,
       notices: result.notices,
       usage: result.usage,
       resumeHash: shortHash(result.resumeText, 24),
-      contracts: result.contracts.map((c) => ({ id: c.id, version: c.version, digest: contractDigest(c) })),
+      contracts: result.contracts.map((c) =>
+        c.persona.role === 'custom'
+          ? { id: c.id, version: c.version, digest: contractDigest(c), contract: c }
+          : { id: c.id, version: c.version, digest: contractDigest(c) },
+      ),
     });
   });
 }
@@ -224,11 +245,28 @@ export interface SessionView {
   contracts: ContractView[];
 }
 
-/** 落库时只留下一行指纹，够对账又不必把契约全文塞进 meta */
+/**
+ * 落库时留一行指纹，够对账又不必把契约全文塞进 meta。
+ *
+ * 但自定义面试官是例外：它的契约**不在代码里**，重算不出来（用户可能已经改过、也删过）。
+ * 所以这一类把全文一起存进 meta——一份契约 JSON 不到 1 KB，而「三个月后回看这场会话，
+ * 发现当时那位面试官的规则已经查不到了」是不可接受的。
+ */
 interface StoredContract {
   id: string;
   version: number;
   digest: string;
+  contract?: IntentContract;
+}
+
+/** 会话里记的阵容。旧会话没有这个字段，退回从契约指纹里推。 */
+export function metaPanelIds(meta: Record<string, unknown>): string[] {
+  const value = meta['panel'];
+  if (Array.isArray(value)) {
+    const ids = value.filter((item): item is string => typeof item === 'string');
+    if (ids.length > 0) return ids;
+  }
+  return metaContracts(meta).map((item) => item.id);
 }
 
 /**
@@ -263,23 +301,61 @@ function metaContracts(meta: Record<string, unknown>): StoredContract[] {
     const digest = raw['digest'];
     if (typeof id !== 'string' || typeof digest !== 'string') continue;
     const version = raw['version'];
-    out.push({ id, version: typeof version === 'number' ? version : 1, digest });
+    const stored: StoredContract = { id, version: typeof version === 'number' ? version : 1, digest };
+    const contract = raw['contract'];
+    if (contract !== null && typeof contract === 'object') stored.contract = contract as IntentContract;
+    out.push(stored);
   }
   return out;
 }
 
-/** 由角色 + 预算生成契约视图；纯函数，不碰数据库也不调模型 */
+/**
+ * 由 id + 预算生成契约视图；纯函数，不碰数据库也不调模型。
+ *
+ * 预设面试官的契约按角色重算（代码里那一份才是权威）；自定义的用会话里存的那一份全文，
+ * 只把预算换成这一场的——预算属于会话，不属于人设。
+ */
 export function contractViews(
-  roles: readonly InterviewerRole[],
-  budget: ContractBudgetView,
+  ids: readonly string[],
+  config: BudgetConfig,
   stored: readonly StoredContract[] = [],
 ): ContractView[] {
-  return buildContracts(roles, budget, 1).map((contract) => {
-    const digest = contractDigest(contract);
-    let match: StoredContract | undefined;
-    for (const item of stored) {
-      if (item.id === contract.id) match = item;
+  // 契约里只声明三个预算字段：maxConsecutiveUnanswerable 是编排层的关停策略，
+  // 面试官读不到也遵守不了。这里必须先收窄，否则算出的指纹与会话里存的那份对不上，
+  // 界面会把一场没漂移的沙盘报成「契约漂移」。
+  const budget: ContractBudgetView = budgetView(config);
+  const byId = new Map<string, IntentContract>();
+  for (const contract of presetContracts(ids, budget)) byId.set(contract.id, contract);
+  const matchById = new Map<string, StoredContract>();
+  for (const item of stored) {
+    matchById.set(item.id, item);
+    if (item.contract !== undefined) {
+      byId.set(item.id, { ...item.contract, budget });
     }
+  }
+
+  const contracts: IntentContract[] = [];
+  for (const id of ids) {
+    const contract = byId.get(id);
+    if (contract !== undefined) contracts.push(contract);
+  }
+  return viewsOfContracts(contracts, stored);
+}
+
+/**
+ * 契约列表 → 界面视图。开跑之前没有「落库的指纹」可对账，
+ * 所以这时每个视图的 storedDigest 都是 null、verified 都是 false——
+ * 「还没跑过」和「对上了」必须能区分开，否则对账就没有意义。
+ */
+export function viewsOfContracts(
+  contracts: readonly IntentContract[],
+  stored: readonly StoredContract[] = [],
+): ContractView[] {
+  const matchById = new Map<string, StoredContract>();
+  for (const item of stored) matchById.set(item.id, item);
+  return contracts.map((contract) => {
+    const digest = contractDigest(contract);
+    const match = matchById.get(contract.id);
     return {
       id: contract.id,
       version: contract.version,
@@ -334,8 +410,8 @@ export function assembleSession(db: Db, sessionId: string): SessionView | null {
   const events = listEvents(db, sessionId, 0);
   const rejectedClaims = lastPayload<RejectedClaim>(events, 'claims', 'rejected');
   const stored = metaContracts(session.meta);
-  const panel: InterviewerRole[] =
-    stored.length > 0 ? stored.map((item) => item.id as InterviewerRole) : [...DEFAULT_PANEL];
+  const recorded = metaPanelIds(session.meta);
+  const panel: string[] = recorded.length > 0 ? recorded : [...DEFAULT_PANEL];
   return {
     session,
     claims: listClaims(db, sessionId),

@@ -13,21 +13,40 @@
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
-import { DEFAULT_BUDGET, shortHash } from '@crossexam/shared';
-import type { InterviewerRole } from '@crossexam/shared';
+import {
+  DEFAULT_BUDGET,
+  contractDigest,
+  interviewerDraftSchema,
+  renderSystemPrompt,
+  shortHash,
+} from '@crossexam/shared';
+import type { IntentContract, InterviewerDraft } from '@crossexam/shared';
 import { DEMO_JD, DEMO_RESUME, DEMO_TITLE } from '../demo-content.ts';
 import { createLlmClient, defaultCassetteDir, describeClient, listLiveModels, LLM_MODES, MODE_LABEL, resolveLiveConfig } from '../llm/index.ts';
 import type { LlmClient, LlmMode } from '../llm/types.ts';
-import { assembleSession, contractViews, runAndPersist } from '../pipeline.ts';
+import { assembleSession, metaPanelIds, runAndPersist, viewsOfContracts } from '../pipeline.ts';
 import type { SessionView } from '../pipeline.ts';
 import { extractResumeFromFile, ImportError, IMPORT_ACCEPT } from '../import/index.ts';
 import type { ImportErrorCode } from '../import/index.ts';
 import { renderReport, reportFileName } from '../report.ts';
 import { renderReportHtml, reportDocFileName, reportHtmlFileName } from '../report-html.ts';
-import { deleteSession, getSession, insertSession, listEvents, listSessions, llmStats } from '../store/index.ts';
-import type { Db } from '../store/index.ts';
-import { DEFAULT_PANEL } from '../orchestrator/run.ts';
+import {
+  deleteInterviewer,
+  deleteSession,
+  getInterviewer,
+  getSession,
+  insertSession,
+  listEvents,
+  listInterviewers,
+  listSessions,
+  llmStats,
+  saveInterviewer,
+} from '../store/index.ts';
+import type { Db, InterviewerRow } from '../store/index.ts';
 import type { RunSessionResult } from '../orchestrator/run.ts';
+import { PRESET_ROLES, budgetView, isPresetRole, normalizePanelIds, presetContracts, resolvePanel } from '../orchestrator/panel.ts';
+import { bundleOf, localOutcome, optimizeDraft } from '../orchestrator/optimize.ts';
+import type { DraftOutcome } from '../orchestrator/optimize.ts';
 
 /** 简历短于这个长度就没法抽出可被追问的主张，与其跑一盘空的不如直接说清楚 */
 const MIN_RESUME_CHARS = 30;
@@ -39,7 +58,10 @@ function importStatus(code: ImportErrorCode): 413 | 415 | 422 {
   if (code === 'unsupported' || code === 'legacy-doc') return 415;
   return 422;
 }
-const ROLES: readonly string[] = ['tech', 'hr', 'hiring_manager', 'stress', 'domain_expert'];
+/** 自定义面试官 id 前缀，与 shared 里的 CUSTOM_ID_PREFIX 同口径（这里是路由层的兜底判断） */
+const CUSTOM_PREFIX = 'custom-';
+/** 保存到库里的自定义面试官上限：再多也不方便在一屏里挑 */
+const MAX_INTERVIEWERS = 40;
 
 export interface AppOptions {
   db: Db;
@@ -93,22 +115,28 @@ function numberField(value: unknown): number | undefined {
   return Number.isFinite(num) ? num : undefined;
 }
 
-function panelOf(raw: string | undefined): readonly InterviewerRole[] | undefined {
-  if (raw === undefined || raw.trim() === '') return undefined;
-  const picked = raw
+/**
+ * 把 ?panel=tech,hr 或请求体里的 interviewers 数组拆成 id 列表。
+ * 这里**只拆不判**：认不认得出来由 resolvePanel 查库决定，
+ * 否则自定义面试官（custom-xxx）会被这张白名单直接挡在门外。
+ */
+function idsOf(raw: string | undefined): string[] {
+  if (raw === undefined) return [];
+  return raw
     .split(',')
     .map((item) => item.trim())
-    .filter((item) => ROLES.includes(item));
-  return picked.length === 0 ? undefined : (picked as InterviewerRole[]);
+    .filter((item) => item !== '');
 }
 
-/** 上限只截断不补齐：面板是「谁上场」的选择题，不能靠数量凑人头 */
-function limitPanel(
-  panel: readonly InterviewerRole[],
-  limit: number | undefined,
-): readonly InterviewerRole[] {
-  if (limit === undefined || panel.length <= limit) return panel;
-  return panel.slice(0, limit);
+function stringList(value: unknown): string[] {
+  if (typeof value === 'string') return idsOf(value);
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === 'string' && item.trim() !== '').map((item) => item.trim());
+}
+
+/** 可选值清单，给 400 的提示用 */
+function knownPanelHint(): string {
+  return '预设可选：' + PRESET_ROLES.join('、') + '；自定义面试官请先在「面试官工作室」里配好。';
 }
 
 async function readBody(c: Context): Promise<Record<string, unknown>> {
@@ -149,6 +177,53 @@ function summaryOf(result: RunSessionResult): RunSummary {
   };
 }
 
+/** zod 的 issues 压成一句人话：界面上要能直接显示给不懂代码的用户看 */
+function describeZod(issues: readonly { path: readonly (string | number | symbol)[]; message: string }[]): string {
+  return issues
+    .map((issue) => {
+      const where = issue.path.map((item) => String(item)).join('.');
+      return where === '' ? issue.message : where + ' ' + issue.message;
+    })
+    .join('；');
+}
+
+/** 草稿结果 → 界面视图。notes 与 fallbackReason 一定原样带上：谁生成的必须让用户知道。 */
+function viewOfOutcome(outcome: DraftOutcome): Record<string, unknown> {
+  return {
+    draft: outcome.draft,
+    source: outcome.source,
+    notes: outcome.notes,
+    fallbackReason: outcome.fallbackReason,
+    diff: outcome.diff,
+    id: outcome.bundle.id,
+    version: outcome.bundle.version,
+    digest: outcome.bundle.digest,
+    contract: outcome.bundle.contract,
+    systemPrompt: outcome.bundle.systemPrompt,
+    replayed: outcome.replayed,
+    usage: outcome.usage,
+  };
+}
+
+/** 库里的一行 → 界面视图（与 /api/contracts 的契约视图同形，前端不用写两套渲染） */
+function viewOfRow(row: InterviewerRow | null): Record<string, unknown> | null {
+  if (row === null) return null;
+  const contract: IntentContract = { ...row.contract, budget: budgetView(DEFAULT_BUDGET) };
+  return {
+    id: row.id,
+    version: row.version,
+    digest: contractDigest(contract),
+    storedDigest: row.digest,
+    verified: row.digest === contractDigest(contract),
+    domain: row.domain,
+    source: row.source,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    contract,
+    systemPrompt: renderSystemPrompt(contract),
+  };
+}
+
 export function createApp(opts: AppOptions): Hono {
   const db = opts.db;
   const cassetteDir = opts.cassetteDir ?? defaultCassetteDir();
@@ -166,8 +241,14 @@ export function createApp(opts: AppOptions): Hono {
           model: wanted === '' ? undefined : wanted,
           stageModels: reasoning,
         });
-  const resolvePanel = (raw: string | undefined): readonly InterviewerRole[] =>
-    limitPanel(panelOf(raw) ?? DEFAULT_PANEL, panelLimit);
+  /**
+   * 解析这一场的阵容。返回 contracts 与 missing 两件东西：
+   * missing 非空时调用方必须拒绝（少一位面试官而界面显示五位是最难查的问题）。
+   */
+  const panelFrom = (ids: readonly string[]) => {
+    const wanted = normalizePanelIds(ids, panelLimit);
+    return { ids: wanted, resolved: resolvePanel(db, wanted, DEFAULT_BUDGET) };
+  };
   const app = new Hono();
 
   app.get('/api/health', (c) =>
@@ -205,23 +286,130 @@ export function createApp(opts: AppOptions): Hono {
    * 所以界面在开跑之前就能把这场质询的规则摊开；跑完之后还能拿指纹和落库的那份对账。
    */
   app.get('/api/contracts', (c) => {
-    const raw = c.req.query('panel');
-    const parts =
-      raw === undefined
-        ? []
-        : raw
-            .split(',')
-            .map((item) => item.trim())
-            .filter((item) => item !== '');
-    const unknown = parts.filter((item) => !ROLES.includes(item));
-    if (unknown.length > 0) {
-      return c.json(
-        { error: '不认识的面试官角色：' + unknown.join('、') + '。可选：' + ROLES.join('、') },
-        400,
-      );
+    const { resolved } = panelFrom(idsOf(c.req.query('panel')));
+    if (resolved.missing.length > 0) {
+      return c.json({ error: '找不到这几位面试官：' + resolved.missing.join('、') + '。' + knownPanelHint() }, 400);
     }
-    const panel = resolvePanel(raw);
-    return c.json({ panel, budget: DEFAULT_BUDGET, contracts: contractViews(panel, DEFAULT_BUDGET) });
+    return c.json({
+      panel: resolved.ids,
+      budget: DEFAULT_BUDGET,
+      contracts: viewsOfContracts(resolved.contracts),
+    });
+  });
+
+  /**
+   * 面试官库：五位预设（只读，契约在代码里）+ 用户自己配的（可改可删）。
+   * 返回的是**契约视图**，所以自定义面试官在界面上的展示方式与预设完全一致。
+   */
+  app.get('/api/interviewers', (c) => {
+    const budget = budgetView(DEFAULT_BUDGET);
+    const presets = presetContracts(PRESET_ROLES, budget);
+    const custom = listInterviewers(db);
+    return c.json({
+      presets: viewsOfContracts(presets),
+      custom: custom.map((row) => {
+        const contract: IntentContract = { ...row.contract, budget };
+        return {
+          id: row.id,
+          version: row.version,
+          digest: contractDigest(contract),
+          storedDigest: row.digest,
+          verified: row.digest === contractDigest(contract),
+          domain: row.domain,
+          source: row.source,
+          createdAt: row.createdAt,
+          updatedAt: row.updatedAt,
+          contract,
+          systemPrompt: renderSystemPrompt(contract),
+        };
+      }),
+      limit: MAX_INTERVIEWERS,
+      budget: DEFAULT_BUDGET,
+    });
+  });
+
+  /**
+   * 把一句人话变成一份结构化草稿。**不落库**：用户得先看见 AI 写了什么、
+   * 能改、改完再点保存，否则「AI 帮我配的面试官」就变成了一个黑箱。
+   *
+   * useModel=false 或没配联网时走本地规则——保证没有 Key 的评委也能走完这条链路。
+   */
+  app.post('/api/interviewers/draft', async (c) => {
+    const body = await readBody(c);
+    const description = textField(body['description']);
+    if (description === '') {
+      return c.json({ error: '先用一句话说清你要一位什么样的面试官。比如「想找一位懂医院药房流程、会追问细节的主管」。' }, 400);
+    }
+    const beforeRaw = body['before'];
+    let before: InterviewerDraft | undefined;
+    if (beforeRaw !== undefined && beforeRaw !== null) {
+      const parsed = interviewerDraftSchema.safeParse(beforeRaw);
+      if (!parsed.success) return c.json({ error: '传进来的旧草稿不合约，没法算「改了什么」。' }, 400);
+      before = parsed.data;
+    }
+    const salt = textField(body['salt']);
+    const shared = {
+      description,
+      jobTitle: textField(body['jobTitle']) || undefined,
+      jdText: textField(body['jdText']) || undefined,
+      resumeText: textField(body['resumeText']) || undefined,
+      before,
+      id: textField(body['id']) || undefined,
+      salt,
+      budget: budgetView(DEFAULT_BUDGET),
+    };
+    const useModel = body['useModel'] !== false;
+    if (!useModel) return c.json(viewOfOutcome(localOutcome(shared)));
+
+    // 模型这条路用什么跑：沿用页面选的模式（replay 时查卡带，缺了就退回本地规则）
+    const wantedMode = modeField(body['mode']);
+    if (wantedMode === null) {
+      return c.json({ error: '运行模式只能是 ' + LLM_MODES.join(' / ') + '。' }, 400);
+    }
+    const mode = wantedMode ?? client.mode;
+    const wantedModel = mode === 'replay' ? '' : textField(body['model']);
+    const outcome = await optimizeDraft({ ...shared, client: clientFor(mode, wantedModel === '' ? model : wantedModel) });
+    return c.json(viewOfOutcome(outcome));
+  });
+
+  /** 保存草稿。id 由草稿本身决定，所以同一份草稿保存两次不会多出一位面试官。 */
+  app.post('/api/interviewers', async (c) => {
+    const body = await readBody(c);
+    const parsed = interviewerDraftSchema.safeParse(body['draft'] ?? body);
+    if (!parsed.success) {
+      return c.json({ error: '这份草稿还不合约：' + describeZod(parsed.error.issues) }, 400);
+    }
+    const draft = parsed.data;
+    const existing = textField(body['id']);
+    if (existing !== '' && !existing.startsWith(CUSTOM_PREFIX)) {
+      return c.json({ error: '预设面试官不能改也不能存：它们的人设写在代码里。你可以另存一份自定义的。' }, 400);
+    }
+    const count = listInterviewers(db).length;
+    const id = existing !== '' ? existing : bundleOf(draft, { budget: budgetView(DEFAULT_BUDGET) }).id;
+    if (existing === '' && count >= MAX_INTERVIEWERS && getInterviewer(db, id) === null) {
+      return c.json({ error: '自定义面试官最多 ' + String(MAX_INTERVIEWERS) + ' 位，先删掉几位再存。' }, 400);
+    }
+    const bundle = bundleOf(draft, { id, budget: budgetView(DEFAULT_BUDGET) });
+    saveInterviewer(db, {
+      id: bundle.id,
+      version: bundle.version,
+      digest: bundle.digest,
+      source: body['source'] === 'llm' ? 'llm' : 'local',
+      domain: draft.domain,
+      contract: bundle.contract,
+    });
+    const row = getInterviewer(db, bundle.id);
+    return c.json({ ok: true, interviewer: viewOfRow(row) }, 201);
+  });
+
+  app.delete('/api/interviewers/:id', (c) => {
+    const id = c.req.param('id');
+    if (isPresetRole(id)) {
+      return c.json({ error: '预设面试官不能删：它们的人设写在代码里。' }, 400);
+    }
+    const removed = deleteInterviewer(db, id);
+    if (!removed) return c.json({ error: '面试官库里没有这一位：' + id }, 404);
+    return c.json({ ok: true, id });
   });
 
   /**
@@ -286,6 +474,14 @@ export function createApp(opts: AppOptions): Hono {
       }
     }
 
+    // 阵容在建会话时就定下来：重跑同一场不会因为页面此刻勾了别人就换人。
+    const wantedIds = stringList(body['interviewers']);
+    const panel = normalizePanelIds(wantedIds, panelLimit);
+    const resolved = resolvePanel(db, panel, DEFAULT_BUDGET);
+    if (resolved.missing.length > 0) {
+      return c.json({ error: '找不到这几位面试官：' + resolved.missing.join('、') + '。' + knownPanelHint() }, 400);
+    }
+
     const id = insertSession(db, {
       jobTitle,
       jdText,
@@ -293,9 +489,9 @@ export function createApp(opts: AppOptions): Hono {
       resumeHash: shortHash(resumeText, 24),
       llmMode: mode,
       budget: { config: DEFAULT_BUDGET, totalProbes: 0, claims: {} },
-      meta: { source: useDemo ? 'demo' : 'user', model: wantedModel },
+      meta: { source: useDemo ? 'demo' : 'user', model: wantedModel, panel: resolved.ids },
     });
-    return c.json({ id, mode, model: wantedModel, jobTitle }, 201);
+    return c.json({ id, mode, model: wantedModel, jobTitle, panel: resolved.ids }, 201);
   });
 
   app.get('/api/sessions/:id', (c) => {
@@ -362,14 +558,23 @@ export function createApp(opts: AppOptions): Hono {
     const id = c.req.param('id');
     const session = getSession(db, id);
     if (session === null) return c.json({ error: '会话不存在：' + id }, 404);
-    const panel = resolvePanel(c.req.query('panel'));
+    // 请求里点名了就用点名的，没点名就用会话行里记的那份（建会话时已经定好）。
+    const asked = idsOf(c.req.query('panel'));
+    const wantedIds = asked.length > 0 ? normalizePanelIds(asked, panelLimit) : metaPanelIds(session.meta);
     const maxClaims = numberField(c.req.query('maxClaims'));
     // 用会话行里记的模式与模型，而不是进程启动时的那一套：
     // 同一场会话重跑，必须和它当初跑的是同一种东西。
     const sessionModel = textField(session.meta['model']);
     const runModel = sessionModel === '' ? model : sessionModel;
     const runClient = clientFor(session.llmMode, runModel);
-    const runInput = { db, sessionId: id, client: runClient, model: runModel, panel, maxClaims };
+    const runInput = {
+      db,
+      sessionId: id,
+      client: runClient,
+      model: runModel,
+      panelIds: wantedIds.length > 0 ? wantedIds : undefined,
+      maxClaims,
+    };
 
     if (c.req.query('stream') === '0') {
       try {

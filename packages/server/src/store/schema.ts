@@ -31,7 +31,7 @@
 
 import type { Db } from './db.ts';
 
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 const SESSION_TABLE =
   'CREATE TABLE IF NOT EXISTS session (' +
@@ -129,6 +129,26 @@ const LLM_CALL_TABLE =
   '  created_at TEXT NOT NULL' +
   ')';
 
+/**
+ * 自定义面试官库（v4）。
+ *
+ * 它是**全局库**而不是会话表：用户配好一位「市场面试官」应该能在下一场继续用。
+ * 但契约一旦被某一版会话引用过就冻结在会话里（meta.panel 记 id + version + digest），
+ * 所以库里改了名字不会让历史会话的契约对不上账——对不上时报的是「契约指纹不符」，
+ * 不是静默按新契约重新解释旧结果。
+ */
+const INTERVIEWER_TABLE =
+  'CREATE TABLE IF NOT EXISTS interviewer (' +
+  '  id TEXT PRIMARY KEY,' +
+  '  version INTEGER NOT NULL,' +
+  '  digest TEXT NOT NULL,' +
+  '  source TEXT NOT NULL,' +
+  '  domain TEXT NOT NULL,' +
+  '  contract_json TEXT NOT NULL,' +
+  '  created_at TEXT NOT NULL,' +
+  '  updated_at TEXT NOT NULL' +
+  ')';
+
 const LLM_CALL_INDEX_DIGEST = 'CREATE INDEX IF NOT EXISTS llm_call_by_digest ON llm_call(digest)';
 const LLM_CALL_INDEX_SESSION = 'CREATE INDEX IF NOT EXISTS llm_call_by_session ON llm_call(session_id, created_at)';
 
@@ -144,6 +164,7 @@ function schemaStatements(options: { probeTurnUnique: boolean }): readonly strin
     LLM_CALL_TABLE,
     LLM_CALL_INDEX_DIGEST,
     LLM_CALL_INDEX_SESSION,
+    INTERVIEWER_TABLE,
   ];
 }
 
@@ -230,10 +251,27 @@ function migrateV3(db: Db): void {
   );
 }
 
+/**
+ * v3 → v4：新增自定义面试官库。
+ *
+ * 只加一张新表，不动任何既有列——这是最便宜的一种迁移，也是最容易做对的一种。
+ * 老库升上来以后，历史会话的阵容仍然只存在于 meta_json 里，读得出来。
+ */
+function migrateV4(db: Db): void {
+  rebuild(
+    db,
+    () => {
+      db.exec(INTERVIEWER_TABLE);
+    },
+    4,
+  );
+}
+
 /** 版本号 → 升级动作。只写「从上一版升上来」的那一步，不写全量建表。 */
 const MIGRATIONS: Record<number, (db: Db) => void> = {
   2: migrateV2,
   3: migrateV3,
+  4: migrateV4,
 };
 
 export class SchemaVersionError extends Error {
