@@ -104,3 +104,31 @@ gitignore-before-git 技能给的通用安全模板（6668 B，19 条 block 探�
 内容中不得出现反引号与美元花括号；一次程序写 1–2 个文件即可稳定通过。
 这是工具链约束，不是本项目的代码问题，记录以免重复踩坑。
 
+
+## F8. node:sqlite 可用，但有两个必须知道的差异（2026-10-26）
+
+Node 24 内置的 node:sqlite 在本机实测可用（启动时一行 ExperimentalWarning，功能正常），
+因此存储层零原生依赖，Windows 上不需要任何编译工具链——这直接支撑了「10 分钟复现」的目标。
+
+两个差异必须记住：
+
+1. **外键约束是按连接生效的**，open 之后必须自己发一次 PRAGMA foreign_keys = ON。
+   漏了不会报错，只会安静地留下"父行删了、子行还在"的孤儿数据，很久以后才以
+   "数据对不上"的形式暴露。
+2. **prepare().all() 的返回类型很宽**（unknown[]），TS 会在每一处用法上报错。
+   处置：在仓储层用一个私有辅助函数收口，而不是在调用点到处断言。
+   断言会绕过类型检查，收口函数不会。
+
+另：PRAGMA user_version 是现成的迁移版本位，不需要自己建一张版本表。
+
+## F9. 思考过程与缓存字段有两套命名，兼容层必须都认（2026-10-26）
+
+同一份 OpenAI 兼容协议，不同厂商的字段名不一致，实测：
+
+- 思考过程：DeepSeek 用 delta.reasoning_content，OpenAI 用 delta.reasoning；
+- 缓存命中：DeepSeek 用 prompt_cache_hit_tokens，OpenAI 用 prompt_tokens_details.cached_tokens；
+- 推理 token：completion_tokens_details.reasoning_tokens。
+
+任何只认一套的适配层，换一个模型就会静默丢掉用量或思考过程（不报错，只是数字少了）。
+因此 readUsage 与 parseSseData 都把两套名字一起认。
+这条也解释了为什么卡带指纹刻意不含模型名：换模型不该让整盘卡带失效。

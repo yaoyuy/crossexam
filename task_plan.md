@@ -92,7 +92,7 @@
 | 阶段 | 内容 | 状态 |
 | --- | --- | --- |
 | P0 奠基 | 仓库/约定/.gitignore/**Prompt 链导出器**/规划文件 | ✅ done |
-| P1 内核 | 共享确定性内核（domain/anchor/segment/budget/contract/schemas）✅ · LLM 适配层（流式+回放） · `node:sqlite` 存储 | 🔄 in_progress |
+| P1 内核 | 共享确定性内核（domain/anchor/segment/budget/contract/schemas）✅ · LLM 适配层（live/record/replay + 思考过程流式）✅ · `node:sqlite` 存储（5 表 + 仓储）✅ | ✅ done |
 | P2 智能体 | 主张抽取、组庭、多 Agent 对抗编排、判定、反推 | ⬜ |
 | P3 前端 | 投料台、质询舞台（流式可视化）、报告页 | ⬜ |
 | P4 打磨 | 视觉/动效/空状态/错误态 | ⬜ |

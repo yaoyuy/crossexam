@@ -111,3 +111,57 @@ build 改为 npm run build --workspaces --if-present，P2 落地 server/web 后�
 
 P1 下半：llm/ 适配层（流式 + 回放 fixture，无 Key 也能跑）与 node:sqlite 存储层。
 
+
+## Session 3 — 2026-10-26（P1 下半：LLM 适配层与存储层）
+
+### 做了什么
+
+**LLM 适配层（packages/server/src/llm/）**
+
+- live.ts：OpenAI 兼容 /chat/completions 客户端，SSE 自己按行解析。
+  超时用 AbortController 且定时器挂在响应上（流读完才清，避免误杀正在读的流）；
+  400/422 归为 bad-request，其余非 2xx 归为 http-error 且信息里带响应体前 400 字符。
+  缺配置时抛 not-configured，**点名缺哪几个环境变量**，并提示可以切 replay——
+  报错信息要能直接指导评委下一步动作，而不是只说"配置错误"。
+- reasoning（思考过程）从 SSE 一直到卡带、到流式事件、到回放全层打通。
+  赛题 UX 维度点名要「流式、思考可视化」；如果只有联网时才看得到思考过程，
+  离线复现的评委就看不到这一层，等于把 15% 的 UX 分让出去。
+- index.ts：按 CROSSEXAM_MODE 装配客户端，**默认 replay**。
+  record 模式的输出目录默认就是卡带目录，录完立刻能用同一个目录回放验证。
+
+**存储层（packages/server/src/store/）**
+
+- db.ts / schema.ts / repo.ts 三个文件，五张表：session / claim / probe / event / llm_call。
+- 外键在每个连接上单独打开；版本比代码新时拒绝启动；事务显式拒绝嵌套。
+- 仓储只搬数据不做判定，且**每个函数只发一条语句**，原子性交给调用方组合。
+
+### 三个值得写进技术文档的判断
+
+1. **为什么自己解析 SSE，不用 SDK。** 这层会被评委读到，也决定了 record 模式
+   录下来的分片与当时推给前端的完全一致。SDK 恰恰把分片粒度藏起来。
+2. **为什么默认 replay。** 默认值就是产品对外的第一印象。默认 live 意味着评委
+   没有 API Key 时第一步就报错；默认 replay 意味着没有 Key 也能完整跑一遍全流程。
+3. **为什么 llm_call 只存指纹和用量、不存提示词正文。** 于是"这次演示到底联网没有、
+   花了多少 token"变成一条 SQL 就能验证的事实，而简历不会因此多存一份副本。
+
+### 门禁
+
+npm run verify **exit 0**：typecheck + **13 个测试文件 117 条断言** + build。
+llm-live.test.ts 全程假 fetch（零网络）；store.test.ts 全程内存库（零磁盘）。
+
+### 踩到的三个坑
+
+1. tools.edit 的 old_string 必须与实际缩进逐字符一致，按记忆里的缩进写会报
+   old_string was not found；改用短且唯一的锚点即可。
+2. 用 String.raw 写文件时，SQL 里的空对象字面量会与外层引号打架，
+   TS1005: ',' expected；把那一行改成双引号包裹即可。
+3. npx tsc --noEmit 接 | head 时，退出码是 head 的，不是 tsc 的——
+   判断成败不能只看 exit code。
+
+### 提交
+
+本轮 7 个细粒度提交，工作区干净（git status --porcelain 为空）。
+
+### 下一步
+
+P2：http 层（Hono + SSE 端点 + 事件续传）与 orchestrator（抽取主张 → 并发追问 → 判定 → 反推建议）。
