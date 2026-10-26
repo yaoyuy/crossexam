@@ -30,6 +30,8 @@ import { extractResumeFromFile, ImportError, IMPORT_ACCEPT } from '../import/ind
 import type { ImportErrorCode } from '../import/index.ts';
 import { renderReport, reportFileName } from '../report.ts';
 import { renderReportHtml, reportDocFileName, reportHtmlFileName } from '../report-html.ts';
+import { resumeDocFileName, resumeHtmlFileName, renderResumeHtml, resumeTextFileName } from '../resume-export.ts';
+import { acceptRevisions, discardRevisions, revisedOf } from '../revisions.ts';
 import {
   deleteInterviewer,
   deleteSession,
@@ -546,6 +548,80 @@ export function createApp(opts: AppOptions): Hono {
     return c.body(renderReportHtml(view), 200, {
       'content-type': 'application/msword; charset=utf-8',
       'content-disposition': 'attachment; filename="' + reportDocFileName(view) + '"',
+    });
+  });
+
+  /* ------------------------------------------------- 采纳改写与简历导出 */
+
+  /** 当前这一版改完的简历；没采纳过返回 null（而不是空串：没采纳过和改成了空是两件事） */
+  app.get('/api/sessions/:id/revisions', (c) => {
+    const id = c.req.param('id');
+    if (getSession(db, id) === null) return c.json({ error: '会话不存在：' + id }, 404);
+    return c.json({ revised: revisedOf(db, id) });
+  });
+
+  /**
+   * 确认采纳。请求体里的 claims 是**本次确认的全部主张**，不是增量：
+   * 取消勾选一条再提交，那条就该从改完的简历里消失。
+   * 每次都从原文重算，所以「先采纳 C1 再采纳 C3」与「一次采纳 C1+C3」结果逐字节相同。
+   */
+  app.post('/api/sessions/:id/revisions', async (c) => {
+    const id = c.req.param('id');
+    const body = await readBody(c);
+    const claims = stringList(body['claims']);
+    const result = acceptRevisions(db, id, claims);
+    if (!result.ok) return c.json({ error: result.error }, result.code);
+    return c.json({ revised: result.view });
+  });
+
+  /** 撤销全部采纳，回到原文。改完的简历是一份可以被推翻的稿子，不是既成事实。 */
+  app.delete('/api/sessions/:id/revisions', (c) => {
+    const id = c.req.param('id');
+    if (getSession(db, id) === null) return c.json({ error: '会话不存在：' + id }, 404);
+    const cleared = discardRevisions(db, id);
+    return c.json({ ok: true, cleared, revised: null });
+  });
+
+  /** 改完（或没改过）的简历纯文本：复制粘贴、再喂给别的工具都靠它 */
+  app.get('/api/sessions/:id/resume.txt', (c) => {
+    const id = c.req.param('id');
+    const view = assembleSession(db, id);
+    if (view === null) return c.json({ error: '会话不存在：' + id }, 404);
+    const revised = revisedOf(db, id);
+    const text = revised === null ? view.session.resumeText : revised.text;
+    return c.body(text, 200, {
+      'content-type': 'text/plain; charset=utf-8',
+      'content-disposition': 'attachment; filename="' + resumeTextFileName(view) + '"',
+    });
+  });
+
+  /**
+   * 简历 HTML：?print=1 打开即调打印（另存为 PDF），?marks=1 标出改过的段落并附改动清单。
+   * 与报告一样不自己生成 PDF：见 ADR-0006。
+   */
+  app.get('/api/sessions/:id/resume.html', (c) => {
+    const id = c.req.param('id');
+    const view = assembleSession(db, id);
+    if (view === null) return c.json({ error: '会话不存在：' + id }, 404);
+    const print = c.req.query('print') === '1';
+    const marks = c.req.query('marks') === '1';
+    const html = renderResumeHtml(view, revisedOf(db, id), { print, marks });
+    return c.body(html, 200, {
+      'content-type': 'text/html; charset=utf-8',
+      'content-disposition': 'inline; filename="' + resumeHtmlFileName(view) + '"',
+    });
+  });
+
+  /** 简历 Word（.doc）：同一份 HTML 换类型与附件名，与报告导出走同一条老路 */
+  app.get('/api/sessions/:id/resume.doc', (c) => {
+    const id = c.req.param('id');
+    const view = assembleSession(db, id);
+    if (view === null) return c.json({ error: '会话不存在：' + id }, 404);
+    const marks = c.req.query('marks') === '1';
+    const html = renderResumeHtml(view, revisedOf(db, id), { marks });
+    return c.body(html, 200, {
+      'content-type': 'application/msword; charset=utf-8',
+      'content-disposition': 'attachment; filename="' + resumeDocFileName(view) + '"',
     });
   });
 
