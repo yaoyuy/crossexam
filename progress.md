@@ -960,3 +960,32 @@ e2e 里「没配置联网就明说缺哪个环境变量」先失败后成功：�
 12 项里还剩：零门槛安装与桌面快捷方式（第 7、10 项，需用户同意）→ 可增加功能清单（第 11 项）→
 全部完成后再次全功能测试（第 12 项）。录像仍留到最后。
 ---
+
+## Session 23 · 2026-10-26 · 第 7、10 项：不敲命令也能用起来
+
+**目标**：用户第 7 条「完全没用过计算机的人都能直接安装迅速用起来」+ 第 10 条「经用户允许自动创建桌面快捷方式」。
+难点不在起服务——在**判断该做哪几步**，而且这份判断必须能测。
+
+- `tools/launcher/src/plan.mjs`（纯函数、零 IO）：`parseNodeVersion`（严格三段，认不出返回 null 不猜）、
+  `compareVersions` / `nodeVersionOk`（下限 22.5.0）、`launcherSteps`（按 `hasDependencies` / `hasWebBuild` 决定走几步）、
+  `makeShortcutScript`（WScript.Shell 脚本）、`browserOpenArgs`（win32 用 `cmd /c start`、darwin 用 `open`、其余 `xdg-open`）、
+  `reuseNote`、`psQuote`、`desktopShortcutDir`。
+- `tools/launcher/launch.mjs`：只碰文件与起进程。先 `fetch('/api/health')` 探测（命中就只打印复用提示并 exit 0），
+  否则按 `launcherSteps` 走，起服务后每 400ms 轮询健康检查，通了再开浏览器；`--shortcut-only` 只建快捷方式。
+- 入口：`启动.cmd`（CRLF + `chcp 65001`，`where node` 查不到就打印下载页并 `pause`）/ `启动.sh` / `装个快捷方式.cmd`；
+  `package.json` 加 `npm run launch`。
+- 真机实测：第一次约 20 秒（装依赖 + 构建），第二次约 2 秒；第二次跑直接命中复用分支；
+  快捷方式真在 `C:\Users\xinyi\Desktop` 建出来（TargetPath 指向 `启动.cmd`、WorkDir 指向仓库根）。
+- 门禁：`npm run verify` 全绿（**42 个测试文件 / 453 条断言** + 冒烟 9 项 + vite 34 modules / JS 306.54 kB）。
+
+### 两处坑（写进 findings）
+
+1. **F46**：入口脚本第一版把判断全写在脚本里 → 没法测；抽成纯函数后「第二次不该 npm install」一行断言守住。
+   顺带发现 `makeShortcutScript` 无条件写 `IconLocation`（空串让桌面图标变白纸）、`desktopShortcutDir` 返回原生分隔符。
+2. **F47**：`launch.mjs` 第一版直接 spawn，双击两次就撞端口吐堆栈；用 `spawnSync(node -e fetch)` 探测又因 Windows 引号转义静默失败，
+   改回当前进程 `await fetch` 才稳。
+
+### 下一步
+
+12 项里还剩：可增加功能清单（第 11 项）→ 全部完成后再次全功能测试（第 12 项）。录像仍留到最后。
+---
