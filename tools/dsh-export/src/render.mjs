@@ -135,17 +135,18 @@ function renderTool(entry, opts) {
 }
 
 /**
- * @param {{ meta: object, turns: any[], usage: object }} session
- * @param {{ maxArgChars?: number, maxResultChars?: number, header?: string }} [opts]
+ * 把一次会话的 Markdown 拆成可复用的积木：标题、元信息表、轮次头、单条目。
+ * 拆出来是为了支持分页（见 paginate.mjs）：这一场会话里单轮就可能有一百多万字符，
+ * 只在轮次边界切仍然会超出网页渲染上限，所以分页必须能切到「条目」这一层。
  */
-export function renderMarkdown(session, opts) {
-  const o = opts || {};
-  const meta = session.meta || {};
-  const L = [];
+export function renderTitle(meta) {
+  return '# ' + ((meta && meta.title) || '未命名会话');
+}
 
-  L.push('# ' + (meta.title || '未命名会话'));
-  L.push('');
-  if (o.header) { L.push('> ' + o.header); L.push(''); }
+export function renderMetaTable(session) {
+  const meta = (session && session.meta) || {};
+  const u = (session && session.usage) || {};
+  const L = [];
   L.push('| 项 | 值 |');
   L.push('| --- | --- |');
   L.push('| 会话 ID | ' + TICK + (meta.id || '-') + TICK + ' |');
@@ -153,51 +154,94 @@ export function renderMarkdown(session, opts) {
   L.push('| 模型 | ' + (meta.provider ? meta.provider + ' / ' : '') + (meta.model || '-') + ' |');
   L.push('| 起始时间 | ' + fmtTime(meta.createdAt) + ' |');
   L.push('| 结束时间 | ' + fmtTime(meta.updatedAt) + ' |');
-  L.push('| 真人提问 | ' + (meta.humanMessageCount ?? 0) + ' 次 |');
-  L.push('| 事件总数 | ' + (meta.eventCount ?? 0) + ' |');
-  const u = session.usage || {};
+  L.push('| 真人提问 | ' + (meta.humanMessageCount == null ? 0 : meta.humanMessageCount) + ' 次 |');
+  L.push('| 事件总数 | ' + (meta.eventCount == null ? 0 : meta.eventCount) + ' |');
   L.push('| Token | 输入 ' + (u.inputTokens || 0) + ' / 输出 ' + (u.outputTokens || 0) +
     ' / 缓存命中 ' + (u.cacheReadTokens || 0) + ' / 推理 ' + (u.reasoningTokens || 0) + ' |');
+  return L;
+}
+
+/** 只处理 note 的轮次不占篇幅（note 是导出器自己的提示，不构成对话内容） */
+export function turnHasContent(turn) {
+  return ((turn && turn.entries) || []).some((e) => e.kind !== 'note');
+}
+
+export function renderTurnHeader(turn, o) {
+  const cont = o && o.continued ? '（续）' : '';
+  const at = turn.startedAt ? '  <sub>' + fmtTime(turn.startedAt) + '</sub>' : '';
+  return ['## Turn ' + turn.index + cont + at, ''];
+}
+
+/** @returns {string[]} 一个条目渲染出来的行（末尾通常带一个空行） */
+export function renderEntry(e, opts) {
+  const o = opts || {};
+  const L = [];
+  const text = String(e.text == null ? '' : e.text).trim();
+  if (e.kind === 'user') {
+    L.push(e.isHuman ? '### 👤 用户提问' : '### ⚙️ 系统注入（' + e.sourceKind + '）');
+    L.push('');
+    L.push(text);
+    L.push('');
+  } else if (e.kind === 'reasoning') {
+    L.push('<details><summary>🧠 思考过程</summary>');
+    L.push('');
+    L.push(text);
+    L.push('');
+    L.push('</details>');
+    L.push('');
+  } else if (e.kind === 'assistant') {
+    L.push('### 🤖 AI 回复');
+    L.push('');
+    L.push(text);
+    L.push('');
+  } else if (e.kind === 'tool') {
+    L.push(renderTool(e, {
+      maxArgChars: o.maxArgChars == null ? 600 : o.maxArgChars,
+      maxResultChars: o.maxResultChars == null ? 1200 : o.maxResultChars,
+    }));
+    L.push('');
+  } else if (e.kind === 'note') {
+    L.push('> ' + e.text);
+    L.push('');
+  }
+  return L;
+}
+
+/**
+ * @param {{ meta: object, turns: any[], usage: object }} session
+ * @param {{ maxArgChars?: number, maxResultChars?: number, header?: string }} [opts]
+ */
+export function renderMarkdown(session, opts) {
+  const o = opts || {};
+  const L = [];
+
+  L.push(renderTitle(session.meta));
+  L.push('');
+  if (o.header) { L.push('> ' + o.header); L.push(''); }
+  L.push(...renderMetaTable(session));
   L.push('');
   L.push('---');
   L.push('');
 
-  for (const t of session.turns) {
-    const hasContent = t.entries.some((e) => e.kind !== 'note');
-    if (!hasContent) continue;
-    L.push('## Turn ' + t.index + (t.startedAt ? '  <sub>' + fmtTime(t.startedAt) + '</sub>' : ''));
-    L.push('');
-    for (const e of t.entries) {
-      if (e.kind === 'user') {
-        L.push(e.isHuman ? '### 👤 用户提问' : '### ⚙️ 系统注入（' + e.sourceKind + '）');
-        L.push('');
-        L.push(e.text.trim());
-        L.push('');
-      } else if (e.kind === 'reasoning') {
-        L.push('<details><summary>🧠 思考过程</summary>');
-        L.push('');
-        L.push(e.text.trim());
-        L.push('');
-        L.push('</details>');
-        L.push('');
-      } else if (e.kind === 'assistant') {
-        L.push('### 🤖 AI 回复');
-        L.push('');
-        L.push(e.text.trim());
-        L.push('');
-      } else if (e.kind === 'tool') {
-        L.push(renderTool(e, { maxArgChars: o.maxArgChars ?? 600, maxResultChars: o.maxResultChars ?? 1200 }));
-        L.push('');
-      } else if (e.kind === 'note') {
-        L.push('> ' + e.text);
-        L.push('');
-      }
-    }
+  for (const t of session.turns || []) {
+    if (!turnHasContent(t)) continue;
+    L.push(...renderTurnHeader(t));
+    for (const e of t.entries) L.push(...renderEntry(e, o));
     L.push('---');
     L.push('');
   }
 
   return L.join('\n');
+}
+
+/** 索引里的会话名：同一场会话被分页时标注是第几部分、覆盖哪些轮次 */
+export function indexTitle(e) {
+  const base = inline(e.title || '未命名', 40);
+  if (!e.parts || e.parts <= 1) return base;
+  const range = e.turnFrom
+    ? ' · Turn ' + e.turnFrom + (e.turnTo && e.turnTo !== e.turnFrom ? '–' + e.turnTo : '')
+    : '';
+  return base + '（第 ' + e.part + '/' + e.parts + ' 部分' + range + '）';
 }
 
 /** 生成索引 Markdown */
@@ -208,6 +252,9 @@ export function renderIndex(entries) {
   L.push('本目录下的每一份 Markdown 都由 ' + TICK + 'npm run export:prompt' + TICK + ' 从 DSH 会话日志自动导出，');
   L.push('**不是事后补写的**——包含完整的用户提问原文、AI 回复、思考过程与工具调用。');
   L.push('');
+  L.push('单个会话过长时会按体积分页，文件名带 ' + TICK + '-2' + TICK + ' / ' + TICK + '-3' + TICK + ' 这样的序号；');
+  L.push('**内容一个字都没有删**，只是为了每个文件都能在网页上直接打开（超过 1 MB 的 Markdown 网页只给下载）。');
+  L.push('');
   L.push('生成命令：');
   L.push('');
   L.push(FENCE + 'bash');
@@ -217,8 +264,8 @@ export function renderIndex(entries) {
   L.push('| 日期 | 会话 | 真人提问 | 文件 |');
   L.push('| --- | --- | --- | --- |');
   for (const e of entries) {
-    L.push('| ' + (e.date || '-') + ' | ' + inline(e.title || '未命名', 40) + ' | ' +
-      (e.humanMessageCount ?? 0) + ' | [' + e.fileName + '](./' + e.fileName + ') |');
+    L.push('| ' + (e.date || '-') + ' | ' + indexTitle(e) + ' | ' +
+      (e.humanMessageCount == null ? 0 : e.humanMessageCount) + ' | [' + e.fileName + '](./' + e.fileName + ') |');
   }
   L.push('');
   return L.join('\n');
