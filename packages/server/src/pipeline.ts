@@ -102,7 +102,8 @@ export interface PersistRunInput {
   maxRounds?: number;
   maxClaims?: number;
   maxProbesPerTurn?: number;
-  onEvent?: (event: RunEvent) => void | Promise<void>;
+  /** seq 是事件日志里的序号：SSE 用它当 id，断线就能按序号续传 */
+  onEvent?: (event: RunEvent, seq: number) => void | Promise<void>;
 }
 
 /** 一个会话只能跑一次：重跑会让同一批主张在表里出现两份，宁可明确拒绝 */
@@ -125,8 +126,8 @@ export async function runAndPersist(input: PersistRunInput): Promise<RunSessionR
       const next = STAGE_STATUS[event.stage];
       if (next !== undefined) updateSessionStatus(db, sessionId, next);
     }
-    appendEvent(db, sessionId, event.type, event as unknown as Record<string, unknown>);
-    if (input.onEvent) await input.onEvent(event);
+    const seq = appendEvent(db, sessionId, event.type, event as unknown as Record<string, unknown>);
+    if (input.onEvent) await input.onEvent(event, seq);
   }
 
   updateSessionStatus(db, sessionId, 'extracting');
