@@ -306,7 +306,7 @@ while (rounds < maxRounds && probeableClaims(budget, panel).length > 0) { ... }
 | 可断线续传 | 否（刷新就没了） | 是（`?from=<seq>`） |
 | 界面位置 | 卡片内的「正在作答」「正在定级」+ 过程面板的「实时输出」 | 阶段时间线 |
 
-实现方式是给 LLM 客户端套一层 `withStreaming(inner, sink)`：五个阶段的编排代码照旧 `await client.complete()`，
+实现方式是给 LLM 客户端套一层 `withStreaming(inner, sink)`：各阶段的编排代码照旧 `await client.complete()`，
 包装层把它改写成 `for await (inner.stream(req))`，把 `delta` 与 `reasoning` 分片送进 sink，最终结果取自 `done` 事件。
 分片通过 SSE 的 `event: stream` 送出，**不带 id、不占 seq、不进事件表**。
 
