@@ -7,6 +7,8 @@
  * （packages/web/test/labels.test.ts）看着。
  */
 
+import type { RevisedResume } from './revisions.ts';
+
 export interface Usage {
   inputTokens: number;
   outputTokens: number;
@@ -491,6 +493,48 @@ export function reportHtmlUrl(id: string, print = false): string {
 
 export function reportDocUrl(id: string): string {
   return '/api/sessions/' + encodeURIComponent(id) + '/report.doc';
+}
+
+/* ---------------------------------------------- 采纳改写与改完的简历导出 */
+
+/** 会话当前那一版改完的简历；没采纳过就是 null（不是空串：没采纳过和改成了空是两件事） */
+export async function fetchRevisions(id: string): Promise<RevisedResume | null> {
+  const data = await getJson<{ revised: RevisedResume | null }>('/api/sessions/' + encodeURIComponent(id) + '/revisions');
+  return data.revised;
+}
+
+/**
+ * 确认采纳。claims 是**本次确认的全部**主张，不是增量：
+ * 取消勾选一条再提交，那条就该从改完的简历里消失。
+ */
+export async function acceptRevisions(id: string, claims: readonly string[]): Promise<RevisedResume> {
+  const data = await postJson<{ revised: RevisedResume }>('/api/sessions/' + encodeURIComponent(id) + '/revisions', {
+    claims: [...claims],
+  });
+  return data.revised;
+}
+
+export async function discardRevisions(id: string): Promise<void> {
+  const res = await fetch('/api/sessions/' + encodeURIComponent(id) + '/revisions', { method: 'DELETE' });
+  if (!res.ok) throw new ApiError(await readError(res), res.status);
+}
+
+export function resumeTextUrl(id: string): string {
+  return '/api/sessions/' + encodeURIComponent(id) + '/resume.txt';
+}
+
+/** 可打印的简历页：print 为真时页面加载完自己调起打印，另存为 PDF 就是导出 */
+export function resumeHtmlUrl(id: string, options: { print?: boolean; marks?: boolean } = {}): string {
+  const params: string[] = [];
+  if (options.print === true) params.push('print=1');
+  if (options.marks === true) params.push('marks=1');
+  const base = '/api/sessions/' + encodeURIComponent(id) + '/resume.html';
+  return params.length === 0 ? base : base + '?' + params.join('&');
+}
+
+export function resumeDocUrl(id: string, marks = true): string {
+  const base = '/api/sessions/' + encodeURIComponent(id) + '/resume.doc';
+  return marks ? base + '?marks=1' : base;
 }
 
 export interface SseEvent {

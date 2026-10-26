@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import {
+  acceptRevisions,
   ApiError,
   createSession,
   deleteSession,
+  discardRevisions,
   fetchContracts,
   fetchDemo,
   fetchHealth,
   fetchInterviewers,
   fetchModels,
+  fetchRevisions,
   fetchStats,
   getSession,
   importResumeFile,
@@ -32,6 +35,9 @@ import { markHelpSeen, shouldAutoOpenHelp } from './help.ts';
 import { applyTheme, nextTheme, readStoredTheme, saveTheme, THEME_LABEL } from './theme.ts';
 import type { Theme } from './theme.ts';
 import { allAnchors, initialSandbox, sandboxReducer, stateFromHistory, totalProbes } from './state.ts';
+import { acceptAll, skippedReason as skippedReasonOf, toggleAccepted } from './revisions.ts';
+import type { RevisedResume } from './revisions.ts';
+import { RevisionBar } from './components/RevisionBar.tsx';
 import { Chip } from './components/Bits.tsx';
 import { ClaimBoard } from './components/ClaimBoard.tsx';
 import { HelpPanel } from './components/HelpPanel.tsx';
@@ -106,6 +112,16 @@ export function App() {
   // 第一次打开自动弹一次教程；点过「知道了」之后就不再打扰
   const [helpOpen, setHelpOpen] = useState(() => shouldAutoOpenHelp());
   const [sandbox, dispatch] = useReducer(sandboxReducer, initialSandbox);
+  // 改完的简历（没采纳过是 null）。它与「原文」是同一份材料的两种视图，
+  // 所以只存一份状态，显示哪一版由 viewing 决定，而不是缓存两段文本。
+  const [revised, setRevised] = useState<RevisedResume | null>(null);
+  // 这一批勾了哪些建议。刻意不预填上一次的结果：勾选是「本次确认的清单」，
+  // 用户重新打开就从头挑，避免「以为自己没改，其实还挂着三条旧勾」。
+  const [chosen, setChosen] = useState<string[]>([]);
+  const [revisionNote, setRevisionNote] = useState<string | null>(null);
+  const [revisionBusy, setRevisionBusy] = useState(false);
+  // 右栏现在显示哪一版：'original' 原文 / 'revised' 改完的
+  const [viewing, setViewing] = useState<'original' | 'revised'>('original');
 
   const queueRef = useRef<SseEvent[]>([]);
   const timerRef = useRef<number | null>(null);
@@ -254,6 +270,11 @@ export function App() {
       });
       sessionId = created.id;
       setMaterial({ resumeText: draft.resumeText, title: created.jobTitle });
+      // 新的一场从零开始：上一场的改写与勾选不能跟过来
+      setRevised(null);
+      setChosen([]);
+      setRevisionNote(null);
+      setViewing('original');
       queueRef.current = [];
       streamingRef.current = true;
       dispatch({ type: 'begin', sessionId: created.id });
@@ -302,6 +323,12 @@ export function App() {
       setDraft({ resumeText: view.session.resumeText, jdText: view.session.jdText, jobTitle: view.session.jobTitle });
       dispatch({ type: 'load', state: stateFromHistory(id, view.events, view.notices) });
       if (view.contracts.length > 0) setContracts(view.contracts);
+      // 历史会话可能早就采纳过改写：把那一版一起取回来，勾选状态照它回填
+      const stored = await fetchRevisions(id).catch(() => null);
+      setRevised(stored);
+      setChosen(stored === null ? [] : [...stored.accepted]);
+      setRevisionNote(null);
+      setViewing(stored === null ? 'original' : 'revised');
       setHint('这是历史会话：过程由事件表重放，和当时直播看到的是同一条代码路径。');
     } catch (error) {
       setHint(error instanceof Error ? error.message : '打不开这条会话');
@@ -386,6 +413,54 @@ export function App() {
       });
   }, []);
 
+  /**
+   * 采纳改写。三条约束与 service 层一致：
+   * 提交的是**本次勾选的全部**主张（不是增量）；每次服务端都从原文重算；
+   * 改不动的会在「改完的简历」那份清单里带理由回来。
+   */
+  const handleAccept = useCallback(async () => {
+    const id = sandbox.sessionId;
+    if (id === null || revisionBusy) return;
+    setRevisionBusy(true);
+    setRevisionNote(null);
+    try {
+      const next = await acceptRevisions(id, chosen);
+      setRevised(next);
+      setViewing('revised');
+      const skipped = next.skipped.length;
+      setRevisionNote(
+        '已按这次勾选改好简历：改成了 ' + String(next.applied.length) + ' 处' +
+          (skipped > 0 ? '，有 ' + String(skipped) + ' 处改不动（下面写了原因）。' : '。') +
+          '右栏现在是改完的版本，可以导出 PDF 或 Word。',
+      );
+    } catch (error) {
+      setRevisionNote(error instanceof Error ? error.message : '采纳失败');
+    } finally {
+      setRevisionBusy(false);
+    }
+  }, [sandbox.sessionId, chosen, revisionBusy]);
+
+  const handleDiscardRevisions = useCallback(async () => {
+    const id = sandbox.sessionId;
+    if (id === null || revisionBusy) return;
+    setRevisionBusy(true);
+    try {
+      await discardRevisions(id);
+      setRevised(null);
+      setChosen([]);
+      setViewing('original');
+      setRevisionNote('已撤销全部采纳，右栏回到原文。');
+    } catch (error) {
+      setRevisionNote(error instanceof Error ? error.message : '撤销失败');
+    } finally {
+      setRevisionBusy(false);
+    }
+  }, [sandbox.sessionId, revisionBusy]);
+
+  const handleToggleChoose = useCallback((claimId: string) => {
+    setChosen((current) => toggleAccepted(current, claimId));
+  }, []);
+
   const handleToggleRole = useCallback((id: string) => {
     setPanel((current) => nextPanel(current, id));
   }, []);
@@ -398,6 +473,10 @@ export function App() {
     dispatch({ type: 'reset' });
     setHint(null);
     setImportNote(null);
+    setRevised(null);
+    setChosen([]);
+    setRevisionNote(null);
+    setViewing('original');
   }, []);
 
   const handleCloseHelp = useCallback(() => {
@@ -456,6 +535,21 @@ export function App() {
     },
     [interviewerChoices],
   );
+
+  /** 有改写建议、因此可以勾选采纳的主张 id（顺序与界面上主张的顺序一致） */
+  const acceptCandidates = useMemo(
+    () =>
+      sandbox.claims
+        .filter((item) => item.suggestion !== null && item.suggestion.suggestion !== null)
+        .map((item) => item.claim.id),
+    [sandbox.claims],
+  );
+
+  /** 勾过却改不动的理由：只在「已经提交过一版」之后才查得到 */
+  const skippedReason = useCallback((claimId: string): string | null => skippedReasonOf(revised, claimId), [revised]);
+
+  /** 右栏显示哪一版：没有改完的版本时，无论选哪个都只能是原文 */
+  const shownRevised = viewing === 'revised' ? revised : null;
 
   const mode = modeChip(health === null ? null : runMode, health);
   const hasReport = sandbox.sessionId !== null && sandbox.claims.length > 0;
@@ -574,14 +668,35 @@ export function App() {
           state={sandbox}
           onFocus={(anchor) => dispatch({ type: 'focus', anchor })}
           interviewerName={interviewerName}
+          chosen={chosen}
+          onToggleChoose={handleToggleChoose}
+          skippedReason={skippedReason}
         />
 
-        <ResumePane
-          text={material.resumeText}
-          title={material.title}
-          focus={sandbox.focus}
-          hits={allAnchors(sandbox)}
-        />
+        <div className="flex min-h-0 flex-col gap-3">
+          <ResumePane
+            text={material.resumeText}
+            title={material.title}
+            focus={sandbox.focus}
+            hits={allAnchors(sandbox)}
+            revised={shownRevised}
+            onShowOriginal={() => setViewing('original')}
+          />
+          <RevisionBar
+            sessionId={sandbox.sessionId}
+            revised={revised}
+            chosen={chosen}
+            candidates={acceptCandidates}
+            busy={revisionBusy}
+            note={revisionNote}
+            onToggle={handleToggleChoose}
+            onAcceptAll={() => setChosen(acceptAll(acceptCandidates))}
+            onClear={() => setChosen([])}
+            onSubmit={() => void handleAccept()}
+            onDiscard={() => void handleDiscardRevisions()}
+            onShowOriginal={() => setViewing('original')}
+          />
+        </div>
       </main>
 
       <HelpPanel open={helpOpen} onClose={handleCloseHelp} />
