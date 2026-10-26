@@ -3,6 +3,7 @@ import {
   ApiError,
   createSession,
   deleteSession,
+  fetchContracts,
   fetchDemo,
   fetchHealth,
   fetchStats,
@@ -11,7 +12,14 @@ import {
   reportUrl,
   streamRun,
 } from './api.ts';
-import type { DemoInfo, HealthInfo, InterviewerRole, SessionSummary, SseEvent } from './api.ts';
+import type {
+  ContractView,
+  DemoInfo,
+  HealthInfo,
+  InterviewerRole,
+  SessionSummary,
+  SseEvent,
+} from './api.ts';
 import { allAnchors, initialSandbox, sandboxReducer, stateFromHistory, totalProbes } from './state.ts';
 import { Chip } from './components/Bits.tsx';
 import { ClaimBoard } from './components/ClaimBoard.tsx';
@@ -46,6 +54,7 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [hint, setHint] = useState<string | null>(null);
   const [material, setMaterial] = useState<{ resumeText: string; title: string }>({ resumeText: '', title: '' });
+  const [contracts, setContracts] = useState<ContractView[] | null>(null);
   const [sandbox, dispatch] = useReducer(sandboxReducer, initialSandbox);
 
   const queueRef = useRef<SseEvent[]>([]);
@@ -78,6 +87,24 @@ export function App() {
       await refreshSessions();
     })();
   }, [refreshSessions]);
+
+  /**
+   * 契约随面板变化重取：它是纯确定性接口，不调模型、不消耗预算。
+   * 跑完一场之后再用会话里那份覆盖一次，就能看到「与运行时一致」的对账结论。
+   */
+  useEffect(() => {
+    let alive = true;
+    void fetchContracts(panel)
+      .then((data) => {
+        if (alive) setContracts(data.contracts);
+      })
+      .catch(() => {
+        if (alive) setContracts(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [panel]);
 
   useEffect(
     () => () => {
@@ -166,6 +193,11 @@ export function App() {
         void fetchStats(sessionId)
           .then((stats) => dispatch({ type: 'telemetry', stats }))
           .catch(() => undefined);
+        void getSession(sessionId)
+          .then((view) => {
+            if (view.contracts.length > 0) setContracts(view.contracts);
+          })
+          .catch(() => undefined);
       }
     }
   }, [busy, draft, panel, pushEvent, drain, refreshSessions]);
@@ -178,6 +210,7 @@ export function App() {
       setMaterial({ resumeText: view.session.resumeText, title: view.session.jobTitle });
       setDraft({ resumeText: view.session.resumeText, jdText: view.session.jdText, jobTitle: view.session.jobTitle });
       dispatch({ type: 'load', state: stateFromHistory(id, view.events, view.notices) });
+      if (view.contracts.length > 0) setContracts(view.contracts);
       setHint('这是历史会话：过程由事件表重放，和当时直播看到的是同一条代码路径。');
     } catch (error) {
       setHint(error instanceof Error ? error.message : '打不开这条会话');
@@ -279,7 +312,7 @@ export function App() {
             onLoadSession={(id) => void handleLoadSession(id)}
             onDeleteSession={(id) => void handleDeleteSession(id)}
           />
-          <StageRail state={sandbox} panel={panel} health={health} />
+          <StageRail state={sandbox} panel={panel} health={health} contracts={contracts} />
         </aside>
 
         <ClaimBoard state={sandbox} onFocus={(anchor) => dispatch({ type: 'focus', anchor })} />

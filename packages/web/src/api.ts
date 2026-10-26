@@ -197,6 +197,53 @@ export interface SessionView {
   rounds: number;
   rejectedClaims: RejectedClaim[];
   llm: LlmStats;
+  /** 这场沙盘当时用的意图契约，含指纹对账结果 */
+  contracts: ContractView[];
+}
+
+export interface ContractPersona {
+  name: string;
+  role: string;
+  seniority: string;
+  tone: string;
+  blurb: string;
+}
+
+export interface ContractBudget {
+  maxRoundsPerClaim: number;
+  maxProbesPerInterviewerPerClaim: number;
+  maxTotalProbes: number;
+}
+
+/** 一位面试官的意图契约：人设、目标、手法、禁区、预算，全是结构化字段 */
+export interface IntentContract {
+  id: string;
+  version: number;
+  persona: ContractPersona;
+  goal: string;
+  tactics: string[];
+  constraints: string[];
+  forbidden: string[];
+  budget: ContractBudget;
+}
+
+export interface ContractView {
+  id: InterviewerRole;
+  version: number;
+  /** 服务端此刻按代码里的契约算出的指纹 */
+  digest: string;
+  /** 跑这场沙盘时落库的指纹；没跑过就是 null */
+  storedDigest: string | null;
+  verified: boolean;
+  contract: IntentContract;
+  /** 这位面试官实际拿到的 system prompt 原文 */
+  systemPrompt: string;
+}
+
+export interface ContractsResponse {
+  panel: InterviewerRole[];
+  budget: ContractBudget;
+  contracts: ContractView[];
 }
 
 export class ApiError extends Error {
@@ -231,6 +278,12 @@ export function fetchHealth(): Promise<HealthInfo> {
 
 export function fetchDemo(): Promise<DemoInfo> {
   return getJson<DemoInfo>('/api/demo');
+}
+
+/** 契约是声明式的：给定角色就能算出全文与指纹，不需要跑沙盘、不调模型 */
+export function fetchContracts(panel?: InterviewerRole[]): Promise<ContractsResponse> {
+  const query = panel !== undefined && panel.length > 0 ? '?panel=' + panel.join(',') : '';
+  return getJson<ContractsResponse>('/api/contracts' + query);
 }
 
 export async function listSessions(limit = 20): Promise<SessionSummary[]> {
