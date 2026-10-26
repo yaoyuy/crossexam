@@ -82,6 +82,20 @@ describe('区间与切分', () => {
     expect(segments.map((s) => s.text)).toEqual(['ABC', 'D', 'EFGHIJ']);
   });
 
+  it('已改写的区间是第四种颜色，优先级排在聚焦之后、命中之前', () => {
+    const segments = buildSegments(TEXT, { start: 0, end: 2 }, [{ start: 6, end: 9 }], [{ start: 1, end: 4 }]);
+    // 聚焦 0-2 压住已改写的 1-2，已改写 1-4 只是被切短，不丢字
+    expect(kinds(segments)).toEqual(['focus', 'revised', 'plain', 'hit', 'plain']);
+    expect(segments.map((s) => s.text)).toEqual(['AB', 'CD', 'EF', 'GHI', 'J']);
+    expect(join(segments)).toBe(TEXT);
+  });
+
+  it('没传已改写区间时行为与从前完全一致', () => {
+    const before = buildSegments(TEXT, { start: 4, end: 8 }, [{ start: 2, end: 6 }]);
+    const after = buildSegments(TEXT, { start: 4, end: 8 }, [{ start: 2, end: 6 }], []);
+    expect(after).toEqual(before);
+  });
+
   it('区间说人话：0 基下标换算成第几字', () => {
     expect(describeRange({ start: 0, end: 5 })).toBe('第 1–5 字');
     expect(describeRange({ start: 11, end: 28 })).toBe('第 12–28 字');
