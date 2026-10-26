@@ -67,8 +67,7 @@ function run(label, command, args, options = {}) {
     encoding: 'utf8',
     env: { ...process.env, ...(options.env || {}) },
     timeout: opts.timeoutMs,
-    // Windows 上 npm 是 npm.cmd：Node 从 20.12 起不允许直接 spawn .cmd/.bat，
-    // 必须过一次 shell（参数里没有空格，不必担心拼接问题）。
+    // 只有 npmCommand() 的兜底分支会走到 shell（见那里对 npm.cmd 的说明）。
     shell: options.shell === true,
     maxBuffer: 64 * 1024 * 1024,
   });
