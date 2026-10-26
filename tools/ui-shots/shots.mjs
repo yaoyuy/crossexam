@@ -1,0 +1,318 @@
+#!/usr/bin/env node
+// CrossExam 界面截图器：真起服务 + 真浏览器（系统 Edge/Chrome，走 CDP），产出可复跑的界面截图。
+//
+// 为什么不用 Playwright：本仓库有一条硬约束——不引入需要本地编译的原生依赖，
+// 而且希望能用系统里已经有的浏览器跑。Node 22 自带全局 WebSocket，CDP 本身是纯 JSON 协议，
+// 于是「真浏览器验证」可以做到零依赖。这条路径同时是 README 配图与演示视频封面的唯一来源：
+// 图不是手点的，跑一条命令就能重新生成。
+//
+// 用法：
+//   node tools/ui-shots/shots.mjs                 # 默认输出到 docs/screenshots
+//   node tools/ui-shots/shots.mjs --url http://127.0.0.1:8787   # 驱动一个已经在跑的服务
+//   node tools/ui-shots/shots.mjs --keep          # 保留临时目录与浏览器窗口，便于排查
+//   node tools/ui-shots/shots.mjs --allow-console # 控制台有报错也照样出图（默认报错即失败）
+
+import { spawn } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const ROOT = resolve(HERE, '..', '..');
+const NL = '\n';
+
+const VIEWPORT = { width: 1600, height: 1000 };
+const RUN_TIMEOUT_MS = 60000;
+
+function log(message) {
+  process.stdout.write(message + NL);
+}
+
+function parseArgs(argv) {
+  const opts = { out: join(ROOT, 'docs', 'screenshots'), port: 8791, url: null, keep: false, allowConsole: false, quiet: false };
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i];
+    if (arg === '--out') { opts.out = resolve(argv[i + 1]); i += 1; }
+    else if (arg === '--port') { opts.port = Number(argv[i + 1]); i += 1; }
+    else if (arg === '--url') { opts.url = argv[i + 1]; i += 1; }
+    else if (arg === '--keep') { opts.keep = true; }
+    else if (arg === '--allow-console') { opts.allowConsole = true; }
+    else if (arg === '--quiet') { opts.quiet = true; }
+    else if (arg === '--help' || arg === '-h') { log(readFileSync(join(HERE, 'README.md'), 'utf8')); process.exit(0); }
+    else { throw new Error('不认识的参数：' + arg); }
+  }
+  return opts;
+}
+
+function sleep(ms) {
+  return new Promise((done) => setTimeout(done, ms));
+}
+
+// 浏览器进程退出时会短暂占着 user-data-dir（Windows 上表现为 EPERM），删不掉不是错误，
+// 但**绝不能让它盖住真正的结果**：出图是否成功与临时目录是否删干净是两件事。
+async function removeDirWithRetry(dir, attempts) {
+  for (let i = 0; i < attempts; i += 1) {
+    try {
+      rmSync(dir, { recursive: true, force: true });
+      return true;
+    } catch {
+      await sleep(400);
+    }
+  }
+  return false;
+}
+
+function browserCandidates() {
+  const fromEnv = process.env['CROSSEXAM_BROWSER'];
+  const list = [];
+  if (fromEnv !== undefined && fromEnv.length > 0) list.push(fromEnv);
+  if (process.platform === 'win32') {
+    list.push(
+      'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+      'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
+      'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+      'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+    );
+  } else if (process.platform === 'darwin') {
+    list.push(
+      '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+      '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
+      '/Applications/Chromium.app/Contents/MacOS/Chromium',
+    );
+  } else {
+    list.push('/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser', '/usr/bin/microsoft-edge');
+  }
+  return list;
+}
+
+function findBrowser() {
+  for (const candidate of browserCandidates()) {
+    if (existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
+async function waitForHttp(url, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  let lastError = 'unknown';
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch(url);
+      if (response.ok) return await response.json();
+      lastError = 'HTTP ' + String(response.status);
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error);
+    }
+    await sleep(250);
+  }
+  throw new Error('等不到 ' + url + '：' + lastError);
+}
+
+async function waitForDevtools(port, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  let lastError = 'unknown';
+  while (Date.now() < deadline) {
+    try {
+      const list = await (await fetch('http://127.0.0.1:' + String(port) + '/json/list')).json();
+      const page = list.find((target) => target.type === 'page');
+      if (page !== undefined && typeof page.webSocketDebuggerUrl === 'string') return page.webSocketDebuggerUrl;
+      lastError = '还没有 page target';
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error);
+    }
+    await sleep(250);
+  }
+  throw new Error('等不到浏览器调试端口 ' + String(port) + '：' + lastError);
+}
+
+// 极简 CDP 客户端：发命令、等回复、收事件。
+class Cdp {
+  constructor(ws) {
+    this.ws = ws;
+    this.nextId = 1;
+    this.pending = new Map();
+    this.events = [];
+    ws.addEventListener('message', (event) => {
+      let message;
+      try { message = JSON.parse(String(event.data)); } catch { return; }
+      if (typeof message.id === 'number') {
+        const slot = this.pending.get(message.id);
+        if (slot === undefined) return;
+        this.pending.delete(message.id);
+        if (message.error !== undefined) slot.reject(new Error('CDP ' + JSON.stringify(message.error)));
+        else slot.resolve(message.result);
+        return;
+      }
+      this.events.push(message);
+    });
+    ws.addEventListener('close', () => {
+      for (const slot of this.pending.values()) slot.reject(new Error('调试连接被关闭'));
+      this.pending.clear();
+    });
+  }
+
+  send(method, params) {
+    const id = this.nextId;
+    this.nextId += 1;
+    return new Promise((resolve_, reject) => {
+      this.pending.set(id, { resolve: resolve_, reject });
+      this.ws.send(JSON.stringify({ id, method, params: params ?? {} }));
+    });
+  }
+
+  async evaluate(expression) {
+    const result = await this.send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
+    if (result.exceptionDetails !== undefined) {
+      throw new Error('页面里报错：' + JSON.stringify(result.exceptionDetails.exception?.description ?? result.exceptionDetails));
+    }
+    return result.result?.value;
+  }
+
+  // 轮询一段表达式直到它为真，用来等界面进入某个状态，而不是盲等固定毫秒。
+  async waitFor(expression, label, timeoutMs) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const value = await this.evaluate(expression);
+      if (value === true || (typeof value === 'number' && value > 0)) return value;
+      await sleep(150);
+    }
+    throw new Error('等不到界面状态：' + label);
+  }
+
+  problems() {
+    const out = [];
+    for (const event of this.events) {
+      if (event.method === 'Runtime.exceptionThrown') {
+        out.push('未捕获异常：' + String(event.params?.exceptionDetails?.exception?.description ?? ''));
+      } else if (event.method === 'Runtime.consoleAPICalled' && (event.params?.type === 'error' || event.params?.type === 'warning')) {
+        const text = (event.params.args ?? []).map((a) => String(a.value ?? a.description ?? '')).join(' ');
+        out.push('console.' + String(event.params.type) + '：' + text);
+      } else if (event.method === 'Log.entryAdded' && (event.params?.entry?.level === 'error' || event.params?.entry?.level === 'warning')) {
+        out.push('浏览器日志 ' + String(event.params.entry.level) + '：' + String(event.params.entry.text ?? ''));
+      }
+    }
+    return out;
+  }
+
+  async shot(outDir, name, scroll) {
+    if (scroll !== undefined) {
+      await this.evaluate(scroll);
+      await sleep(220);
+    }
+    const result = await this.send('Page.captureScreenshot', { format: 'png' });
+    const bytes = Buffer.from(String(result.data), 'base64');
+    const file = join(outDir, name);
+    writeFileSync(file, bytes);
+    log('  ' + name + '  ' + String(bytes.length) + ' B');
+    return file;
+  }
+}
+
+async function connect(url) {
+  const ws = new WebSocket(url);
+  await new Promise((resolve_, reject) => {
+    const timer = setTimeout(() => reject(new Error('连接调试端口超时')), 10000);
+    ws.addEventListener('open', () => { clearTimeout(timer); resolve_(); });
+    ws.addEventListener('error', () => { clearTimeout(timer); reject(new Error('连接调试端口失败')); });
+  });
+  return new Cdp(ws);
+}
+
+async function main() {
+  const opts = parseArgs(process.argv.slice(2));
+  const distIndex = join(ROOT, 'packages', 'web', 'dist', 'index.html');
+  if (opts.url === null && !existsSync(distIndex)) {
+    throw new Error('还没有构建前端：先跑 npm run build（截图要的是真实产物，不是开发服务器）');
+  }
+  const browserPath = findBrowser();
+  if (browserPath === null) {
+    throw new Error('找不到浏览器。装 Edge/Chrome，或用 CROSSEXAM_BROWSER=<可执行文件路径> 指定。');
+  }
+  mkdirSync(opts.out, { recursive: true });
+  const workDir = mkdtempSync(join(tmpdir(), 'crossexam-shots-'));
+  const dbPath = join(workDir, 'shots.db');
+  const profileDir = join(workDir, 'browser-profile');
+  const debugPort = 9400 + Math.floor(Math.random() * 200);
+  let server = null;
+  let browser = null;
+  let cdp = null;
+  try {
+    let base = opts.url;
+    if (base === null) {
+      base = 'http://127.0.0.1:' + String(opts.port);
+      const env = { ...process.env, CROSSEXAM_PORT: String(opts.port), CROSSEXAM_DB: dbPath, CROSSEXAM_MODE: 'replay' };
+      server = spawn(process.execPath, [join(ROOT, 'packages', 'server', 'src', 'bin', 'serve.ts')], { cwd: ROOT, env, stdio: ['ignore', 'pipe', 'pipe'] });
+      server.stderr.on('data', (chunk) => { if (!opts.quiet) process.stderr.write('[server] ' + String(chunk)); });
+      await waitForHttp(base + '/api/health', 25000);
+      log('服务已就绪：' + base);
+    } else {
+      await waitForHttp(base + '/api/health', 5000);
+      log('驱动已在跑的服务：' + base);
+    }
+
+    browser = spawn(browserPath, [
+      '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
+      '--hide-scrollbars', '--remote-debugging-port=' + String(debugPort),
+      '--user-data-dir=' + profileDir,
+      '--window-size=' + String(VIEWPORT.width) + ',' + String(VIEWPORT.height),
+      'about:blank',
+    ], { stdio: 'ignore' });
+    const wsUrl = await waitForDevtools(debugPort, 20000);
+    cdp = await connect(wsUrl);
+    await cdp.send('Page.enable');
+    await cdp.send('Runtime.enable');
+    await cdp.send('Log.enable');
+    await cdp.send('Emulation.setDeviceMetricsOverride', { width: VIEWPORT.width, height: VIEWPORT.height, deviceScaleFactor: 1, mobile: false });
+    await cdp.send('Page.navigate', { url: base + '/' });
+    await sleep(700);
+    await cdp.waitFor("document.querySelector('[data-shot=\"use-demo\"]') !== null", '投料台出现', 20000);
+
+    // 表达式里刻意不声明变量：CDP 的 Runtime.evaluate 共用同一个全局作用域，
+    // 第二次 const 同名会直接抛 SyntaxError（第一版就踩了）。
+    const pane = (name) => "document.querySelector('[data-shot=\"" + name + "\"]').lastElementChild";
+    const top = (name) => pane(name) + '.scrollTop = 0';
+    const bottom = (name) => pane(name) + '.scrollTop = ' + pane(name) + '.scrollHeight';
+    const click = (shot) => "document.querySelector('[data-shot=\"" + shot + "\"]').click()";
+
+    log('界面截图输出到：' + opts.out);
+    await cdp.shot(opts.out, '01-intake.png', top('claims'));
+    await cdp.evaluate(click('pace-slow'));
+    await cdp.evaluate(click('use-demo'));
+    await sleep(300);
+    await cdp.shot(opts.out, '02-demo-loaded.png');
+
+    await cdp.evaluate(click('run'));
+    await cdp.waitFor("document.body.innerText.includes('第 1 轮')", '第一轮追问出现', RUN_TIMEOUT_MS);
+    await cdp.shot(opts.out, '03-running.png', top('claims'));
+    await cdp.waitFor("document.querySelector('[data-shot=\"stage\"]').innerText.includes('已完成')", '质询跑完', RUN_TIMEOUT_MS);
+    await sleep(400);
+    await cdp.shot(opts.out, '04-done-top.png', top('claims'));
+    await cdp.shot(opts.out, '05-verdicts.png', bottom('claims'));
+    await cdp.shot(opts.out, '06-resume-focus.png', "(" + pane('claims') + ".querySelector('button.quote') ?? { click: () => undefined }).click(), " + pane('claims') + '.scrollTop = ' + pane('claims') + '.scrollHeight * 0.55');
+    await cdp.shot(opts.out, '07-history.png', bottom('intake'));
+
+    const problems = cdp.problems();
+    log(NL + '控制台/日志问题：' + (problems.length === 0 ? '无' : String(problems.length) + ' 条'));
+    for (const problem of problems) log('  - ' + problem);
+    if (problems.length > 0 && !opts.allowConsole) {
+      throw new Error('界面控制台出现了报错或警告（截图已出，但按约定这算失败；确认无害可用 --allow-console）');
+    }
+    log(NL + '完成。演示视频封面、README 配图、技术文档插图都可以直接用这批图。');
+  } finally {
+    try { if (cdp !== null) cdp.ws.close(); } catch { /* 忽略 */ }
+    if (browser !== null) browser.kill();
+    if (server !== null) server.kill();
+    await sleep(600);
+    if (opts.keep) {
+      log('临时目录保留在：' + workDir);
+    } else if (!(await removeDirWithRetry(workDir, 5))) {
+      log('临时目录没删干净（浏览器进程还占着），不影响出图：' + workDir);
+    }
+  }
+}
+
+main().catch((error) => {
+  process.stderr.write('截图失败：' + (error instanceof Error ? error.message : String(error)) + NL);
+  process.exit(1);
+});
