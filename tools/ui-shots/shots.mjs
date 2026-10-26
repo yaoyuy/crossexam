@@ -407,6 +407,19 @@ async function main() {
     await cdp.shot(opts.out, '08-resume-focus.png', "(" + pane('claims') + ".querySelector('button.quote') ?? { click: () => undefined }).click(), " + pane('claims') + '.scrollTop = ' + pane('claims') + '.scrollHeight * 0.55');
     await cdp.shot(opts.out, '09-history.png', bottom('intake'));
 
+    // 采纳改写：这是「提了问题就自动改简历，还能导出 PDF/Word」那条要求最直接的证据。
+    // 拍之前真的点「全部采纳 → 确认采纳」，右栏换成改完的版本并把改动段标绿；
+    // 拍在契约那两张之前，这样 10-contracts 不受影响。
+    await cdp.evaluate(click('revision-accept-all'));
+    await sleep(200);
+    await cdp.evaluate(click('revision-submit'));
+    await cdp.waitFor("(document.querySelector('[data-shot=\"revision-note\"]')?.innerText ?? '').includes('已按这次勾选改好简历')", '采纳结论', 20000);
+    await sleep(300);
+    await cdp.shot(opts.out, '17-adopt.png', "document.querySelector('[data-shot=\"revisions\"]').scrollIntoView({ block: 'nearest' })");
+    // 拍完退回原文：后面几张拍的是「刚跑完一场」的状态，不该带着一版改过的简历。
+    await cdp.evaluate(click('revision-discard'));
+    await cdp.waitFor("(document.querySelector('[data-shot=\"revision-note\"]')?.innerText ?? '').includes('已撤销全部采纳')", '撤销结论', 20000);
+
     // 意图契约：展开一位面试官的契约，再摊开他实际拿到的 System Prompt。
     // 这一张是「意图控制」这条评分项的直接证据：目标/手法/禁区/预算都是结构化数据，
     // prompt 由它确定性渲染，指纹还要和会话里落库的那一份对得上。
