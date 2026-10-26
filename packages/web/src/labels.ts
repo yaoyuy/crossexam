@@ -1,11 +1,11 @@
-import type { ClaimCategory, InterviewerRole, VerdictKind } from '@crossexam/shared/domain.ts';
+import type { ClaimCategory, InterviewerRole, MatchStatus, VerdictKind } from '@crossexam/shared/domain.ts';
 
 /**
  * 判定与类别的中文标签**直接复用领域层**，不在这里另抄一份：
  * 报告、接口、界面必须用同一套词，否则「站得住」在报告里写一套、界面上写另一套。
  * domain.ts 只依赖类型与常量，没有 node: 依赖，所以能被浏览器端打包。
  */
-export { CLAIM_CATEGORY_LABEL, VERDICT_LABEL } from '@crossexam/shared/domain.ts';
+export { CLAIM_CATEGORY_LABEL, MATCH_LABEL, REQUIREMENT_KIND_LABEL, VERDICT_LABEL } from '@crossexam/shared/domain.ts';
 
 /** 判定徽章的配色语义：绿=过了，黄=说过头了，红=站不住，灰=没答上来 */
 export const VERDICT_TONE: Record<VerdictKind, 'solid' | 'warn' | 'danger' | 'muted'> = {
@@ -96,8 +96,18 @@ export function personaBlurbOf(id: string, blurb?: string): string {
 }
 
 /** 阶段名：接口给的是英文，界面要中文 */
+/** 岗位要求的对照程度配色：对上了是绿的，含糊是黄的，没写是灰的 */
+export const MATCH_TONE: Record<MatchStatus, 'solid' | 'warn' | 'muted'> = {
+  hit: 'solid',
+  weak: 'warn',
+  missing: 'muted',
+};
+
 export const STAGE_LABEL: Record<string, string> = {
   extract: '抽取主张',
+  'jd-extract': '读岗位要求',
+  'jd-merge': '归并同类要求',
+  'jd-match': '要求对照简历',
   probe: '并发追问',
   answer: '求职者作答',
   verdict: '给出判定',
@@ -106,6 +116,9 @@ export const STAGE_LABEL: Record<string, string> = {
 
 export const STAGE_HINT: Record<string, string> = {
   extract: '把简历里值得被追问的话挑出来，并锚定到原文',
+  'jd-extract': '逐份读岗位描述，把要求抄出来并锚回 JD 原文',
+  'jd-merge': '把几份 JD 说的是同一件事的要求并成一条',
+  'jd-match': '每条要求对一次简历：答得上、答得含糊、还是根本没写',
   probe: '多名面试官并发提问，每条提问都必须带原文锚点',
   answer: '求职者 Agent 只依据简历作答，答不上来就承认',
   verdict: '对照追问与作答，逐条判定这条主张站不站得住',
@@ -139,10 +152,13 @@ export const SESSION_STATUS_LABEL: Record<string, string> = {
  */
 export function channelLabel(channel: string, nameOf?: (id: string) => string): string {
   if (channel === 'extract') return '正在抽取主张';
+  if (channel === 'jd-merge') return '正在归并岗位要求';
+  if (channel === 'jd-match') return '正在对照岗位要求';
   const cut = channel.indexOf(':');
   if (cut <= 0) return channel;
   const stage = channel.slice(0, cut);
   const id = channel.slice(cut + 1);
+  if (stage === 'jd-extract') return '正在读 JD ' + id;
   if (stage === 'probe') return personaLabelOf(id, nameOf?.(id)) + ' 正在追问';
   if (stage === 'answer') return '求职者作答 ' + id;
   if (stage === 'verdict') return '判定 ' + id;

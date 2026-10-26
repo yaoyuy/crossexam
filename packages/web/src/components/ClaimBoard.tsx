@@ -1,5 +1,5 @@
 import { CLAIM_CATEGORY_LABEL, personaLabelOf, VERDICT_CRITERIA, VERDICT_LABEL } from '../labels.ts';
-import type { Anchor, VerdictOutcome } from '../api.ts';
+import type { Anchor, Requirement, VerdictOutcome } from '../api.ts';
 import type { ClaimView, SandboxState } from '../state.ts';
 import { liveText } from '../state.ts';
 import { Badge, Chip, Empty, Pane, Quote, VerdictBadge, WeightBar } from './Bits.tsx';
@@ -16,6 +16,35 @@ function LiveLine(props: { label: string; text: string }) {
         {props.text}
         <span className="text-ember-400">▌</span>
       </p>
+    </div>
+  );
+}
+
+/**
+ * 追问的第二个锚点：这条追问是照着哪条岗位要求问的。
+ * 它不替代简历锚点，而是与它并排——「证据锚定」在多 JD 之后有了两处来源，
+ * 只画出简历那一半，等于把新加的证据藏起来。
+ */
+function JdAnchorNote(props: {
+  probeId: string;
+  requirementId: string;
+  anchor: Anchor;
+  /** 要求的正文，用来当悬浮说明；查不到就只显示编号 */
+  text: string | null;
+  onFocus?: (anchor: Anchor) => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <button
+        type="button"
+        data-shot={'jd-anchor-' + props.probeId}
+        title={'这条追问照着岗位要求问：' + (props.text ?? props.requirementId)}
+        className="chip max-w-full cursor-pointer truncate text-left transition-colors hover:border-ember-500 hover:text-ink-100"
+        onClick={() => props.onFocus?.(props.anchor)}
+      >
+        {'照 ' + props.requirementId + ' 问 · 点开要求原文'}
+      </button>
+      <span className="text-[11px] text-ink-400">{'「' + props.anchor.quote + '」'}</span>
     </div>
   );
 }
@@ -67,6 +96,10 @@ function ClaimCard(props: {
   item: ClaimView;
   state: SandboxState;
   onFocus: (anchor: Anchor) => void;
+  /** 点开「这条追问照着哪条岗位要求问」时，把右栏切到 JD 原文的那一段 */
+  onFocusJd?: (anchor: Anchor) => void;
+  /** 按编号取岗位要求：拿它的正文当悬浮说明 */
+  requirementOf?: (id: string) => Requirement | null;
   interviewerName?: (id: string) => string | undefined;
   /** 这条建议这一批勾上了没有；没有改写建议的主张一律 false */
   chosen?: boolean;
@@ -113,6 +146,15 @@ function ClaimCard(props: {
                 <p className="text-[11.5px] leading-relaxed text-ink-400">问这个是因为：{pv.probe.rationale}</p>
               )}
               <Quote anchor={pv.probe.anchor} onFocus={props.onFocus} label="这条提问锚定的原文" />
+              {pv.probe.jdAnchor == null || pv.probe.requirementId == null ? null : (
+                <JdAnchorNote
+                  probeId={pv.probe.id}
+                  requirementId={pv.probe.requirementId}
+                  anchor={pv.probe.jdAnchor}
+                  text={props.requirementOf?.(pv.probe.requirementId)?.text ?? null}
+                  onFocus={props.onFocusJd}
+                />
+              )}
 
               {pv.answerError !== null ? (
                 <p className="text-[11.5px] text-amber-ink">这一问没拿到回答：{pv.answerError}</p>
@@ -200,6 +242,10 @@ export function ClaimBoard(props: {
   onFocus: (anchor: Anchor) => void;
   /** 自定义面试官的中文名不在前端枚举里，得由上层从契约里查出来给过来 */
   interviewerName?: (id: string) => string | undefined;
+  /** 点开「这条追问照着哪条岗位要求问」时，把右栏切到 JD 原文的那一段 */
+  onFocusJd?: (anchor: Anchor) => void;
+  /** 按编号取岗位要求：拿它的正文当悬浮说明 */
+  requirementOf?: (id: string) => Requirement | null;
   /** 这一批勾上的改写建议 */
   chosen?: readonly string[];
   onToggleChoose?: (claimId: string) => void;
@@ -257,6 +303,8 @@ export function ClaimBoard(props: {
             item={item}
             state={state}
             onFocus={props.onFocus}
+            onFocusJd={props.onFocusJd}
+            requirementOf={props.requirementOf}
             interviewerName={props.interviewerName}
             chosen={(props.chosen ?? []).indexOf(item.claim.id) >= 0}
             onToggleChoose={props.onToggleChoose}

@@ -23,12 +23,15 @@ import {
   streamRun,
 } from './api.ts';
 import type {
+  Anchor,
   AppliedTemplate,
   ContractView,
   DemoInfo,
   HealthInfo,
   InterviewerLibrary,
+  JobDescription,
   LlmMode,
+  Requirement,
   SessionSummary,
   SseEvent,
   TemplateLibrary,
@@ -39,7 +42,8 @@ import { personaBlurbOf, personaLabelOf } from './labels.ts';
 import { markHelpSeen, shouldAutoOpenHelp } from './help.ts';
 import { applyTheme, nextTheme, readStoredTheme, saveTheme, THEME_LABEL } from './theme.ts';
 import type { Theme } from './theme.ts';
-import { allAnchors, initialSandbox, sandboxReducer, stateFromHistory, totalProbes } from './state.ts';
+import { allAnchors, anchorsOfJd, initialSandbox, sandboxReducer, stateFromHistory, totalProbes } from './state.ts';
+import { emptyDraftList, jdPayload, materialJds, previewJds } from './jds.ts';
 import { acceptAll, skippedReason as skippedReasonOf, toggleAccepted } from './revisions.ts';
 import type { RevisedResume } from './revisions.ts';
 import { RevisionBar } from './components/RevisionBar.tsx';
@@ -49,11 +53,14 @@ import { HelpPanel } from './components/HelpPanel.tsx';
 import { IntakePanel } from './components/IntakePanel.tsx';
 import { InterviewerStudio } from './components/InterviewerStudio.tsx';
 import type { ImportNote, IntakeDraft } from './components/IntakePanel.tsx';
+import { JdPane } from './components/JdPane.tsx';
+import { RequirementBoard } from './components/RequirementBoard.tsx';
 import { ResumePane } from './components/ResumePane.tsx';
 import { StageRail } from './components/StageRail.tsx';
 import { TemplatePicker } from './components/TemplatePicker.tsx';
 
-const EMPTY_DRAFT: IntakeDraft = { resumeText: '', jdText: '', jobTitle: '' };
+/** 初始投料：一份空简历、一行空 JD。JD 列表先摆一行，让人知道这里可以贴。 */
+const emptyIntake = (): IntakeDraft => ({ resumeText: '', jds: emptyDraftList(), jobTitle: '' });
 const DEFAULT_PANEL: string[] = ['tech', 'hr', 'hiring_manager'];
 // 慢放模式下分片的节拍：40 ms 吐 3 片，约合每秒 75 片。
 // 比阶段事件（220 ms）快得多，所以字是连着出来的，而阶段仍在慢慢推进。
@@ -97,7 +104,7 @@ export function App() {
   const [health, setHealth] = useState<HealthInfo | null>(null);
   const [demo, setDemo] = useState<DemoInfo | null>(null);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
-  const [draft, setDraft] = useState<IntakeDraft>(EMPTY_DRAFT);
+  const [draft, setDraft] = useState<IntakeDraft>(emptyIntake);
   // 面板里存的是 id 字符串：预设是角色名，自定义是 custom-xxx，两者同一个数组
   const [panel, setPanel] = useState<string[]>(DEFAULT_PANEL);
   // 面试官库（预设 + 自建）。它决定面板上能挑谁，也决定「这一位是不是已经删了」
@@ -113,7 +120,15 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [hint, setHint] = useState<string | null>(null);
   const [importNote, setImportNote] = useState<ImportNote | null>(null);
-  const [material, setMaterial] = useState<{ resumeText: string; title: string }>({ resumeText: '', title: '' });
+  // 右栏要看的两份原文：简历与岗位要求。jds 只在跑过一场之后才有服务端给的编号，
+  // 没跑过时由投料台里的草稿现算（见 shownJds）。
+  const [material, setMaterial] = useState<{ resumeText: string; title: string; jds: JobDescription[] }>({
+    resumeText: '',
+    title: '',
+    jds: [],
+  });
+  // 右栏正在看哪一份 JD；多份时靠它切换
+  const [activeJdId, setActiveJdId] = useState<string | null>(null);
   const [contracts, setContracts] = useState<ContractView[] | null>(null);
   // 这一场用什么跑：默认跟随服务端启动时的模式，页面上可以逐场改。
   const [runMode, setRunMode] = useState<LlmMode>('replay');
@@ -279,9 +294,11 @@ export function App() {
 
     try {
       const jobTitle = draft.jobTitle.trim();
+      // 空白行不算一份 JD：粘错了留空，不该让服务端回一句「内容太短」
+      const jds = jdPayload(draft.jds);
       const created = await createSession({
         resumeText: draft.resumeText,
-        jdText: draft.jdText,
+        jds,
         ...(jobTitle.length > 0 ? { jobTitle } : {}),
         mode: runMode,
         ...(runMode === 'replay' || runModel.trim() === '' ? {} : { model: runModel.trim() }),
@@ -289,7 +306,9 @@ export function App() {
         interviewers: panel,
       });
       sessionId = created.id;
-      setMaterial({ resumeText: draft.resumeText, title: created.jobTitle });
+      // 服务端回的只有编号与标题，正文用刚提交的那几份对上——右栏立刻就能看 JD 原文
+      setMaterial({ resumeText: draft.resumeText, title: created.jobTitle, jds: materialJds(created.jds, draft.jds) });
+      setActiveJdId(null);
       // 新的一场从零开始：上一场的改写与勾选不能跟过来
       setRevised(null);
       setChosen([]);
@@ -339,8 +358,16 @@ export function App() {
     setHint(null);
     try {
       const view = await getSession(id);
-      setMaterial({ resumeText: view.session.resumeText, title: view.session.jobTitle });
-      setDraft({ resumeText: view.session.resumeText, jdText: view.session.jdText, jobTitle: view.session.jobTitle });
+      setMaterial({ resumeText: view.session.resumeText, title: view.session.jobTitle, jds: view.jds });
+      setDraft({
+        resumeText: view.session.resumeText,
+        jds:
+          view.jds.length > 0
+            ? view.jds.map((jd) => ({ title: jd.title, text: jd.text }))
+            : emptyDraftList(),
+        jobTitle: view.session.jobTitle,
+      });
+      setActiveJdId(view.jds.length > 0 ? view.jds[0]!.id : null);
       dispatch({ type: 'load', state: stateFromHistory(id, view.events, view.notices) });
       if (view.contracts.length > 0) setContracts(view.contracts);
       // 历史会话可能早就采纳过改写：把那一版一起取回来，勾选状态照它回填
@@ -379,7 +406,8 @@ export function App() {
       setHint('示例简历还没加载好，稍等一下再点。');
       return;
     }
-    setDraft({ resumeText: demo.resume, jdText: demo.jd, jobTitle: demo.title });
+    setDraft({ resumeText: demo.resume, jds: [{ title: '', text: demo.jd }], jobTitle: demo.title });
+    setActiveJdId(null);
     setHint('已填入内置示例简历。这是合成素材，刻意留了两处「经不起追问」的表述给面试官抓。');
   }, [demo]);
 
@@ -483,8 +511,9 @@ export function App() {
   const handleCloseStudio = useCallback(() => setStudioOpen(false), []);
 
   const handleClear = useCallback(() => {
-    setDraft(EMPTY_DRAFT);
-    setMaterial({ resumeText: '', title: '' });
+    setDraft(emptyIntake());
+    setMaterial({ resumeText: '', title: '', jds: [] });
+    setActiveJdId(null);
     dispatch({ type: 'reset' });
     setHint(null);
     setImportNote(null);
@@ -570,9 +599,10 @@ export function App() {
         setAppliedTemplate(applied);
         setDraft({
           resumeText: applied.template.resume,
-          jdText: applied.template.jd,
+          jds: [{ title: '', text: applied.template.jd }],
           jobTitle: applied.template.title,
         });
+        setActiveJdId(null);
         setPanel(applied.panel);
         // 换了一份材料，上一次导入的提示（「已从 xx.pdf 解析出…」）就该消失
         setImportNote(null);
@@ -601,6 +631,33 @@ export function App() {
 
   /** 右栏显示哪一版：没有改完的版本时，无论选哪个都只能是原文 */
   const shownRevised = viewing === 'revised' ? revised : null;
+
+  /** 右栏的 JD 原文：跑过就用服务端那份（带 J1..Jn 编号），没跑过就用投料台里的草稿现算 */
+  const shownJds = useMemo(
+    () => (material.jds.length > 0 ? material.jds : previewJds(draft.jds)),
+    [material.jds, draft.jds],
+  );
+  const activeJd = shownJds.find((jd) => jd.id === activeJdId) ?? shownJds[0] ?? null;
+  /** 这一份 JD 上被抽成要求的位置：JD 原文栏的高亮用它 */
+  const jdHits = useMemo(() => (activeJd === null ? [] : anchorsOfJd(sandbox, activeJd.id)), [sandbox, activeJd]);
+  /** 按编号取岗位要求：追问上那个「照 R1 问」的悬浮说明用它 */
+  const requirementOf = useCallback(
+    (id: string): Requirement | null => sandbox.requirements.find((item) => item.id === id) ?? null,
+    [sandbox.requirements],
+  );
+  /** 按主张 id 取那句主张的话：要求对照里「对应主张 C1 · …」用它 */
+  const claimTextOf = useCallback(
+    (claimId: string): string | null => sandbox.claims.find((item) => item.claim.id === claimId)?.claim.text ?? null,
+    [sandbox.claims],
+  );
+  const handleFocusJd = useCallback((anchor: Anchor | null) => dispatch({ type: 'focus-jd', anchor }), []);
+  const handleFocusClaim = useCallback(
+    (claimId: string) => {
+      const found = sandbox.claims.find((item) => item.claim.id === claimId);
+      if (found !== undefined) dispatch({ type: 'focus', anchor: found.claim.anchor });
+    },
+    [sandbox.claims],
+  );
 
   const mode = modeChip(health === null ? null : runMode, health);
   const hasReport = sandbox.sessionId !== null && sandbox.claims.length > 0;
@@ -681,7 +738,7 @@ export function App() {
         </div>
       </header>
 
-      <main className="grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-auto p-3 xl:grid-cols-[330px_minmax(0,1fr)_minmax(0,430px)] xl:overflow-hidden">
+      <main className="grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-auto p-3 xl:grid-cols-[330px_minmax(0,1fr)_minmax(0,660px)] xl:overflow-hidden">
         <aside className="flex min-h-0 flex-col gap-3">
           <IntakePanel
             templatePicker={
@@ -726,24 +783,55 @@ export function App() {
           <StageRail state={sandbox} panel={panel} health={health} contracts={contracts} />
         </aside>
 
-        <ClaimBoard
-          state={sandbox}
-          onFocus={(anchor) => dispatch({ type: 'focus', anchor })}
-          interviewerName={interviewerName}
-          chosen={chosen}
-          onToggleChoose={handleToggleChoose}
-          skippedReason={skippedReason}
-        />
-
-        <div className="flex min-h-0 flex-col gap-3">
-          <ResumePane
-            text={material.resumeText}
-            title={material.title}
-            focus={sandbox.focus}
-            hits={allAnchors(sandbox)}
-            revised={shownRevised}
-            onShowOriginal={() => setViewing('original')}
+        {/*
+          中栏放两栏结论：上面是「谁被追问、追出了什么」（主张与追问），
+          下面是「岗位要求对上了几条」（要求对照）。两栏都能点，点的都是同一份原文。
+        */}
+        <div className="grid min-h-0 gap-3 xl:grid-rows-[minmax(0,3fr)_minmax(0,2fr)]">
+          <ClaimBoard
+            state={sandbox}
+            onFocus={(anchor) => dispatch({ type: 'focus', anchor })}
+            onFocusJd={handleFocusJd}
+            requirementOf={requirementOf}
+            interviewerName={interviewerName}
+            chosen={chosen}
+            onToggleChoose={handleToggleChoose}
+            skippedReason={skippedReason}
           />
+          <RequirementBoard
+            requirements={sandbox.requirements}
+            matches={sandbox.requirementMatches}
+            rejected={sandbox.requirementRejected}
+            summary={sandbox.requirementSummary}
+            jds={shownJds}
+            claimText={claimTextOf}
+            onFocusJd={handleFocusJd}
+            onFocusClaim={handleFocusClaim}
+          />
+        </div>
+
+        {/*
+          右栏是两份原文并排：左边简历（可能已经换成改完的版本），右边岗位要求。
+          多 JD 之后，一条追问的锚点可能落在任何一边，所以两边都得看得见。
+        */}
+        <div className="flex min-h-0 flex-col gap-3">
+          <div className="grid min-h-0 flex-1 gap-3 xl:grid-cols-2">
+            <ResumePane
+              text={material.resumeText}
+              title={material.title}
+              focus={sandbox.focus}
+              hits={allAnchors(sandbox)}
+              revised={shownRevised}
+              onShowOriginal={() => setViewing('original')}
+            />
+            <JdPane
+              jds={shownJds}
+              activeId={activeJdId}
+              onPick={setActiveJdId}
+              focus={sandbox.jdFocus}
+              hits={jdHits}
+            />
+          </div>
           <RevisionBar
             sessionId={sandbox.sessionId}
             revised={revised}
