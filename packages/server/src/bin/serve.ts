@@ -14,7 +14,7 @@ import { loadDotEnv, parsePanelSize } from '../env.ts';
 import { createApp } from '../http/app.ts';
 import { mountWebApp } from '../http/static.ts';
 import { closeDatabase, openDatabase } from '../store/index.ts';
-import { createLlmClient, defaultCassetteDir, describeClient } from '../llm/index.ts';
+import { createLlmClient, defaultCassetteDir, describeClient, reasoningRoutes } from '../llm/index.ts';
 
 // 必须在读任何环境变量之前：README 让评委复制 .env.example，这里得真的把它读进来。
 const dotEnvPath = loadDotEnv();
@@ -28,8 +28,9 @@ if (dbPath !== ':memory:') {
 }
 const db = openDatabase({ path: dbPath === ':memory:' ? ':memory:' : resolve(dbPath) });
 const cassetteDir = defaultCassetteDir();
-const client = createLlmClient({ cassetteDir });
-const app = createApp({ db, client, cassetteDir, panelSize });
+const reasoning = reasoningRoutes();
+const client = createLlmClient({ cassetteDir, stageModels: reasoning });
+const app = createApp({ db, client, cassetteDir, panelSize, reasoning });
 
 // 前端已经构建过就顺便托管，让 http://127.0.0.1:8787 一个端口就是完整产品
 // 用模块自身位置定位，保证从任何工作目录启动都能找到前端产物
@@ -41,7 +42,7 @@ serve({ fetch: app.fetch, port }, (info) => {
   console.log('  CrossExam 质询室 — 多 Agent 对抗式面试沙盘');
   console.log('  ------------------------------------------------');
   console.log('  地址      http://127.0.0.1:' + String(info.port));
-  console.log('  跑法      ' + describeClient(client, cassetteDir));
+  console.log('  跑法      ' + describeClient(client, cassetteDir, reasoning));
   console.log('  数据库    ' + dbPath);
   console.log('  卡带目录  ' + cassetteDir);
   console.log('  配置      ' + (dotEnvPath ? '已载入 ' + dotEnvPath : '没有 .env，按环境变量与默认值运行'));

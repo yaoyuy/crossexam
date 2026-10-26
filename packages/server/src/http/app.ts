@@ -36,6 +36,8 @@ export interface AppOptions {
   client?: LlmClient;
   model?: string;
   cassetteDir?: string;
+  /** 阶段 → 模型 的路由；原样透给 /api/health，让界面能说明「谁在思考」 */
+  reasoning?: Record<string, string>;
   /**
    * 同时上场的面试官数量上限（PANEL_SIZE）。只做截断，不负责挑选：
    * 面板组成仍由请求的 ?panel= 或 DEFAULT_PANEL 决定。不传则不设上限。
@@ -115,6 +117,7 @@ export function createApp(opts: AppOptions): Hono {
   const cassetteDir = opts.cassetteDir ?? defaultCassetteDir();
   const client = opts.client ?? createLlmClient({ cassetteDir });
   const model = opts.model ?? process.env['LLM_MODEL'] ?? '';
+  const reasoning = opts.reasoning ?? {};
   const panelLimit = opts.panelSize;
   const resolvePanel = (raw: string | undefined): readonly InterviewerRole[] =>
     limitPanel(panelOf(raw) ?? DEFAULT_PANEL, panelLimit);
@@ -126,6 +129,7 @@ export function createApp(opts: AppOptions): Hono {
       mode: client.mode,
       runMode: describeClient(client, cassetteDir),
       model,
+      reasoning,
       cassetteDir,
     }),
   );

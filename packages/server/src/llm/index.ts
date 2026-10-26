@@ -9,6 +9,7 @@
 import { defaultCassetteDir } from './cassette.ts';
 import { createLiveClient } from './live.ts';
 import { createReplayClient } from './replay.ts';
+import { withStageModels } from './routing.ts';
 import { LlmError } from './types.ts';
 import type { LiveOptions } from './live.ts';
 import type { LlmClient, LlmMode } from './types.ts';
@@ -20,6 +21,34 @@ export const MODE_LABEL: Record<LlmMode, string> = {
   record: '联网录制（写入卡带）',
   live: '真实调用（不留痕）',
 };
+
+/**
+ * 思考可视化：把需要权衡的阶段交给会吐思考过程的模型。
+ *
+ * 默认只路由「判定」这一个阶段——它是唯一需要反复权衡证据强弱的环节，
+ * 也最容易看出模型为什么这么判；追问一轮有十几次调用，全交给思考模型会把一场跑成几分钟。
+ * 没有配置 CROSSEXAM_REASONING_MODEL 时**不做任何路由**，行为与从前逐字节相同。
+ */
+export const DEFAULT_REASONING_STAGES = ['verdict'];
+
+export function reasoningRoutes(env: Record<string, string | undefined> = process.env): Record<string, string> {
+  const model = (env['CROSSEXAM_REASONING_MODEL'] ?? '').trim();
+  if (model === '') return {};
+  const raw = (env['CROSSEXAM_REASONING_STAGES'] ?? DEFAULT_REASONING_STAGES.join(',')).trim();
+  const routes: Record<string, string> = {};
+  for (const part of raw.split(',')) {
+    const stage = part.trim();
+    if (stage !== '') routes[stage] = model;
+  }
+  return routes;
+}
+
+/** 一行说明路由结果，给启动横幅与 /api/health 用。 */
+export function describeRoutes(routes: Record<string, string>): string {
+  return Object.keys(routes)
+    .map((stage) => stage + ' → ' + (routes[stage] as string))
+    .join('、');
+}
 
 /** 读环境变量定模式。写错的值直接拒绝，不做"猜一个最接近的"这种事。 */
 export function modeFromEnv(env: Record<string, string | undefined> = process.env): LlmMode {
@@ -33,6 +62,8 @@ export interface ClientOptions extends LiveOptions {
   mode?: LlmMode;
   /** 卡带目录：replay 从这里读，record 写到这里。 */
   cassetteDir?: string;
+  /** 阶段 → 模型 的路由；不填就读 CROSSEXAM_REASONING_MODEL。 */
+  stageModels?: Record<string, string>;
 }
 
 /**
@@ -43,19 +74,25 @@ export interface ClientOptions extends LiveOptions {
 export function createLlmClient(opts: ClientOptions = {}): LlmClient {
   const mode = opts.mode ?? modeFromEnv();
   const dir = opts.cassetteDir ?? defaultCassetteDir();
-  if (mode === 'replay') return createReplayClient(dir);
-  if (mode === 'record') return createLiveClient({ ...opts, recordDir: opts.recordDir ?? dir });
-  return createLiveClient(opts);
+  const base =
+    mode === 'replay'
+      ? createReplayClient(dir)
+      : mode === 'record'
+        ? createLiveClient({ ...opts, recordDir: opts.recordDir ?? dir })
+        : createLiveClient(opts);
+  return withStageModels(base, opts.stageModels ?? reasoningRoutes());
 }
 
 /** 给前端顶部横幅用的一句话说明：当前到底联没联网，不能靠猜。 */
-export function describeClient(client: LlmClient, dir: string): string {
-  return MODE_LABEL[client.mode] + ' · 卡带目录 ' + dir;
+export function describeClient(client: LlmClient, dir: string, routes: Record<string, string> = {}): string {
+  const extra = describeRoutes(routes);
+  return MODE_LABEL[client.mode] + ' · 卡带目录 ' + dir + (extra === '' ? '' : ' · 思考模型 ' + extra);
 }
 
 export { CASSETTE_VERSION, cassettePath, defaultCassetteDir, digestFor, listCassettes, readCassette, writeCassette } from './cassette.ts';
 export { buildPayload, createLiveClient, endpointOf, parseSseData, readUsage, resolveLiveConfig } from './live.ts';
 export { chunkText, createReplayClient, REPLAY_CHUNK_SIZE } from './replay.ts';
+export { withStageModels } from './routing.ts';
 export { EMPTY_USAGE, LlmError } from './types.ts';
 
 export type { CassetteEntry, CassetteSummary } from './cassette.ts';

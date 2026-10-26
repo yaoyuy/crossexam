@@ -28,6 +28,11 @@ export interface LlmRequest {
    * 只用于把流式分片送回对应的卡片，**不参与** fixture 指纹计算。
    */
   channel?: string;
+  /**
+   * 这一条请求指定用哪个模型；不填就用装配层的默认模型。
+   * 与 channel 同理，**不参与** fixture 指纹计算——换模型不该让整盘卡带失效。
+   */
+  model?: string;
 }
 
 export interface LlmUsage {
