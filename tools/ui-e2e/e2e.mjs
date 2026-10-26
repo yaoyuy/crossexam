@@ -244,6 +244,10 @@ async function waitSessionsBelow(count, timeoutMs) {
   }
 }
 
+// 整段点测包在 try 里：任何一步抛错（等待超时、页面抛错）都要先把浏览器关掉、把端口让出来。
+// 否则进程留在调试端口上，下一轮会直接连到它——它的 localStorage 里已经有「教程看过了」，
+// 断言会从「产品坏了」变成「连错浏览器了」，最难查的那一类假失败。
+try {
 await send('Emulation.setDeviceMetricsOverride', { width: 1600, height: 1000, deviceScaleFactor: 1, mobile: false });
 await send('Page.enable');
 await send('Runtime.enable');
@@ -502,6 +506,50 @@ const clearedLen = await evalJs('document.querySelectorAll("textarea")[0].value.
 const clearedDisabled = await evalJs('document.querySelector(String.fromCharCode(91) + "data-shot=" + String.fromCharCode(34) + "run" + String.fromCharCode(34) + String.fromCharCode(93) + "").disabled');
 const clearedCards = await countCards();
 check('清空把简历与棋盘都收回空状态', clearedLen === 0 && clearedDisabled === true && clearedCards === 0, '简历 ' + String(clearedLen) + ' 字 / 灰 ' + String(clearedDisabled) + ' / 卡片 ' + String(clearedCards));
+// 岗位模板库（P9）：不熟悉某个行业的人，也能在十秒内得到一份「有东西可问」的料。
+// 放在「清空」之后：这时投料台是空的，装完模板之后多出来的每一样都是模板带来的。
+const tplIndustryCount = await evalJs('document.querySelectorAll("[data-shot^=tpl-industry-]").length');
+const tplJobCount = await evalJs('Array.from(document.querySelectorAll("[data-shot^=tpl-]")).filter((e) => String(e.getAttribute("data-shot")).indexOf("tpl-industry-") < 0 && String(e.getAttribute("data-shot")) !== "tpl-note").length');
+check('投料台给出「行业 × 岗位」模板选择器', tplIndustryCount === 12 && tplJobCount === 3, String(tplIndustryCount) + ' 个行业 / ' + String(tplJobCount) + ' 个岗位');
+const tplCustomBefore = await evalJs('document.querySelectorAll("[data-shot^=role-custom-]").length');
+// 行业 chip 靠正文认，不靠属性值里的中文；换行业之后岗位列表必须跟着换，否则 36 条就是平铺出来的。
+const pickIndustry = (name) => '(function () { var chip = Array.from(document.querySelectorAll("[data-shot^=tpl-industry-]")).find(function (x) { return String(x.textContent).indexOf(' + JSON.stringify(name) + ') >= 0; }); if (chip === undefined) return "no-chip"; chip.click(); return "ok"; })()';
+const tplSwitched = await evalJs(pickIndustry('财务会计'));
+const tplFinance = await waitFor(async () => {
+  const ids = await evalJs('Array.from(document.querySelectorAll("[data-shot^=tpl-]")).map((e) => String(e.getAttribute("data-shot"))).filter((n) => n.indexOf("tpl-fin-") === 0).join(",")');
+  return String(ids).length > 0 ? String(ids) : '';
+}, '切到财务会计后的岗位列表', 8000);
+check('换个行业，岗位列表跟着换', tplSwitched === 'ok' && tplFinance.indexOf('tpl-fin-cost') >= 0, tplFinance);
+await evalJs(pickIndustry('医疗护理'));
+const tplBack = await waitFor(async () => {
+  const found = await evalJs('document.querySelector("[data-shot=tpl-med-pharmacy-lead]") !== null');
+  return found === true ? 'ok' : '';
+}, '回到医疗护理的岗位列表', 8000);
+const tplHint = await evalJs('(function () { var b = document.querySelector("[data-shot=tpl-med-pharmacy-lead]"); return b === null ? "" : String(b.getAttribute("title")); })()');
+check('岗位按钮上带着「这类简历常见的坑」', tplBack === 'ok' && String(tplHint).length >= 10, String(tplHint).slice(0, 60));
+const tplClicked = await evalJs('(function () { var b = document.querySelector("[data-shot=tpl-med-pharmacy-lead]"); if (b === null) return "no-button"; if (b.disabled) return "busy"; b.click(); return "ok"; })()');
+// waitFor 只认非空字符串，所以把「填好了没」的判断放在回调里，别把对象丢出来。
+const tplFilled = await waitFor(async () => {
+  const state = await evalJs('(function () { var ta = document.querySelectorAll("textarea"); var inputs = Array.from(document.querySelectorAll("input:not([type=file])")); var title = inputs.find(function (e) { return String(e.placeholder).indexOf("例如") >= 0; }); return { resume: ta[0] ? ta[0].value.length : 0, jd: ta[1] ? ta[1].value.length : 0, title: title ? title.value : "" }; })()');
+  return state.resume >= 200 && state.jd >= 180 && state.title.length > 0 ? String(state.resume) + '/' + String(state.jd) + '/' + state.title : '';
+}, '模板把料填进投料台', 15000);
+check('点一下模板：岗位名、JD、示例简历一起填好', tplClicked === 'ok' && tplFilled.length > 0, String(tplClicked) + ' / ' + tplFilled);
+const tplNote = await evalJs('(document.querySelector("[data-shot=tpl-note]") || { textContent: "" }).textContent');
+check('提示一次说清装了什么、换了谁', tplNote.indexOf('已装好') >= 0 && tplNote.indexOf('药房主管') >= 0, tplNote.slice(0, 80));
+const tplContracts = await evalJs('document.querySelectorAll("[data-shot=contract-toggle]").length');
+const tplCustom = await evalJs('document.querySelectorAll("[data-shot^=role-custom-]").length');
+check('模板自带的面试官进了阵容并渲染出契约', tplContracts === 3 && tplCustom === tplCustomBefore + 1, String(tplContracts) + ' 条契约 / ' + String(tplCustom) + ' 位自建（此前 ' + String(tplCustomBefore) + ' 位）');
+await evalJs('(function () { var b = document.querySelector("[data-shot=tpl-med-pharmacy-lead]"); if (b !== null) b.click(); return "ok"; })()');
+const tplReused = await waitFor(async () => { const t = await evalJs('(document.querySelector("[data-shot=tpl-note]") || { textContent: "" }).textContent'); return t.indexOf('复用了') >= 0 ? t : ''; }, '复用提示', 15000);
+check('同一套模板点两次不会多出一位面试官，并明说复用', tplReused.length > 0, tplReused.slice(-40));
+const tplCustomAfter = await evalJs('document.querySelectorAll("[data-shot^=role-custom-]").length');
+check('阵容里的自建面试官还是那几位，没多出来', String(tplCustomAfter) === String(tplCustom), String(tplCustomAfter) + ' 位');
+
+// 模板这条路走完，把料收回去：后面还要看历史与删除，别带着一版填好的简历。
+await clickText('清空');
+await sleep(400);
+const tplCleared = await evalJs('(function () { var ta = document.querySelectorAll("textarea"); return ta[0] ? ta[0].value.length : -1; })()');
+check('清空能把模板装进来的料一起收回', tplCleared === 0, String(tplCleared) + ' 字');
 
 const historyText = await evalJs('document.querySelector(String.fromCharCode(91) + "data-shot=" + String.fromCharCode(34) + "intake" + String.fromCharCode(34) + String.fromCharCode(93) + "").innerText');
 check('历史会话列出刚才两场', historyText.indexOf('高级后端工程师（Node.js） · 演示简历') >= 0 && historyText.indexOf('已完成') >= 0 && historyText.indexOf('失败') >= 0, historyText.replace(/\n/g, ' / ').slice(-160));
@@ -536,11 +584,14 @@ for (const e of events) {
 }
 check('整轮下来浏览器控制台没有报错或警告', problems.length === 0, problems.slice(0, 4).join(' | '));
 
-await closeBrowser(CDP_PORT);
-cleanup();
-await warnIfPortBusy(CDP_PORT);
-await sleep(400);
-writeFileSync(join(OUT, 'summary.json'), JSON.stringify({ results, serverLog: serverLog.slice(-1500) }, null, 2));
+} finally {
+  await closeBrowser(CDP_PORT);
+  cleanup();
+  await warnIfPortBusy(CDP_PORT);
+  await sleep(400);
+  // 半路失败也要留下现场：results 里最后一条就是失败原因。
+  writeFileSync(join(OUT, 'summary.json'), JSON.stringify({ results, serverLog: serverLog.slice(-1500) }, null, 2));
+}
 const failed = results.filter((r) => !r.ok);
 console.log('--- ' + String(results.length - failed.length) + '/' + String(results.length) + ' 项通过 ---');
 process.exit(failed.length === 0 ? 0 : 1);
