@@ -718,5 +718,35 @@ P1-2 思考可视化（接 deepseek-reasoner，把 reasoning 分片单独显示�
 P1-3 报告导出 PDF/Word；随后是真机可见浏览器逐功能点测（用用户的真实简历）、按方案 A 录演示视频、
 补 LICENSE 与发布清单。
 
+## Session 16（2026-10-26）P1-3：报告导出三种形态（P1 三项优化的第三项）
+
+### 做了什么
+
+- 新增 `packages/server/src/report-html.ts`：与 `report.ts` 吃同一个 `SessionView`，输出**自带打印样式**的 HTML
+  （`@page A4`、判定徽章配色、`.claim/.probe/.advice` 不跨页断开、不引用任何外部资源）；`?print=1` 时注入 `window.print()`。
+- 两条新接口：`GET /api/sessions/:id/report.html?print=1`（inline）与 `GET /api/sessions/:id/report.doc`（`application/msword` 附件）。
+  服务端**不生成 PDF**：那要么带无头浏览器、要么引原生 PDF 库，都会破坏「十分钟复现」；PDF 由浏览器「另存为」得到（ADR-0006）。
+- 界面头部原来的一个「下载报告」换成三个按钮：报告 .md / 报告 PDF（新窗口，自动弹打印）/ 报告 Word。
+- 测试：server 新增 3 条（HTML 报告内容与 `window.print()` 的有无、`.doc` 的类型与附件名、未知会话 404），web 新增 3 条（三种网址形状与转义）。
+
+### 验证
+
+- `npm run verify` exit 0：typecheck + **33 个测试文件 / 329 条断言 / 4.2 s** + 冒烟 9 项 + build（vite 8.3.5 / 27 modules / CSS 21.86 kB / JS 266.60 kB gzip 83.17 kB）。
+- 真机验收（`.tmp/report-check.mjs`，**12/12 PASS**）：服务端 HTML 经 Edge `--print-to-pdf` 得到 **438305 B / 6 页** PDF；
+  真界面上三个按钮的 href 分别以 `/report.md`、`/report.html?print=1`、`/report.doc` 结尾；Markdown 仍含「一、主张与判定」。
+- `npm run shots` 先补了一步拍报告页（`12-report.png`），**12 张截图、控制台 0 报错**。
+
+### 三条如实记录
+
+- Word 走的是「HTML + .doc 后缀 + application/msword」这条老路：可编辑、零依赖，但没有 `.docx` 的严格结构（复杂页眉页脚不会有）。
+- PDF 的最终版式取决于浏览器（本机 Edge 打印为 6 页）；服务端负责的是内容与分页提示，不是像素级版式。
+- 第一轮验收脚本报了 1 项 FAIL 与随后 1 项超时，查下去**两次都是脚本自己的错**（恒真的等待条件、从别的测试抄来的夹具问句），产品侧无缺陷；写进 findings F34。
+
+### 下一步
+
+真机可见浏览器逐功能点测（用用户的真实简历做样例）→ 方案 A 录演示视频 → 补 LICENSE 与发布清单。
+
+---
+
 ---
 
