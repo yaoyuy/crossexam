@@ -14,7 +14,18 @@
  * 其他面试官照常发问。
  */
 
-import type { BudgetState, Claim, IntentContract, Probe, ProbeDraft, ResumeOutline } from '@crossexam/shared';
+import type {
+  Anchor,
+  BudgetState,
+  Claim,
+  IntentContract,
+  JobDescription,
+  Probe,
+  ProbeDraft,
+  Requirement,
+  RequirementNote,
+  ResumeOutline,
+} from '@crossexam/shared';
 import { REJECTION_LABEL, canProbe, consumeProbe, openClaims, parseLlmOutput, probeListSchema, resolveAnchor } from '@crossexam/shared';
 import type { LlmClient, LlmUsage } from '../llm/types.ts';
 import { EMPTY_USAGE, LlmError } from '../llm/types.ts';
@@ -60,6 +71,10 @@ export interface ProbeRoundInput {
   /** 全场已问过的追问，用于提示词与去重 */
   history: readonly Probe[];
   maxProbesPerTurn?: number;
+  /** 岗位要求与它们的来源 JD：追问要带双锚点时，靠它们把要求原文重新锚回 JD */
+  jds?: readonly JobDescription[];
+  requirements?: readonly Requirement[];
+  requirementNotes?: readonly RequirementNote[];
 }
 
 export interface ProbeRoundResult {
@@ -76,6 +91,25 @@ interface RawOutcome {
   drafts: ProbeDraft[];
   usage: LlmUsage;
   error: string | null;
+}
+
+/**
+ * 追问带的「第二条锚」：要求编号 + 要求原文片段。
+ * 代码不信模型给的坐标，一律拿 jdQuote 回**那份 JD 的原文**重新定位；
+ * 定不到就不带这条锚（并写进 rationale 说明），绝不猜一个位置出来。
+ */
+function jdAnchorOf(
+  input: ProbeRoundInput,
+  draft: ProbeDraft,
+): { requirementId: string; anchor: Anchor } | null {
+  if (draft.requirementId === undefined || draft.jdQuote === undefined) return null;
+  const requirement = (input.requirements ?? []).find((item) => item.id === draft.requirementId);
+  if (requirement === undefined) return null;
+  const jd = (input.jds ?? []).find((item) => item.id === requirement.jdId);
+  if (jd === undefined) return null;
+  const anchored = resolveAnchor(jd.text, { quote: draft.jdQuote });
+  if (!anchored.ok) return null;
+  return { requirementId: requirement.id, anchor: anchored.anchor };
 }
 
 function normalizeQuestion(q: string): string {
@@ -119,6 +153,11 @@ export async function runProbeRound(input: ProbeRoundInput): Promise<ProbeRoundR
           asked: input.history.filter((p) => p.interviewerId === contract.id),
           round: input.round,
           maxProbes: maxPerTurn,
+          // 只把「这一轮真的能问」的那些要求摆上桌：对不上开放主张的要求，
+          // 摆出来只会诱导模型硬凑一条追问。
+          requirements: (input.requirementNotes ?? []).filter(
+            (note) => note.claimId !== null && openIds.has(note.claimId),
+          ),
         }),
         'probe:' + contract.id,
       );
@@ -194,6 +233,10 @@ export async function runProbeRound(input: ProbeRoundInput): Promise<ProbeRoundR
       }
       seenQuestions.add(key);
 
+      // 第二条锚：只认「要求编号 + 能锚回该 JD 原文的引文」，锚不到就不带，
+      // 并在 rationale 里说明这一次为什么没带上——静默丢掉一条锚比丢掉它更糟。
+      const requirementAnchor = jdAnchorOf(input, draft);
+      const rationale = draft.rationale ?? '';
       const chainKey = claim.id + '|' + outcome.contract.id;
       seq += 1;
       const probe: Probe = {
@@ -204,7 +247,13 @@ export async function runProbeRound(input: ProbeRoundInput): Promise<ProbeRoundR
         question: draft.question,
         anchor: anchored.anchor,
         parentProbeId: lastProbeId.get(chainKey) ?? null,
-        rationale: draft.rationale ?? '',
+        rationale:
+          requirementAnchor === null && draft.requirementId !== undefined
+            ? (rationale === '' ? '' : rationale + ' ') +
+              '（这次本要带上岗位要求，但要求原文锚不回 JD，已按普通追问处理）'
+            : rationale,
+        requirementId: requirementAnchor === null ? null : requirementAnchor.requirementId,
+        jdAnchor: requirementAnchor === null ? null : requirementAnchor.anchor,
       };
       lastProbeId.set(chainKey, probe.id);
       probes.push(probe);

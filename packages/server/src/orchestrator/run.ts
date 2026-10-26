@@ -19,8 +19,14 @@ import type {
   Claim,
   IntentContract,
   InterviewerRole,
+  JobDescription,
+  MatchSummary,
   Probe,
   RejectedClaim,
+  RejectedRequirement,
+  Requirement,
+  RequirementMatch,
+  RequirementNote,
   ResumeOutline,
   Suggestion,
   Verdict,
@@ -39,6 +45,7 @@ import type { BudgetConfig, BudgetSnapshot, BudgetState } from '@crossexam/share
 import type { LlmClient, LlmUsage } from '../llm/types.ts';
 import { EMPTY_USAGE } from '../llm/types.ts';
 import { DEFAULT_MAX_CLAIMS, extractClaims } from './extract.ts';
+import { extractRequirements, matchRequirements, mergeRequirements } from './jd.ts';
 import type { RejectedProbe } from './probe.ts';
 import { runProbeRound } from './probe.ts';
 import { answerProbes } from './answer.ts';
@@ -54,6 +61,14 @@ export const DEFAULT_MAX_ROUNDS = 3;
 export type RunEvent =
   | { type: 'stage'; stage: string; round: number | null }
   | { type: 'claims'; claims: Claim[]; rejected: RejectedClaim[] }
+  /** 岗位要求抽完、归并完、对照完只发一次：三张表本来就是同一份判断的三面 */
+  | {
+      type: 'requirements';
+      requirements: Requirement[];
+      rejected: RejectedRequirement[];
+      matches: RequirementMatch[];
+      summary: MatchSummary;
+    }
   | { type: 'probes'; round: number; probes: Probe[]; rejected: RejectedProbe[] }
   | { type: 'answers'; answers: AnswerOutcome[]; errors: AnswerError[] }
   | { type: 'budget'; totalProbes: number; open: string[]; closed: string[] }
@@ -65,6 +80,11 @@ export interface RunSessionInput {
   client: LlmClient;
   resumeText: string;
   jdText?: string;
+  /**
+   * 用户上传的岗位描述（1–8 份，原文）。传了才跑岗位要求三阶段；
+   * 没传就是纯简历场次——一个网络包都不多发，这是离线可复现的一部分。
+   */
+  jds?: readonly JobDescription[];
   panel?: readonly InterviewerRole[];
   /**
    * 直接给契约（自定义面试官走这条）。
@@ -85,11 +105,18 @@ export interface RunSessionInput {
 export interface RunSessionResult {
   resumeText: string;
   jdText: string;
+  jds: readonly JobDescription[];
   outline: ResumeOutline;
   panel: readonly InterviewerRole[];
   contracts: IntentContract[];
   claims: Claim[];
   rejectedClaims: RejectedClaim[];
+  requirements: Requirement[];
+  requirementRejected: RejectedRequirement[];
+  requirementMatches: RequirementMatch[];
+  requirementSummary: MatchSummary;
+  /** 追问阶段真正摆上桌的那张「要求 → 主张」对照表 */
+  requirementNotes: RequirementNote[];
   probes: Probe[];
   transcriptByClaim: Record<string, AnsweredProbe[]>;
   verdicts: Verdict[];
@@ -123,6 +150,7 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionResu
   const budgetConfig = input.budgetConfig ?? DEFAULT_BUDGET;
   const maxRounds = input.maxRounds ?? DEFAULT_MAX_ROUNDS;
   const jdText = input.jdText ?? '';
+  const jds = input.jds ?? [];
   const outline = input.outline ?? segmentResume(input.resumeText);
   const contracts: IntentContract[] =
     input.contracts !== undefined && input.contracts.length > 0
@@ -159,6 +187,44 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionResu
     const transcriptByClaim: Record<string, AnsweredProbe[]> = {};
     for (const c of claims) transcriptByClaim[c.id] = [];
 
+    // 岗位要求三阶段：只在用户给了 JD 时跑。逐份抽取 → 跨份归并 → 与主张对照。
+    // 三条链路都允许部分失败（坏一份 JD、归并没走通、对照没走通），每次失败都记 notice；
+    // 最坏情况仍然给出一张完整可用的表，而不是一场空。
+    let requirements: Requirement[] = [];
+    let requirementRejected: RejectedRequirement[] = [];
+    let requirementMatches: RequirementMatch[] = [];
+    let requirementNoteList: RequirementNote[] = [];
+    let requirementSummary: MatchSummary = { hit: 0, weak: 0, missing: 0, total: 0 };
+    if (jds.length > 0) {
+      await emit({ type: 'stage', stage: 'jd-extract', round: null });
+      const pulled = await extractRequirements({ client: input.client, jds });
+      usage = addUsage(usage, pulled.usage);
+      for (const note of pulled.notices) notices.push(note);
+      requirementRejected = pulled.rejected;
+
+      await emit({ type: 'stage', stage: 'jd-merge', round: null });
+      const grouped = await mergeRequirements({ client: input.client, jds, items: pulled.items });
+      usage = addUsage(usage, grouped.usage);
+      for (const note of grouped.notices) notices.push(note);
+      requirements = grouped.merged.requirements;
+      if (requirements.length === 0) notices.push('岗位要求里没有抽出任何可对照的条目');
+
+      await emit({ type: 'stage', stage: 'jd-match', round: null });
+      const matched = await matchRequirements({ client: input.client, jds, requirements, claims });
+      usage = addUsage(usage, matched.usage);
+      for (const note of matched.notices) notices.push(note);
+      requirementMatches = matched.matches;
+      requirementNoteList = matched.notes;
+      requirementSummary = matched.summary;
+      await emit({
+        type: 'requirements',
+        requirements,
+        rejected: requirementRejected,
+        matches: requirementMatches,
+        summary: requirementSummary,
+      });
+    }
+
     let budget = initBudget(
       claims.map((c) => c.id),
       budgetConfig,
@@ -181,6 +247,9 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionResu
         round,
         history,
         maxProbesPerTurn: input.maxProbesPerTurn,
+        jds,
+        requirements,
+        requirementNotes: requirementNoteList,
       });
       budget = probed.budget;
       for (const o of probed.outcomes) usage = addUsage(usage, o.usage);
@@ -263,11 +332,17 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionResu
     return {
       resumeText: input.resumeText,
       jdText,
+      jds,
       outline,
       panel: roster as readonly InterviewerRole[],
       contracts,
       claims,
       rejectedClaims: extracted.rejected,
+      requirements,
+      requirementRejected,
+      requirementMatches,
+      requirementSummary,
+      requirementNotes: requirementNoteList,
       probes: history,
       transcriptByClaim,
       verdicts,

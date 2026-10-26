@@ -12,13 +12,33 @@
  * 于是「改人设」= 改结构化字段，可 diff、可版本化。
  */
 
-import type { Answer, Claim, IntentContract, Probe, ResumeOutline, Verdict } from '@crossexam/shared';
-import { VERDICT_LABEL, renderSystemPrompt } from '@crossexam/shared';
+import type {
+  Answer,
+  Claim,
+  ExtractedRequirement,
+  IntentContract,
+  JobDescription,
+  Probe,
+  Requirement,
+  RequirementNote,
+  ResumeOutline,
+  Verdict,
+} from '@crossexam/shared';
+import { REQUIREMENT_KIND_LABEL, VERDICT_LABEL, renderSystemPrompt } from '@crossexam/shared';
 import type { LlmRequest } from '../llm/types.ts';
 
 const NL = String.fromCharCode(10);
 
-export type StageName = 'extract' | 'probe' | 'answer' | 'verdict' | 'suggest' | 'contract';
+export type StageName =
+  | 'extract'
+  | 'jd-extract'
+  | 'jd-merge'
+  | 'jd-match'
+  | 'probe'
+  | 'answer'
+  | 'verdict'
+  | 'suggest'
+  | 'contract';
 
 /**
  * 每个阶段的采样参数。temperature 全部取 0 附近：
@@ -27,6 +47,10 @@ export type StageName = 'extract' | 'probe' | 'answer' | 'verdict' | 'suggest' |
  */
 export const STAGE_SETTINGS: Record<StageName, { temperature: number; maxTokens: number }> = {
   extract: { temperature: 0.2, maxTokens: 2000 },
+  // 岗位要求三阶段：抽取与归并都是「把话说明白」，对照是判断题，温度一律压到 0 附近。
+  'jd-extract': { temperature: 0.2, maxTokens: 1600 },
+  'jd-merge': { temperature: 0.1, maxTokens: 1600 },
+  'jd-match': { temperature: 0.1, maxTokens: 2200 },
   probe: { temperature: 0.4, maxTokens: 1200 },
   answer: { temperature: 0.3, maxTokens: 800 },
   verdict: { temperature: 0.1, maxTokens: 1500 },
@@ -82,6 +106,32 @@ export function renderClaims(claims: readonly Claim[], notes?: Record<string, st
 export function renderProbes(probes: readonly Probe[]): string {
   if (probes.length === 0) return '（无）';
   return probes.map((p) => '- [' + p.interviewerId + ' 第 ' + p.round + ' 轮] ' + p.question).join(NL);
+}
+
+/**
+ * 渲染「岗位要求 → 简历主张」这张对照表里对得上的几条。
+ * missing 的要求不出现在这里：它们是给人看的缺口清单，不是用来编问题的素材。
+ */
+export function renderRequirementNotes(notes: readonly RequirementNote[]): string {
+  if (notes.length === 0) return '（这次没有可对照的岗位要求，忽略这一节）';
+  return notes
+    .map(
+      (note) =>
+        '- [' +
+        note.id +
+        '] ' +
+        note.label +
+        '（对应主张 ' +
+        (note.claimId ?? '?') +
+        '，来自《' +
+        note.jdTitle +
+        '》）：' +
+        note.text +
+        NL +
+        '  要求原文：' +
+        note.jdQuote,
+    )
+    .join(NL);
 }
 
 export function renderInterview(probes: readonly Probe[], answers: readonly Answer[]): string {
@@ -150,6 +200,127 @@ export function buildExtractPrompt(input: {
   return lines.join(NL);
 }
 
+// ---------------------------------------------------------------- 阶段一之二：岗位要求
+//
+// 多份 JD 走三次调用：逐份抽取 → 跨份归并 → 与主张逐条对照。
+// 三次都不引入新机制：抽取沿用「不信模型给的坐标、只信逐字引文」的锚定，
+// 归并只做集合运算（谁并进了谁由代码判定），对照的产物是一张「要求 → 主张」的表。
+// 这张表只有一个用途：让追问能同时锚住简历原文与岗位要求原文（双锚点）。
+// missing 的要求不生成任何追问——它是给人看的缺口清单，不是编问题的素材。
+
+export const JD_EXTRACT_SYSTEM = [
+  '你是「岗位要求抽取官」。给你一份招聘 JD，你要挑出**能被拿去检验简历**的要求，逐条列出。',
+  '',
+  '## 什么算一条要求',
+  '- 硬性要求（must）：学历、年限、证书、必须掌握的工具或技能。',
+  '- 加分项（plus）：优先考虑、有则更好、某类经验加分。',
+  '- 岗位职责（duty）：入职后要负责的具体工作——它同样可以拿来问「你做过吗」。',
+  '',
+  '## 硬约束（由程序校验，违反的直接丢弃）',
+  '1. quote 必须是 JD 原文中**逐字存在**的片段，不少于 4 个字符。不要改写、不要补标点、不要拼接两处不连续的文字。',
+  '2. text 是你用一句话复述这条要求，可以改写。',
+  '3. 一条要求只写一件事：「熟悉 Node.js 与 TypeScript」与「有高并发经验」要拆成两条。',
+  '4. 不要臆造 JD 里没有的要求；公司福利、薪资、办公地点、招聘流程都不算要求。',
+  '5. 挑最能用来检验简历的那些，条数不超过指定上限。',
+  '',
+  '## 输出要求（只输出一个 JSON 对象）',
+  '{"requirements":[{"text":"一句话复述的要求","quote":"JD 原文中的逐字片段","kind":"must","keywords":["关键字"]}]}',
+  'kind 只能取：must / plus / duty。keywords 最多 6 个，写这条要求里最该被追问的点。',
+].join(NL);
+
+export function buildJdExtractPrompt(input: { jd: JobDescription; maxRequirements: number }): string {
+  const lines: string[] = [];
+  lines.push('## 第 ' + String(input.jd.ordinal) + ' 份 JD：' + input.jd.title);
+  lines.push('## JD 原文（quote 必须从下面这些行里逐字复制）');
+  lines.push(input.jd.text);
+  lines.push('');
+  lines.push('## 本次最多抽 ' + String(input.maxRequirements) + ' 条');
+  return lines.join(NL);
+}
+
+export const JD_MERGE_SYSTEM = [
+  '你是「岗位要求归并官」。你会看到从若干份 JD 里分别抽出来的要求，每条都带一个编号（形如 J1#3）。',
+  '',
+  '## 你的任务',
+  '把**说的是同一件事**的要求并成一组，其余的各自单独成组。',
+  '',
+  '## 纪律',
+  '1. members 只能填下方出现过的编号，不要新造编号；一条编号最多出现在一个组里。',
+  '2. 同一个意思换了个说法（「熟悉 TypeScript」与「熟练掌握 TypeScript」）应当并成一组；',
+  '   只是同属一个行业但要求不同的（「会写 SQL」与「会做数据看板」）不要并。',
+  '3. 每组给一句 text 概括这条要求的**最严口径**：两份 JD 一个写 3 年、一个写 5 年，就写 5 年。',
+  '4. kind 取组内最强的那个：只要有 must 就写 must；全是 duty 才写 duty。',
+  '5. 没有把握并的时候不要硬并——并错一条比多留一条更糟。',
+  '6. **不要漏掉任何编号**：列完每一组之后回头检查一遍，还有哪些编号没被任何组收进去。',
+  '',
+  '## 输出要求（只输出一个 JSON 对象）',
+  '{"groups":[{"text":"概括后的要求","kind":"must","members":["J1#1","J2#2"],"keywords":["关键字"]}]}',
+].join(NL);
+
+export function buildJdMergePrompt(items: readonly ExtractedRequirement[]): string {
+  const lines: string[] = [];
+  const jdIds: string[] = [];
+  for (const item of items) if (!jdIds.includes(item.jdId)) jdIds.push(item.jdId);
+  lines.push('## 从 ' + String(jdIds.length) + ' 份 JD 里抽出来的要求（共 ' + String(items.length) + ' 条）');
+  for (const item of items) {
+    lines.push(
+      '- [' +
+        item.key +
+        '] ' +
+        REQUIREMENT_KIND_LABEL[item.kind] +
+        '：' +
+        item.text +
+        NL +
+        '  原文：' +
+        item.quote,
+    );
+  }
+  return lines.join(NL);
+}
+
+export const JD_MATCH_SYSTEM = [
+  '你是「岗位要求对照官」。你要逐条判断：这份简历里有没有能对上某条岗位要求的内容。',
+  '',
+  '## 三种状态',
+  '- hit：简历写清楚了，能直接对上这条要求（技能、年限、项目、证书）。',
+  '- weak：沾边但不硬——只提了名字没有深度、只有课程培训没有实战、只写了「参与」。',
+  '- missing：简历里根本没写这类内容。**这是最有价值的信息，不要为了凑 hit 而硬对。**',
+  '',
+  '## 纪律',
+  '1. claimId 必须从下面列出的主张编号里选；对不上就写 null，不要硬凑一条主张。',
+  '2. status 是 hit 或 weak 时必须给出 claimId；是 missing 时 claimId 必须是 null。',
+  '3. reason 一句话说清依据（简历哪句话对上了，或者缺了什么），最多 300 字。',
+  '4. 每一条要求都要出现一次，不多不少。',
+  '',
+  '## 输出要求（只输出一个 JSON 对象）',
+  '{"matches":[{"requirementId":"R1","claimId":"C3","status":"hit","reason":"简历写了三年 Node.js 经验"}]}',
+].join(NL);
+
+export function buildJdMatchPrompt(input: {
+  requirements: readonly Requirement[];
+  claims: readonly Claim[];
+}): string {
+  const lines: string[] = [];
+  lines.push('## 岗位要求（每一条都要对照一次，方括号里的就是 requirementId）');
+  for (const requirement of input.requirements) {
+    lines.push(
+      '- [' +
+        requirement.id +
+        '] ' +
+        REQUIREMENT_KIND_LABEL[requirement.kind] +
+        '：' +
+        requirement.text +
+        NL +
+        '  要求原文：' +
+        requirement.anchor.quote,
+    );
+  }
+  lines.push('');
+  lines.push('## 这份简历里可以被引用的主张（claimId 只能从这里选）');
+  lines.push(renderClaims(input.claims));
+  return lines.join(NL);
+}
+
 // ---------------------------------------------------------------- 阶段二：追问
 
 export function probeSystem(contract: IntentContract): string {
@@ -157,8 +328,13 @@ export function probeSystem(contract: IntentContract): string {
   lines.push(renderSystemPrompt(contract));
   lines.push('');
   lines.push('## 输出要求（只输出一个 JSON 对象）');
-  lines.push('{"probes":[{"claimId":"C1","question":"一个问题","quote":"简历原文中的逐字片段","rationale":"为什么问这个"}]}');
+  lines.push(
+    '{"probes":[{"claimId":"C1","question":"一个问题","quote":"简历原文中的逐字片段","rationale":"为什么问这个"}]}',
+  );
   lines.push('claimId 必须是下方列表里出现过的编号；quote 必须逐字来自简历原文。');
+  lines.push(
+    '如果这次追问正好在追「岗位要求里对得上的几条」里的一条，就再带上 requirementId（要求编号）与 jdQuote（该要求的原文片段，逐字）。两个要么都给，要么都不给。',
+  );
   lines.push('如果这一轮你认为没有值得问的，返回 {"probes":[]} —— 空手而归是允许的，编一个问题不是。');
   return lines.join(NL);
 }
@@ -171,11 +347,16 @@ export function buildProbePrompt(input: {
   asked: readonly Probe[];
   round: number;
   maxProbes: number;
+  /** 岗位要求与主张对得上的那几条：追问它们时可以带上双锚点 */
+  requirements?: readonly RequirementNote[];
 }): string {
   const lines: string[] = [];
   lines.push('## 本轮是第 ' + input.round + ' 轮追问');
   lines.push('## 你可以追问的主张（只从这些里选，不要新造主张）');
   lines.push(renderClaims(input.claims, input.notes));
+  lines.push('');
+  lines.push('## 岗位要求里对得上的几条');
+  lines.push(renderRequirementNotes(input.requirements ?? []));
   lines.push('');
   lines.push('## 你此前问过的问题（不要重复，也不要换句话问同一个点）');
   lines.push(renderProbes(input.asked));
