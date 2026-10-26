@@ -270,6 +270,12 @@ llm_call(id, session_id, digest, purpose, model, replayed, usage_json, elapsedMs
 | `GET /api/sessions/:id/report.md` | 下载 Markdown 报告 |
 | `GET /api/sessions/:id/report.html?print=1` | 可打印 HTML 报告（`print=1` 时自动调 `window.print()`，PDF 由浏览器另存） |
 | `GET /api/sessions/:id/report.doc` | Word 报告（同一份 HTML + `application/msword`） |
+| `GET /api/sessions/:id/revisions` | 当前采纳出来的那一版简历（没采纳过是 `null`） |
+| `POST /api/sessions/:id/revisions` | 确认采纳：body 里的 `claims` 是**本次勾选的全部主张**，不是增量 |
+| `DELETE /api/sessions/:id/revisions` | 撤销全部采纳，回到原文 |
+| `GET /api/sessions/:id/resume.txt` | 改完的简历（纯文本，逐字就是要发出去的那一版） |
+| `GET /api/sessions/:id/resume.html?print=1&marks=1` | 可打印简历（`marks=1` 把改动段标绿并附「本版改了什么」） |
+| `GET /api/sessions/:id/resume.doc` | Word 简历（同一份 HTML + `application/msword`） |
 | `GET /api/stats?session=` | 调用账本统计 |
 
 ### 3.6.1 SSE 的收尾承诺
@@ -335,6 +341,18 @@ HTML 报告不引用任何外部资源，保存单文件即可离线打开；页
 预设不可改也不可删——它们的人设写在代码里，改预设等于悄悄改历史。上限 40 位，够用且防止界面被自己的库拖垮。
 为什么不干脆让用户填一段 System Prompt 自由文本？因为那样就丢掉了可解释、可版本化、可对账、可约束这四件事。取舍详见 ADR-0008。
 
+### 3.6.7 采纳改写：把建议变成一版真能发出去的简历
+
+质询的产出如果只是「你这里讲不清楚」，用户还得自己去改。所以判定之后还有一步：**勾选想采纳的建议 → 确认 → 右栏换成改完的版本 → 导出 PDF / Word**。
+
+这一步有三个容易做错的地方，选法是刻意的：
+
+1. **接口只收 claimId，不收「把 A 换成 B」**。改前改后都从库里那条建议读——如果接口接受任意文本替换，它就等于一个注入面，任何人带着 sessionId 就能把任意内容写进简历。所以 `POST /api/sessions/:id/revisions` 的 body 只有一组主张 id。
+2. **每次都从原文重算，采纳记录是集合不是叠加**。先采纳 C1 再采纳 C3，与一次采纳 [C1, C3]，结果**逐字节相同**。这样一来「撤销」不需要反向操作，`DELETE` 清空集合就从原文重算一遍；也就不存在「改了两遍、间距越改越乱」。
+3. **改不动的要说出理由**。建议引文在原简历里锚不住（原文被用户改过）、这条主张本来就没有建议、用户点名了不存在的主张——三类都进 `skipped` 并给一句中文原因，界面上直接显示「勾了但没改成：…」，而不是静默少改一处。
+
+导出复用报告那条路：服务端出 HTML，PDF 交给浏览器（ADR-0006），Word 是同一份 HTML + `.doc` 后缀。简历导出与报告导出**分两个渲染器**（`resume-export.ts` / `report-html.ts`）：报告是质询结论，简历是要发给 HR 的东西，混在一起会让简历带上满屏判定徽章。`marks=1` 时才把改动段标绿并附「本版改了什么（N 处）」——默认导出的就是干净的一版。改动坐标用的是 `movedSpans(applied)`：采纳会让后文整体平移，标记位置必须按累计位移重算，不能直接套原文坐标（见 `packages/shared/src/revise.ts`）。
+
 ## 3.7 工程质量：门禁四道
 
 `npm run verify` 是提交前必须全绿的一道门，它由四件事组成：
@@ -342,9 +360,9 @@ HTML 报告不引用任何外部资源，保存单文件即可离线打开；页
 | 顺序 | 命令 | 证明什么 | 当前规模 |
 | --- | --- | --- | --- |
 | 1 | `npm run typecheck` | 类型对（`tsc --noEmit`，含各包） | 全仓库 |
-| 2 | `npm run test` | 逻辑对（vitest） | 38 个文件 / 404 条断言 / 3.8 s |
+| 2 | `npm run test` | 逻辑对（vitest） | 41 个文件 / 441 条断言 / 4.1 s |
 | 3 | `npm run smoke` | **产品能跑**（真起进程、真打 HTTP、真等 SSE） | 9 项 |
-| 4 | `npm run build` | 前端能构建 | vite，32 modules（JS 298.51 kB / gzip 93.28 kB） |
+| 4 | `npm run build` | 前端能构建 | vite，34 modules（JS 306.54 kB / gzip 95.53 kB） |
 
 第 3 道是`findings.md` F11 的直接产物：同进程的 `app.request()` 测试全绿，真起服务却第一次写入就报没有表。
 **单元测试证明的是「函数逻辑对」，冒烟证明的是「产品能跑」，这两句话之间隔着一个进程边界，而事故恰好长在边界上。**
@@ -353,7 +371,7 @@ HTML 报告不引用任何外部资源，保存单文件即可离线打开；页
 
 | 命令 | 作用 | 什么时候跑 |
 | --- | --- | --- |
-| `npm run shots` | 无头浏览器点一遍全流程，出 16 张截图，**控制台有报错即失败** | 改了界面之后 |
+| `npm run shots` | 无头浏览器点一遍全流程，出 17 张截图，**控制台有报错即失败** | 改了界面之后 |
 | `npm run repro` | 干净目录 clone → install → verify → 起服跑一场，逐步计时 | 改复现路径之后 |
 | `npm run seed:demo` | 重新生成 29 盘离线卡带并自检 | 改了提示词之后 |
 
@@ -361,11 +379,11 @@ HTML 报告不引用任何外部资源，保存单文件即可离线打开；页
 
 | 模块 | 源码行 | 测试行 | 说明 |
 | --- | --- | --- | --- |
-| packages/shared/src | 1264 | 638 | 纯函数，测试密度最高 |
-| packages/server/src | 6741 | 3905 | 编排 + IO + 导入解析 + 面试官库 + 报告三种形态，含脚本化模型夹具 |
-| packages/web/src | 4046 | 1094 | 折叠器、文案与主题变量（只计 .ts/.tsx，index.css 另 311 行） |
-| tools/ | 2832 | 490 | 导出器 / 冒烟 / 截图 / 界面点测 / 复现 / 文档构建（只计 .mjs，测试目录另计） |
-| **合计** | **14883** | **6127** | 测试/源码 ≈ 0.41 |
+| packages/shared/src | 1432 | 765 | 纯函数，测试密度最高 |
+| packages/server/src | 7309 | 4172 | 编排 + IO + 导入解析 + 面试官库 + 报告三种形态 + 采纳改写，含脚本化模型夹具 |
+| packages/web/src | 4559 | 1210 | 折叠器、文案、工作室与采纳栏（只计 .ts/.tsx，index.css 另 321 行） |
+| tools/ | 2889 | 490 | 导出器 / 冒烟 / 截图 / 界面点测 / 复现 / 文档构建（只计 .mjs，测试目录另计） |
+| **合计** | **16189** | **6637** | 测试/源码 ≈ 0.41 |
 
 仓库里 **0 个 TODO / FIXME / HACK、0 处 `as any`、0 处 `@ts-ignore`**（全仓库 grep 实测）。
 console.log 只出现在两个 CLI 入口（serve.ts 与 seed-demo.ts）。
