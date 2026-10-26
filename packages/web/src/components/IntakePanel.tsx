@@ -49,9 +49,10 @@ export function IntakePanel(props: {
     <Pane
       title="投料台"
       subtitle="简历 + 目标岗位"
+      dataShot="intake"
       actions={
         <>
-          <button type="button" className="btn btn-quiet px-2 py-1 text-[12px]" onClick={props.onUseDemo}>
+          <button type="button" data-shot="use-demo" className="btn btn-quiet px-2 py-1 text-[12px]" onClick={props.onUseDemo}>
             一键示例
           </button>
           <button type="button" className="btn btn-quiet px-2 py-1 text-[12px]" onClick={props.onClear}>
@@ -125,6 +126,7 @@ export function IntakePanel(props: {
             <button
               key={choice.value}
               type="button"
+              data-shot={choice.value === 0 ? 'pace-instant' : 'pace-slow'}
               title={choice.hint}
               className={'chip ' + (props.pace === choice.value ? 'border-ember-500/50 text-ember-300' : 'opacity-70')}
               onClick={() => props.onPaceChange(choice.value)}
@@ -137,6 +139,7 @@ export function IntakePanel(props: {
 
       <button
         type="button"
+        data-shot="run"
         className="btn btn-primary w-full"
         disabled={props.busy || tooShort || props.panel.length === 0}
         onClick={props.onRun}

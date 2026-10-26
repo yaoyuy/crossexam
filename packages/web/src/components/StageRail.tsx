@@ -38,6 +38,7 @@ export function StageRail(props: { state: SandboxState; panel: InterviewerRole[]
   return (
     <Pane
       title="质询过程"
+      dataShot="stage"
       subtitle={running ? '正在质询' : state.phase === 'done' ? '已完成' : state.phase === 'failed' ? '中断' : '待开始'}
       actions={running ? <Dots /> : null}
       bodyClassName="flex flex-col gap-4 p-3"

@@ -139,6 +139,7 @@ export function ClaimBoard(props: { state: SandboxState; onFocus: (anchor: Ancho
   return (
     <Pane
       title="主张与追问"
+      dataShot="claims"
       subtitle={
         state.claims.length === 0
           ? '还没有主张'
