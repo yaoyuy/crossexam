@@ -23,14 +23,14 @@
     "date": "2026-10-26",
     "cwd": "D:\\CZB",
     "humanMessageCount": 3,
-    "eventCount": 3058,
+    "eventCount": 3746,
     "tokens": {
-      "calls": 282,
-      "inputTokens": 976578,
-      "outputTokens": 482986,
-      "cacheReadTokens": 25404160,
-      "reasoningTokens": 218863
+      "calls": 346,
+      "inputTokens": 1178649,
+      "outputTokens": 599180,
+      "cacheReadTokens": 32561792,
+      "reasoningTokens": 271549
     },
-    "bytes": 1478793
+    "bytes": 1805566
   }
 ]
