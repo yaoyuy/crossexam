@@ -120,6 +120,25 @@ export function openClaims(state: BudgetState): string[] {
   return Object.keys(state.claims).filter((id) => state.claims[id]?.closed === false);
 }
 
+/**
+ * 还能被追问的主张：存在**至少一位**面试官仍有额度。
+ *
+ * 编排器用它决定"还要不要再开一轮"。少了它，一轮里所有主张都用完额度之后，
+ * 编排器会照旧再开一轮空转——真跑 live 模式时那是白烧一次模型调用。
+ */
+export function probeableClaims(state: BudgetState, interviewerIds: readonly string[]): string[] {
+  const out: string[] = [];
+  for (const claimId of Object.keys(state.claims)) {
+    for (const interviewerId of interviewerIds) {
+      if (canProbe(state, claimId, interviewerId).allowed) {
+        out.push(claimId);
+        break;
+      }
+    }
+  }
+  return out;
+}
+
 /** 给前端看的预算快照，用来画「还剩多少追问额度」 */
 export interface BudgetSnapshot {
   totalProbes: number;

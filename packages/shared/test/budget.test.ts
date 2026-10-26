@@ -7,6 +7,7 @@ import {
   consumeProbe,
   initBudget,
   openClaims,
+  probeableClaims,
   recordAnswer,
 } from '../src/budget.ts';
 
@@ -103,6 +104,31 @@ describe('追问预算账本', () => {
     expect(snap.maxTotalProbes).toBe(DEFAULT_BUDGET.maxTotalProbes);
     expect(snap.claims).toHaveLength(2);
     expect(snap.claims[0]).toEqual({ claimId: 'c1', rounds: 1, maxRounds: 3, closed: false, closeReason: null });
+  });
+
+  it('额度用尽的主张还开着，但已经不值得再摆上桌', () => {
+    let s = initBudget(['c1']);
+    s = consumeProbe(s, 'c1', 'tech');
+    s = consumeProbe(s, 'c1', 'tech');
+    // openClaims 只说"没被关停"，额度耗尽它照样算开着——编排器照它开轮会白烧一次模型调用
+    expect(openClaims(s)).toEqual(['c1']);
+    expect(probeableClaims(s, ['tech'])).toEqual([]);
+    // 换个还有额度的面试官，同一主张就又能问
+    expect(probeableClaims(s, ['tech', 'hr'])).toEqual(['c1']);
+  });
+
+  it('全场总次数用尽后，所有主张都不再可追问', () => {
+    let s = initBudget(['c1', 'c2'], { ...DEFAULT_BUDGET, maxTotalProbes: 1 });
+    s = consumeProbe(s, 'c1', 'tech');
+    expect(openClaims(s)).toEqual(['c1', 'c2']);
+    expect(probeableClaims(s, ['tech', 'hr'])).toEqual([]);
+  });
+
+  it('连续答不上来被自动关停后，也不再可追问', () => {
+    let s = initBudget(['c1']);
+    s = recordAnswer(s, 'c1', false);
+    s = recordAnswer(s, 'c1', false);
+    expect(probeableClaims(s, ['tech'])).toEqual([]);
   });
 
   it('未知主张直接拒绝', () => {
