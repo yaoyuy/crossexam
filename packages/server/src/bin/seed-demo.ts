@@ -85,6 +85,9 @@ async function main(): Promise<void> {
   const report = await seedDemoCassettes({ dir });
 
   console.log('写出卡带：' + purposeLine(report.entries));
+  if (report.pruned.length > 0) {
+    console.log('清理旧卡带：' + report.pruned.length + ' 条（提示词改过，旧指纹已经没人读得到）');
+  }
   console.log('第一遍 合成脚本：' + summaryLine(report.record));
   console.log('第二遍 只读回放：' + summaryLine(report.replay));
 
