@@ -236,7 +236,9 @@ bin/
 obj/
 *.user
 *.suo
-packages/
+# 注意：NuGet 的 packages/ 与本仓库的 npm workspaces 目录 packages/ 同名，
+# 直接写 packages/ 会把源码目录整个忽略掉（git add 会直接拒绝），
+# 所以这里只挡包本体。
 *.nupkg
 
 # --- Go / Rust ---------------------------------------------------------------
