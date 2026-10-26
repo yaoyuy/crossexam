@@ -10,10 +10,14 @@ import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { serve } from '@hono/node-server';
+import { loadDotEnv } from '../env.ts';
 import { createApp } from '../http/app.ts';
 import { mountWebApp } from '../http/static.ts';
 import { closeDatabase, openDatabase } from '../store/index.ts';
 import { createLlmClient, defaultCassetteDir, describeClient } from '../llm/index.ts';
+
+// 必须在读任何环境变量之前：README 让评委复制 .env.example，这里得真的把它读进来。
+const dotEnvPath = loadDotEnv();
 
 const port = Number(process.env['CROSSEXAM_PORT'] ?? process.env['PORT'] ?? 8787);
 const dbPath = process.env['CROSSEXAM_DB'] ?? 'data/crossexam.db';
@@ -39,6 +43,7 @@ serve({ fetch: app.fetch, port }, (info) => {
   console.log('  跑法      ' + describeClient(client, cassetteDir));
   console.log('  数据库    ' + dbPath);
   console.log('  卡带目录  ' + cassetteDir);
+  console.log('  配置      ' + (dotEnvPath ? '已载入 ' + dotEnvPath : '没有 .env，按环境变量与默认值运行'));
   console.log('  界面      ' + (hasWeb
     ? 'http://127.0.0.1:' + String(info.port) + '  （已托管构建好的前端）'
     : '未构建前端，先跑 npm run build，当前只有 /api 接口'));
