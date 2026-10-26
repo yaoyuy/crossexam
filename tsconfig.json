@@ -38,5 +38,9 @@
   "include": [
     "packages/*/src/**/*.ts",
     "packages/*/test/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "packages/web"
   ]
 }
