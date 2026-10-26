@@ -989,3 +989,41 @@ e2e 里「没配置联网就明说缺哪个环境变量」先失败后成功：�
 
 12 项里还剩：可增加功能清单（第 11 项）→ 全部完成后再次全功能测试（第 12 项）。录像仍留到最后。
 ---
+
+## Session 24 · 2026-10-26 · 第 12 项：把每一处都真的点一遍（回放 67 项 + 联网 32 项）
+
+**目标**：用户第 12 条「在这些优化完成之后再次进行全功能测试」。做法不是再跑一次 `npm run e2e:ui`——
+那套只覆盖回放模式。这一轮要验的是**产品在真实条件下**成立：真浏览器、真联网、用户的真实简历（PDF）。
+
+### 三条独立的验证轨道
+
+| 轨道 | 形态 | 结果 |
+| --- | --- | --- |
+| 回放 | `npm run e2e:ui`（无头 Edge，67 项） | 67/67，控制台 0 报错 |
+| 联网 + 真简历 | `.tmp/live-full-all.mjs`（真起服务 + 真调 DeepSeek + PDF 导入） | 32/32，整场 19–28 s |
+| 出图 | `npm run shots` | 17 张，控制台 0 报错 |
+
+联网那条最贵也最有价值：把 `C:/Users/xinyi/Desktop/第三版简历.pdf` 拖进导入框，1006 字，
+12 条主张全部锚定、12 条判定、18 次追问、3 轮、8 条建议、「改 8 处 1209 字」；
+打开思考模型后思考分栏最长一次读到 221 字（英文，界面原样显示，不翻译）。
+
+### 脚本里修掉的四个缺陷（都是脚本错，产品没错）
+
+1. **给 `input` 设值报 InvalidStateError**：`querySelectorAll('input')[0]` 拿到的是隐藏的 `type=file`。
+   **页面里 input 的顺序不是人眼看到的顺序。**
+2. **`webSocketDebuggerUrl` 是 undefined**：上一轮残留的 Edge 占着 9355，`/json/version` 通但 `/json/list` 里没有 `about:blank`。
+   选目标时要「优先 `about:blank`，兜底第一个 page」，并且跑之前用 pwsh 清残留（bash 里套 `powershell -Command` 时 `$_` 会被 bash 吃掉）。
+3. **「每条主张都带锚点 —— 0/0」**：`waitText('置信度')` 命中的是 verdict 阶段的中间态，此时库里那一场还是 `scoring`、claims 表 0 行。
+   这是 F41 的第二次复现，而且是我自己写的脚本又踩：**等到文字出现 ≠ 等到这一步做完**，要轮询 `/api/sessions` 到 `status==='done'`。
+4. **JSON 字段猜错**：`view.verdicts` 的元素是 `{verdict, adjusted, adjustmentReason, droppedEvidence}`，`kind` 在 `v.verdict.kind`；
+   而 claim 行的 `claim.verdict` 直接就是 kind 字符串。两处形状不一样，不能想当然。
+
+### 一处真设计问题（已修，见 F48）
+
+联网脚本里「切到联网后等结论」那段循环跑了 18 秒还 PASS——因为清单拉成功时 `[data-shot=mode-note]` 元素**直接消失**，
+`textContent` 恒为空，条件永远不满足，最后拿上一轮的过程文案做了断言。
+处置：状态收进 `packages/web/src/runmode.ts`（`modelNoteOf` / `isPendingNote` / `MODEL_NOTE_PENDING`），界面与点测读同一个返回值，6 条单测。
+
+### 门禁
+
+`npm run verify` 全绿：**43 个测试文件 / 459 条断言 / 4.8 s** + 冒烟 9 项 + vite 35 modules / JS 306.75 kB（gzip 95.63 kB）。
