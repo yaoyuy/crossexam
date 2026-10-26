@@ -1,0 +1,276 @@
+@import 'tailwindcss';
+
+/* 质询室配色：深墨底 + 证据橙。判定色只用在徽章与锚点，不用来刷背景。 */
+@theme {
+  --color-ink-950: #080b10;
+  --color-ink-900: #0e141c;
+  --color-ink-850: #131b25;
+  --color-ink-800: #18212c;
+  --color-ink-700: #223040;
+  --color-ink-600: #2f4256;
+  --color-ink-500: #4a6180;
+  --color-ink-400: #6f88a8;
+  --color-ink-300: #9db1c9;
+  --color-ink-200: #c6d3e2;
+  --color-ink-100: #e9f0f8;
+
+  --color-ember-500: #ff8a3d;
+  --color-ember-400: #ffa45c;
+  --color-ember-300: #ffc08a;
+
+  --color-mint-500: #35d39f;
+  --color-mint-400: #5fe0b6;
+  --color-amber-ink: #f5c451;
+  --color-rose-ink: #ff6b7d;
+
+  --font-sans: system-ui, 'Segoe UI', 'Microsoft YaHei', 'PingFang SC', sans-serif;
+  --font-mono: 'Cascadia Mono', 'Cascadia Code', Consolas, 'Courier New', monospace;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background-color: var(--color-ink-950);
+  background-image:
+    radial-gradient(1100px 520px at 18% -10%, rgba(255, 138, 61, 0.12), transparent 60%),
+    radial-gradient(900px 480px at 92% 8%, rgba(74, 97, 128, 0.22), transparent 62%);
+  background-attachment: fixed;
+  color: var(--color-ink-100);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-ink-600) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--color-ink-700);
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+
+.pane {
+  background: color-mix(in oklab, var(--color-ink-900) 88%, transparent);
+  border: 1px solid var(--color-ink-800);
+  border-radius: 14px;
+  backdrop-filter: blur(6px);
+}
+
+.pane-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--color-ink-800);
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--color-ink-700);
+  background: var(--color-ink-850);
+  color: var(--color-ink-300);
+  font-size: 12px;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid transparent;
+}
+
+.badge-solid {
+  color: var(--color-mint-400);
+  background: rgba(53, 211, 159, 0.12);
+  border-color: rgba(53, 211, 159, 0.35);
+}
+.badge-warn {
+  color: var(--color-amber-ink);
+  background: rgba(245, 196, 81, 0.12);
+  border-color: rgba(245, 196, 81, 0.35);
+}
+.badge-danger {
+  color: var(--color-rose-ink);
+  background: rgba(255, 107, 125, 0.12);
+  border-color: rgba(255, 107, 125, 0.35);
+}
+.badge-muted {
+  color: var(--color-ink-300);
+  background: rgba(111, 136, 168, 0.14);
+  border-color: rgba(111, 136, 168, 0.32);
+}
+.badge-ember {
+  color: var(--color-ember-400);
+  background: rgba(255, 138, 61, 0.12);
+  border-color: rgba(255, 138, 61, 0.35);
+}
+
+.quote {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--color-ember-300);
+  background: rgba(255, 138, 61, 0.07);
+  border-left: 2px solid var(--color-ember-500);
+  padding: 4px 8px;
+  border-radius: 0 6px 6px 0;
+  word-break: break-word;
+}
+
+.resume-text {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.85;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+mark.anchor-hit {
+  background: rgba(255, 138, 61, 0.34);
+  color: var(--color-ink-100);
+  border-radius: 3px;
+  padding: 1px 1px;
+  box-shadow: 0 0 0 1px rgba(255, 138, 61, 0.45);
+}
+
+mark.anchor-soft {
+  background: rgba(255, 138, 61, 0.14);
+  color: inherit;
+  border-bottom: 1px dashed rgba(255, 138, 61, 0.5);
+  border-radius: 2px;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--color-ink-700);
+  background: var(--color-ink-850);
+  color: var(--color-ink-100);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, transform 0.1s ease;
+}
+.btn:hover:not(:disabled) {
+  border-color: var(--color-ember-500);
+}
+.btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.btn-primary {
+  background: linear-gradient(180deg, var(--color-ember-400), var(--color-ember-500));
+  border-color: transparent;
+  color: #1a0f04;
+}
+.btn-quiet {
+  background: transparent;
+}
+
+.field {
+  width: 100%;
+  background: var(--color-ink-950);
+  border: 1px solid var(--color-ink-700);
+  border-radius: 10px;
+  color: var(--color-ink-100);
+  padding: 8px 10px;
+  font-size: 13px;
+  line-height: 1.6;
+  resize: vertical;
+  font-family: inherit;
+}
+.field:focus {
+  outline: none;
+  border-color: var(--color-ember-500);
+  box-shadow: 0 0 0 3px rgba(255, 138, 61, 0.14);
+}
+
+.card-in {
+  animation: cx-card-in 0.32s ease-out both;
+}
+
+@keyframes cx-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.pulse-dot {
+  animation: cx-pulse 1.15s ease-in-out infinite;
+}
+
+@keyframes cx-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.9);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.08);
+  }
+}
+
+.dots span {
+  animation: cx-dots 1.2s ease-in-out infinite;
+}
+.dots span:nth-child(2) {
+  animation-delay: 0.16s;
+}
+.dots span:nth-child(3) {
+  animation-delay: 0.32s;
+}
+
+@keyframes cx-dots {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+  40% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card-in,
+  .pulse-dot,
+  .dots span {
+    animation: none;
+  }
+}
