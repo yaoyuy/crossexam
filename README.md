@@ -190,6 +190,7 @@ Vite + React 19 + Tailwind v4、zod（模型输出先过 schema 再入库）、v
 | [docs/tech/](docs/tech/) | 技术文档的 Markdown 源（六章 + 封面） |
 | [docs/video/script.md](docs/video/script.md) | 演示视频脚本（分镜 + AI 协同段落 + 录制核对表） |
 | [docs/release-checklist.md](docs/release-checklist.md) | 发布清单（五项提交物逐项核对，含只有本人能决定的事项） |
+| [docs/feature-candidates.md](docs/feature-candidates.md) | 候选功能清单（还没做的按性价比排序，每项写明工时与判断） |
 
 ## 许可
 
