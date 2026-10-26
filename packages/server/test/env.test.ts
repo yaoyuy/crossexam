@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { loadDotEnv } from '../src/env.ts';
+import { loadDotEnv, parsePanelSize } from '../src/env.ts';
 
 const touched = ['CROSSEXAM_TEST_ENV_VALUE', 'CROSSEXAM_TEST_ENV_SECOND'];
 
@@ -48,6 +48,27 @@ describe('loadDotEnv', () => {
       expect(process.env['CROSSEXAM_TEST_ENV_SECOND']).toBeUndefined();
     } finally {
       rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+describe('parsePanelSize', () => {
+  it('没设或空串时返回 undefined，表示不限制', () => {
+    expect(parsePanelSize(undefined)).toBeUndefined();
+    expect(parsePanelSize('')).toBeUndefined();
+    expect(parsePanelSize('   ')).toBeUndefined();
+  });
+
+  it('1-6 的整数照原样认', () => {
+    for (const size of [1, 2, 3, 4, 5, 6]) {
+      expect(parsePanelSize(String(size))).toBe(size);
+    }
+    expect(parsePanelSize(' 4 ')).toBe(4);
+  });
+
+  it('非法值当没设，而不是悄悄把面板压成 1 位', () => {
+    // 0 与负数如果被当成上限，会让沙盘一位面试官都不剩；7 以上超出可选角色数
+    for (const bad of ['0', '-1', '7', '4.5', 'four', 'NaN', '3 4']) {
+      expect(parsePanelSize(bad)).toBeUndefined();
     }
   });
 });

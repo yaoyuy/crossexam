@@ -36,6 +36,11 @@ export interface AppOptions {
   client?: LlmClient;
   model?: string;
   cassetteDir?: string;
+  /**
+   * 同时上场的面试官数量上限（PANEL_SIZE）。只做截断，不负责挑选：
+   * 面板组成仍由请求的 ?panel= 或 DEFAULT_PANEL 决定。不传则不设上限。
+   */
+  panelSize?: number;
 }
 
 function textField(value: unknown): string {
@@ -56,6 +61,15 @@ function panelOf(raw: string | undefined): readonly InterviewerRole[] | undefine
     .map((item) => item.trim())
     .filter((item) => ROLES.includes(item));
   return picked.length === 0 ? undefined : (picked as InterviewerRole[]);
+}
+
+/** 上限只截断不补齐：面板是「谁上场」的选择题，不能靠数量凑人头 */
+function limitPanel(
+  panel: readonly InterviewerRole[],
+  limit: number | undefined,
+): readonly InterviewerRole[] {
+  if (limit === undefined || panel.length <= limit) return panel;
+  return panel.slice(0, limit);
 }
 
 async function readBody(c: Context): Promise<Record<string, unknown>> {
@@ -101,6 +115,9 @@ export function createApp(opts: AppOptions): Hono {
   const cassetteDir = opts.cassetteDir ?? defaultCassetteDir();
   const client = opts.client ?? createLlmClient({ cassetteDir });
   const model = opts.model ?? process.env['LLM_MODEL'] ?? '';
+  const panelLimit = opts.panelSize;
+  const resolvePanel = (raw: string | undefined): readonly InterviewerRole[] =>
+    limitPanel(panelOf(raw) ?? DEFAULT_PANEL, panelLimit);
   const app = new Hono();
 
   app.get('/api/health', (c) =>
@@ -134,7 +151,7 @@ export function createApp(opts: AppOptions): Hono {
         400,
       );
     }
-    const panel = panelOf(raw) ?? DEFAULT_PANEL;
+    const panel = resolvePanel(raw);
     return c.json({ panel, budget: DEFAULT_BUDGET, contracts: contractViews(panel, DEFAULT_BUDGET) });
   });
 
@@ -204,7 +221,7 @@ export function createApp(opts: AppOptions): Hono {
     const id = c.req.param('id');
     const session = getSession(db, id);
     if (session === null) return c.json({ error: '会话不存在：' + id }, 404);
-    const panel = panelOf(c.req.query('panel'));
+    const panel = resolvePanel(c.req.query('panel'));
     const maxClaims = numberField(c.req.query('maxClaims'));
     const runInput = { db, sessionId: id, client, model, panel, maxClaims };
 
