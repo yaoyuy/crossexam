@@ -6,7 +6,7 @@
  */
 
 import { z } from 'zod';
-import type { ClaimCategory, VerdictKind } from './domain.ts';
+import type { ClaimCategory, MatchStatus, RequirementKind, VerdictKind } from './domain.ts';
 
 export const CLAIM_CATEGORY_VALUES = [
   'skill',
@@ -26,6 +26,10 @@ export const VERDICT_KIND_VALUES = [
   'unanswerable',
 ] as const;
 
+export const REQUIREMENT_KIND_VALUES = ['must', 'plus', 'duty'] as const;
+
+export const MATCH_STATUS_VALUES = ['hit', 'weak', 'missing'] as const;
+
 type Expect<T extends true> = T;
 /** 编译期断言：下面的枚举必须与 domain.ts 的联合类型逐字一致，改一边忘了另一边会直接编译失败 */
 export type SchemaMatchesDomain = [
@@ -33,6 +37,14 @@ export type SchemaMatchesDomain = [
   Expect<(typeof CLAIM_CATEGORY_VALUES)[number] extends ClaimCategory ? true : false>,
   Expect<VerdictKind extends (typeof VERDICT_KIND_VALUES)[number] ? true : false>,
   Expect<(typeof VERDICT_KIND_VALUES)[number] extends VerdictKind ? true : false>,
+];
+
+/** 同上：岗位要求的两组枚举也必须与 domain.ts 逐字一致 */
+export type SchemaMatchesRequirements = [
+  Expect<RequirementKind extends (typeof REQUIREMENT_KIND_VALUES)[number] ? true : false>,
+  Expect<(typeof REQUIREMENT_KIND_VALUES)[number] extends RequirementKind ? true : false>,
+  Expect<MatchStatus extends (typeof MATCH_STATUS_VALUES)[number] ? true : false>,
+  Expect<(typeof MATCH_STATUS_VALUES)[number] extends MatchStatus ? true : false>,
 ];
 
 /** 模型给出的锚点候选。start/end 允许给，但我们不会信——见 anchor.ts 的 resolveAnchor */
@@ -60,6 +72,12 @@ export const probeDraftSchema = z.object({
   question: z.string().min(1).max(300),
   quote: z.string().min(1).max(400),
   rationale: z.string().max(300).optional(),
+  /**
+   * 双锚点：命中某条岗位要求时的要求编号与要求原文片段。
+   * 两者都是可选的——纯简历场次不会有它们，模型也不该被迫编一个出来。
+   */
+  requirementId: z.string().min(1).max(24).optional(),
+  jdQuote: z.string().min(1).max(400).optional(),
   start: z.number().int().nonnegative().optional(),
   end: z.number().int().nonnegative().optional(),
 });
@@ -106,6 +124,48 @@ export const suggestionListSchema = z.object({
   suggestions: z.array(suggestionDraftSchema).max(40),
 });
 
+/**
+ * 岗位要求的三个阶段各一次调用：逐份 JD 抽取 → 跨份合并 → 逐条与主张对照。
+ *
+ * 三份 schema 都是窄字段：模型多写的一律被丢掉，少写的才报错。
+ * 合并阶段用的是 `J1#3` 这种键，而不是我们自己编的 R 编号——编号由代码定序，
+ * 让模型来编，回放就对不上了。
+ */
+export const jdRequirementDraftSchema = z.object({
+  text: z.string().min(4).max(200),
+  quote: z.string().min(4).max(400),
+  kind: z.enum(REQUIREMENT_KIND_VALUES),
+  keywords: z.array(z.string().min(1).max(24)).max(6).default([]),
+});
+
+export const jdRequirementListSchema = z.object({
+  requirements: z.array(jdRequirementDraftSchema).max(20),
+});
+
+export const jdGroupDraftSchema = z.object({
+  text: z.string().min(4).max(200),
+  kind: z.enum(REQUIREMENT_KIND_VALUES),
+  members: z.array(z.string().min(1).max(24)).min(1).max(40),
+  keywords: z.array(z.string().min(1).max(24)).max(6).default([]),
+});
+
+export const jdGroupListSchema = z.object({
+  groups: z.array(jdGroupDraftSchema).max(40),
+});
+
+export const jdMatchDraftSchema = z.object({
+  /** 这条对照说的是哪条要求。编号由代码定序（R1、R2…），模型只负责照着填 */
+  requirementId: z.string().min(1).max(24),
+  /** 命中的主张编号；没命中就老实给 null，不要硬凑一条 */
+  claimId: z.string().min(1).max(24).nullable().default(null),
+  status: z.enum(MATCH_STATUS_VALUES),
+  reason: z.string().min(1).max(300),
+});
+
+export const jdMatchListSchema = z.object({
+  matches: z.array(jdMatchDraftSchema).max(40),
+});
+
 export type ClaimDraft = z.infer<typeof claimDraftSchema>;
 export type ClaimList = z.infer<typeof claimListSchema>;
 export type ProbeDraft = z.infer<typeof probeDraftSchema>;
@@ -115,6 +175,12 @@ export type VerdictDraft = z.infer<typeof verdictDraftSchema>;
 export type VerdictList = z.infer<typeof verdictListSchema>;
 export type SuggestionDraft = z.infer<typeof suggestionDraftSchema>;
 export type SuggestionList = z.infer<typeof suggestionListSchema>;
+export type JdRequirementDraft = z.infer<typeof jdRequirementDraftSchema>;
+export type JdRequirementList = z.infer<typeof jdRequirementListSchema>;
+export type JdGroupDraft = z.infer<typeof jdGroupDraftSchema>;
+export type JdGroupList = z.infer<typeof jdGroupListSchema>;
+export type JdMatchDraft = z.infer<typeof jdMatchDraftSchema>;
+export type JdMatchList = z.infer<typeof jdMatchListSchema>;
 
 /** 把 zod 的错误压成一行能写进日志的中文说明 */
 export function formatIssues(error: z.ZodError): string {
