@@ -228,11 +228,26 @@ const advised = view.suggestions.filter((s) => s.status === 'suggested');
 check('服务端判定 5 条，其中 4 条给出改写建议', view.verdicts.length === 5 && advised.length === 4 && view.suggestions.length === 5, '判定 ' + String(view.verdicts.length) + ' / 建议 ' + String(advised.length) + '（outcome ' + String(view.suggestions.length) + '）');
 const drawn = String(doneText).split('置信度').length - 1;
 check('界面画出的判定条数与服务端一致', drawn === view.verdicts.length, '界面 ' + String(drawn) + ' / 服务端 ' + String(view.verdicts.length));
-const reportHref = await evalJs('(() => { const a = document.querySelector("a[download]"); return a === null ? "" : a.getAttribute("href"); })()');
-check('「下载报告」链接出现在头部', typeof reportHref === 'string' && reportHref.indexOf('/report.md') >= 0, String(reportHref));
-const report = await fetch('http://127.0.0.1:' + PORT + reportHref);
+// 报告有三种形态：Markdown 便于携带、可打印 HTML（浏览器另存为 PDF）、Word 便于接着改。
+// 三种都要真取一遍：只看按钮存在，等于没验证「点下去拿得到东西」。
+const reportHrefs = await evalJs('(() => { const pick = (name) => { const a = document.querySelector(\'[data-shot="\' + name + \'"]\'); return a === null ? "" : a.getAttribute("href"); }; return { md: pick("report-md"), pdf: pick("report-pdf"), doc: pick("report-doc") }; })()');
+const hrefOf = (key) => String((reportHrefs ?? {})[key] ?? '');
+check('头部给出 Markdown / PDF / Word 三个导出入口',
+  hrefOf('md').indexOf('/report.md') >= 0 && hrefOf('pdf').indexOf('/report.html?print=1') >= 0 && hrefOf('doc').indexOf('/report.doc') >= 0,
+  JSON.stringify(reportHrefs));
+const report = await fetch('http://127.0.0.1:' + PORT + hrefOf('md'));
 const reportText = await report.text();
-check('点它真能下载到 Markdown 报告', report.status === 200 && reportText.charAt(0) === '#', String(reportText.length) + ' 字符');
+check('Markdown 报告可下载且确实是 Markdown', report.status === 200 && reportText.charAt(0) === '#', String(reportText.length) + ' 字符');
+const reportHtml = await fetch('http://127.0.0.1:' + PORT + hrefOf('pdf'));
+const reportHtmlText = await reportHtml.text();
+check('PDF 入口给的是带打印脚本的可打印 HTML',
+  reportHtml.status === 200 && reportHtmlText.indexOf('window.print()') >= 0 && reportHtmlText.indexOf('CrossExam 质询报告') >= 0,
+  String(reportHtmlText.length) + ' 字符');
+const reportDoc = await fetch('http://127.0.0.1:' + PORT + hrefOf('doc'));
+const reportDocText = await reportDoc.text();
+check('Word 入口给的是 application/msword 附件',
+  reportDoc.status === 200 && String(reportDoc.headers.get('content-type')).indexOf('msword') >= 0 && String(reportDoc.headers.get('content-disposition')).indexOf('.doc') >= 0,
+  String(reportDocText.length) + ' 字符');
 const chips = await evalJs('document.querySelector("header").innerText');
 check('头部遥测显示调用与回放次数', chips.indexOf('调用') >= 0 && chips.indexOf('回放') >= 0 && chips.indexOf('追问') >= 0, chips.replace(/\n/g, ' / ').slice(0, 120));
 await shot('03-done.png');
