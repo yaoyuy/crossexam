@@ -96,6 +96,23 @@ describe('建表与迁移', function () {
     expect(names).toContain('llm_call');
   });
 
+  it('连接即就绪：不额外调用 migrate 也能直接写会话', function () {
+    const fresh = openDatabase({ path: ':memory:' });
+    try {
+      const id = insertSession(fresh, {
+        jobTitle: '后端工程师',
+        jdText: '负责订单系统',
+        resumeText: RESUME,
+        resumeHash: 'fresh',
+        llmMode: 'replay',
+        budget: initBudget(['claim-1']),
+      });
+      expect(id.length).toBeGreaterThan(0);
+    } finally {
+      closeDatabase(fresh);
+    }
+  });
+
   it('库版本比代码新时拒绝启动，而不是按老结构去读', function () {
     db.exec('PRAGMA user_version = ' + String(SCHEMA_VERSION + 1));
     let caught: unknown;

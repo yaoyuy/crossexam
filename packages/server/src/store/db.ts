@@ -11,6 +11,7 @@
  */
 
 import { DatabaseSync } from 'node:sqlite';
+import { migrate } from './schema.ts';
 
 export type Db = DatabaseSync;
 
@@ -18,8 +19,19 @@ export interface OpenOptions {
   /** 文件路径；':memory:' 表示内存库（测试用）。 */
   path: string;
   readonly?: boolean;
+  /** 只读库或已确认建过表的场景可以跳过；一般用不上。 */
+  skipMigrate?: boolean;
 }
 
+/**
+ * 打开连接，顺带保证表已就绪。
+ *
+ * 建表放在这里而不是让每个调用方自己记得调 migrate，是因为漏调一次
+ * 的后果很隐蔽：进程正常启动、接口正常注册，直到第一次写入才报
+ * 「no such table」——真实进程冒烟测试就是这么抓到它的。
+ * migrate 自身幂等，版本更高时抛 SchemaVersionError 拒绝启动，
+ * 所以「连接即可用」不会掩盖结构不兼容的问题。
+ */
 export function openDatabase(opts: OpenOptions): Db {
   const db = new DatabaseSync(opts.path, { readOnly: opts.readonly ?? false });
   // 外键必须每个连接单独打开。忘了这一步就会出现
@@ -27,6 +39,7 @@ export function openDatabase(opts: OpenOptions): Db {
   db.exec('PRAGMA foreign_keys = ON');
   if (opts.path !== ':memory:') db.exec('PRAGMA journal_mode = WAL');
   db.exec('PRAGMA busy_timeout = 5000');
+  if ((opts.readonly ?? false) === false && opts.skipMigrate !== true) migrate(db);
   return db;
 }
 
