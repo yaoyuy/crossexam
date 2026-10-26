@@ -246,3 +246,21 @@ P3 需要「真的在浏览器里点一遍」而不是只看编译过不过，�
 
 **顺带**：这条路径本身可以固化成可复跑的截图命令（P4 要做的 npm run shots），
 演示视频与 README 的截图都从它出，而不是靠手点。
+## F17. CDP 的 Runtime.evaluate 共用一个全局作用域，第二次 const 同名直接抛 SyntaxError（2026-10-26）
+
+写 tools/ui-shots 时，两段滚动表达式都写成 `const pane = ...; pane.scrollTop = N`。
+第一段正常，第二段抛 `SyntaxError: Identifier 'pane' has already been declared`——
+CDP 的 Runtime.evaluate 不是「每次一个新函数作用域」，而是在同一个全局作用域里 eval。
+
+**修法**：表达式里不声明任何变量，全部写成纯表达式（`document.querySelector(...).lastElementChild.scrollTop = 0`），
+或显式包一层 IIFE。**教训**：把「一段字符串代码」当函数体用之前，先确认它到底在什么作用域里跑。
+
+## F18. 清理逻辑的异常会盖住真正的结果（2026-10-26）
+
+同一个脚本里，浏览器退出时 Windows 还占着 user-data-dir，`rmSync` 抛 EPERM。
+这条异常发生在 `finally` 里，于是**截图本身成功了，命令却以失败告终**，日志里最后一行是「Permission denied」，
+完全看不出「图其实都出好了」。
+
+**修法**：清理改成带重试的 `removeDirWithRetry`，失败只打印一行提示、绝不上抛；
+并且把「删临时目录」与「出图是否成功」当成两件事。**教训**：收尾动作（删临时目录、关进程、清缓存）
+失败不应该改变主流程的结论——否则一次成功的运行会被一个无关紧要的尾巴判成失败。
