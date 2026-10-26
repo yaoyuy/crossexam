@@ -18,11 +18,12 @@ import type { InterviewerRole } from '@crossexam/shared';
 import { DEMO_JD, DEMO_RESUME, DEMO_TITLE } from '../demo-content.ts';
 import { createLlmClient, defaultCassetteDir, describeClient } from '../llm/index.ts';
 import type { LlmClient } from '../llm/types.ts';
-import { assembleSession, runAndPersist } from '../pipeline.ts';
+import { assembleSession, contractViews, runAndPersist } from '../pipeline.ts';
 import type { SessionView } from '../pipeline.ts';
 import { renderReport, reportFileName } from '../report.ts';
 import { deleteSession, getSession, insertSession, listEvents, listSessions, llmStats } from '../store/index.ts';
 import type { Db } from '../store/index.ts';
+import { DEFAULT_PANEL } from '../orchestrator/run.ts';
 import type { RunSessionResult } from '../orchestrator/run.ts';
 
 /** 简历短于这个长度就没法抽出可被追问的主张，与其跑一盘空的不如直接说清楚 */
@@ -113,6 +114,29 @@ export function createApp(opts: AppOptions): Hono {
   );
 
   app.get('/api/demo', (c) => c.json({ title: DEMO_TITLE, resume: DEMO_RESUME, jd: DEMO_JD }));
+  /**
+   * 意图契约是**声明式**的：给定角色与预算就能算出全文和指纹，不用跑沙盘、不调模型。
+   * 所以界面在开跑之前就能把这场质询的规则摊开；跑完之后还能拿指纹和落库的那份对账。
+   */
+  app.get('/api/contracts', (c) => {
+    const raw = c.req.query('panel');
+    const parts =
+      raw === undefined
+        ? []
+        : raw
+            .split(',')
+            .map((item) => item.trim())
+            .filter((item) => item !== '');
+    const unknown = parts.filter((item) => !ROLES.includes(item));
+    if (unknown.length > 0) {
+      return c.json(
+        { error: '不认识的面试官角色：' + unknown.join('、') + '。可选：' + ROLES.join('、') },
+        400,
+      );
+    }
+    const panel = panelOf(raw) ?? DEFAULT_PANEL;
+    return c.json({ panel, budget: DEFAULT_BUDGET, contracts: contractViews(panel, DEFAULT_BUDGET) });
+  });
 
   app.get('/api/sessions', (c) => {
     const limit = numberField(c.req.query('limit')) ?? 50;
