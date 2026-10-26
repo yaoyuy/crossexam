@@ -1,0 +1,270 @@
+/**
+ * HTTP 层的端到端测试：建会话 → 开跑（JSON 与 SSE 两条路）→ 读结果 → 下载报告。
+ *
+ * 为什么这层值得测：
+ *   1. SSE 是"过程可复现"的对外接口，事件带 seq 才能断线续传，不能只测"跑完了"；
+ *   2. 前端所有判断都基于这些响应形状，形状变了测试要先红，而不是等演示时才发现；
+ *   3. 这些断言同时也是给评审看的接口文档——想接前端的同学读这一份就够了。
+ */
+
+import { afterEach, describe, expect, it } from 'vitest';
+import { createApp } from '../src/http/app.ts';
+import { closeDatabase, migrate, openDatabase } from '../src/store/index.ts';
+import type { Db } from '../src/store/index.ts';
+import { createScriptedClient } from './scripted.ts';
+import type { ScriptedClient } from './scripted.ts';
+
+const RESUME = [
+  '项目经历',
+  '主导重构订单系统，首屏从 2.4s 降到 0.8s，日订单量 30 万。',
+  '熟悉 TypeScript 与 Node.js。',
+].join(String.fromCharCode(10));
+
+const QUOTE = '首屏从 2.4s 降到 0.8s';
+
+const EXTRACT = JSON.stringify({
+  claims: [
+    { text: '主导订单系统重构，把首屏从 2.4s 降到 0.8s', quote: QUOTE, category: 'achievement', weight: 0.9 },
+  ],
+});
+
+function probe(question: string): string {
+  return JSON.stringify({
+    probes: [{ claimId: 'C1', question, quote: QUOTE, rationale: '性能数字最容易被追问测量方法' }],
+  });
+}
+
+const ANSWER = JSON.stringify({ answered: true, text: '本地 Chrome 冷启动测的首屏', citedQuotes: [QUOTE] });
+
+const VERDICT = JSON.stringify({
+  kind: 'solid',
+  confidence: 0.8,
+  rationale: '简历写了具体数字，候选人也说得出测量方法',
+  evidenceQuotes: [QUOTE],
+});
+
+/** 三轮追问：前两轮各问一个新问题，第三轮没有新问题，于是沙盘自然收尾 */
+function scripted(): ScriptedClient {
+  let probeCalls = 0;
+  return createScriptedClient((req) => {
+    if (req.purpose === 'extract') return EXTRACT;
+    if (req.purpose === 'probe') {
+      probeCalls += 1;
+      if (probeCalls === 1) return probe('这个 2.4s 是怎么测出来的？');
+      if (probeCalls === 2) return probe('测试设备和网络条件是什么？');
+      return JSON.stringify({ probes: [] });
+    }
+    if (req.purpose === 'answer') return ANSWER;
+    if (req.purpose === 'verdict') return VERDICT;
+    if (req.purpose === 'suggest') return JSON.stringify({ suggestions: [] });
+    return new Error('脚本化模型没有为 purpose=' + req.purpose + ' 准备返回值');
+  });
+}
+
+interface RunSummary {
+  rounds: number;
+  claims: number;
+  probes: number;
+  verdicts: { claimId: string; kind: string; confidence: number }[];
+  suggestions: number;
+  rejectedClaims: number;
+  notices: string[];
+  usage: { outputTokens: number };
+}
+
+interface Rig {
+  db: Db;
+  client: ScriptedClient;
+  app: ReturnType<typeof createApp>;
+}
+
+const opened: Db[] = [];
+
+function rig(): Rig {
+  const db = openDatabase({ path: ':memory:' });
+  migrate(db);
+  opened.push(db);
+  const client = scripted();
+  return { db, client, app: createApp({ db, client, cassetteDir: '.tmp/fixtures' }) };
+}
+
+afterEach(() => {
+  while (opened.length > 0) {
+    const db = opened.pop();
+    if (db !== undefined) closeDatabase(db);
+  }
+});
+
+const JSON_HEADERS = { 'content-type': 'application/json' };
+
+async function createSession(target: Rig, body: Record<string, unknown>): Promise<Response> {
+  return target.app.request('/api/sessions', {
+    method: 'POST',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(body),
+  });
+}
+
+async function newSessionId(target: Rig): Promise<string> {
+  const res = await createSession(target, { resumeText: RESUME, jobTitle: '后端工程师', jdText: '负责订单系统' });
+  expect(res.status).toBe(201);
+  const body = (await res.json()) as { id: string };
+  return body.id;
+}
+
+describe('HTTP 层', () => {
+  it('健康检查直接说清"联没联网"，不让人猜', async () => {
+    const t = rig();
+    const res = await t.app.request('/api/health');
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { mode: string; runMode: string };
+    expect(body.mode).toBe('live');
+    expect(body.runMode).toContain('卡带目录');
+  });
+
+  it('简历太短时明确拒绝，而不是跑出一盘空演示', async () => {
+    const t = rig();
+    const res = await createSession(t, { resumeText: '会写代码' });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toContain('简历太短');
+  });
+
+  it('示例简历一键建档：返回 201，并把简历正文落进会话', async () => {
+    const t = rig();
+    const res = await createSession(t, { useDemo: true });
+    expect(res.status).toBe(201);
+    const created = (await res.json()) as { id: string; jobTitle: string };
+    expect(created.jobTitle).toContain('演示简历');
+
+    const view = await t.app.request('/api/sessions/' + created.id);
+    expect(view.status).toBe(200);
+    const detail = (await view.json()) as {
+      session: { resumeText: string; resumeHash: string };
+      claims: unknown[];
+      llm: { calls: number };
+    };
+    expect(detail.session.resumeText).toContain('张明');
+    expect(detail.session.resumeHash.length).toBe(24);
+    expect(detail.claims).toHaveLength(0);
+    expect(detail.llm.calls).toBe(0);
+  });
+
+  it('跑一盘：两轮追问问到额度用尽，判定与记账都落库', async () => {
+    const t = rig();
+    const id = await newSessionId(t);
+    const res = await t.app.request('/api/sessions/' + id + '/run?stream=0&panel=tech', { method: 'POST' });
+    expect(res.status).toBe(200);
+    const summary = (await res.json()) as RunSummary;
+    expect(summary.claims).toBe(1);
+    // 每位面试官对同一主张最多 2 问，所以第二轮之后闸门关上，而不是靠模型自觉收尾
+    expect(summary.rounds).toBe(2);
+    expect(summary.probes).toBe(2);
+    expect(summary.verdicts[0]?.kind).toBe('solid');
+    expect(summary.rejectedClaims).toBe(0);
+    // 站得住的主张不需要改写，于是没有需要提醒的事
+    expect(summary.notices).toEqual([]);
+    // 6 次调用 = 抽取 1 + 追问 2 + 作答 2 + 判定 1（改写阶段只对有问题的主张调用）
+    expect(summary.usage.outputTokens).toBe(120);
+    expect(t.client.countPurpose('probe')).toBe(2);
+    expect(t.client.countPurpose('suggest')).toBe(0);
+  });
+
+  it('事件带 seq，按 seq 续传不重不漏', async () => {
+    const t = rig();
+    const id = await newSessionId(t);
+    await t.app.request('/api/sessions/' + id + '/run?stream=0&panel=tech', { method: 'POST' });
+
+    const all = await t.app.request('/api/sessions/' + id + '/events');
+    const everything = (await all.json()) as { events: { seq: number; kind: string }[] };
+    // 16 条 = 抽取 2 + 每轮（阶段、追问、阶段、作答、预算）5 x 2 + 判定 2 + 改写 2
+    expect(everything.events).toHaveLength(16);
+    expect(everything.events.map((e) => e.seq)).toEqual(Array.from({ length: 16 }, (_, i) => i + 1));
+    expect(everything.events[0]?.kind).toBe('stage');
+    expect(everything.events[1]?.kind).toBe('claims');
+
+    const tail = await t.app.request('/api/sessions/' + id + '/events?from=7');
+    const rest = (await tail.json()) as { from: number; events: { seq: number }[] };
+    expect(rest.from).toBe(7);
+    expect(rest.events).toHaveLength(9);
+    expect(rest.events.every((e) => e.seq > 7)).toBe(true);
+  });
+
+  it('报告能作为 Markdown 下载，判定用中文说人话', async () => {
+    const t = rig();
+    const id = await newSessionId(t);
+    await t.app.request('/api/sessions/' + id + '/run?stream=0&panel=tech', { method: 'POST' });
+
+    const res = await t.app.request('/api/sessions/' + id + '/report.md');
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toContain('text/markdown');
+    expect(res.headers.get('content-disposition')).toContain('attachment');
+    const text = await res.text();
+    expect(text).toContain('站得住');
+    expect(text).toContain('这个 2.4s 是怎么测出来的？');
+  });
+
+  it('同一个会话跑第二次会被挡住，不是悄悄叠一份', async () => {
+    const t = rig();
+    const id = await newSessionId(t);
+    await t.app.request('/api/sessions/' + id + '/run?stream=0&panel=tech', { method: 'POST' });
+    const again = await t.app.request('/api/sessions/' + id + '/run?stream=0&panel=tech', { method: 'POST' });
+    expect(again.status).toBe(409);
+    const body = (await again.json()) as { error: string };
+    expect(body.error).toContain('已经跑过了');
+  });
+
+  it('SSE 把每个阶段实时推出去，最后给一份跑完小结', async () => {
+    const t = rig();
+    const id = await newSessionId(t);
+    const res = await t.app.request('/api/sessions/' + id + '/run?panel=tech', { method: 'POST' });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toContain('text/event-stream');
+    const text = await res.text();
+    expect(text).toContain('event: claims');
+    expect(text).toContain('event: probes');
+    expect(text).toContain('event: verdicts');
+    expect(text).toContain('event: result');
+    expect(text).toContain('id: 2');
+    expect(text).not.toContain('event: fatal');
+    expect(text).toContain('"kind":"solid"');
+  });
+
+  it('中途失败也走 SSE，前端能拿到 fatal 而不是转圈到天荒地老', async () => {
+    const db = openDatabase({ path: ':memory:' });
+    migrate(db);
+    opened.push(db);
+    const client = createScriptedClient(() => new Error('模型连接断了'));
+    const app = createApp({ db, client, cassetteDir: '.tmp/fixtures' });
+    const created = await app.request('/api/sessions', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ resumeText: RESUME }),
+    });
+    const { id } = (await created.json()) as { id: string };
+
+    const res = await app.request('/api/sessions/' + id + '/run?panel=tech', { method: 'POST' });
+    const text = await res.text();
+    expect(text).toContain('event: fatal');
+    expect(text).toContain('模型连接断了');
+  });
+
+  it('记账能被查询：这次演示到底调了几次、花了多少 token', async () => {
+    const t = rig();
+    const id = await newSessionId(t);
+    await t.app.request('/api/sessions/' + id + '/run?stream=0&panel=tech', { method: 'POST' });
+    const res = await t.app.request('/api/stats?session=' + id);
+    const stats = (await res.json()) as { calls: number; replayedCalls: number; outputTokens: number };
+    expect(stats.calls).toBe(6);
+    expect(stats.replayedCalls).toBe(0);
+    expect(stats.outputTokens).toBe(120);
+  });
+
+  it('没有的接口给出中文 404，不吐栈', async () => {
+    const t = rig();
+    const res = await t.app.request('/api/nope');
+    expect(res.status).toBe(404);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toContain('没有这个接口');
+  });
+});
