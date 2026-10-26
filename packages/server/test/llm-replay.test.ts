@@ -46,7 +46,7 @@ describe('回放客户端', function () {
     let finished = false;
     for await (const ev of client.stream(req)) {
       if (ev.type === 'delta') deltas.push(ev.text);
-      else {
+      else if (ev.type === 'done') {
         finished = true;
         expect(ev.result.text).toBe(text);
       }
@@ -54,6 +54,23 @@ describe('回放客户端', function () {
     expect(finished).toBe(true);
     expect(deltas.length).toBeGreaterThan(1);
     expect(deltas.join('')).toBe(text);
+  });
+
+  it('录下了思考过程也能回放，离线时思考可视化不会消失', async function () {
+    const req = baseRequest();
+    const entry = entryFor(req, '结论');
+    entry.response.reasoning = '先看这条主张有没有可核实的证据。';
+    writeCassette(dir, entry);
+    const client = createReplayClient(dir);
+
+    const reasoning: string[] = [];
+    let resultReasoning: string | undefined;
+    for await (const ev of client.stream(req)) {
+      if (ev.type === 'reasoning') reasoning.push(ev.text);
+      if (ev.type === 'done') resultReasoning = ev.result.reasoning;
+    }
+    expect(reasoning.join('')).toBe('先看这条主张有没有可核实的证据。');
+    expect(resultReasoning).toBe('先看这条主张有没有可核实的证据。');
   });
 
   it('录下了分片就按原分片回放，节奏与当时一致', async function () {
