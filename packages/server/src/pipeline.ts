@@ -10,8 +10,15 @@
  * 这样前端"重放一遍"与"查表"看到的是同一件事，不需要把 JSON 拆成十个列。
  */
 
-import { contractDigest, shortHash } from '@crossexam/shared';
-import type { BudgetConfig, InterviewerRole, RejectedClaim, Suggestion } from '@crossexam/shared';
+import { buildContracts, contractDigest, renderSystemPrompt, shortHash } from '@crossexam/shared';
+import type {
+  BudgetConfig,
+  ContractBudgetView,
+  IntentContract,
+  InterviewerRole,
+  RejectedClaim,
+  Suggestion,
+} from '@crossexam/shared';
 import type { LlmClient, LlmRequest, LlmResult, LlmStreamEvent, LlmUsage } from './llm/types.ts';
 import { EMPTY_USAGE } from './llm/types.ts';
 import { DEFAULT_MAX_ROUNDS, DEFAULT_PANEL, runSession } from './orchestrator/run.ts';
@@ -197,6 +204,76 @@ export interface SessionView {
   rejectedClaims: RejectedClaim[];
   verdicts: VerdictOutcome[];
   suggestions: SuggestOutcome[];
+  /** 这场沙盘当时用的意图契约。表里只存了指纹，全文是按同样输入重算出来的 */
+  contracts: ContractView[];
+}
+
+/** 落库时只留下一行指纹，够对账又不必把契约全文塞进 meta */
+interface StoredContract {
+  id: string;
+  version: number;
+  digest: string;
+}
+
+/**
+ * 一位面试官的意图契约，连同它此刻的指纹与运行时指纹的对照结果。
+ *
+ * 契约是**声明式意图**：不在数据库里存全文，而是按同样的角色与预算重新算一遍。
+ * 重算的意义在于对账——如果代码里的契约被人改过，重算出的指纹就和会话里存的对不上，
+ * 界面会直接显示「契约漂移」。这比存一份可能过期的副本要诚实。
+ */
+export interface ContractView {
+  id: string;
+  version: number;
+  /** 此刻用代码里的契约算出的指纹 */
+  digest: string;
+  /** 跑这场沙盘时落库的指纹；没跑过或旧会话可能是 null */
+  storedDigest: string | null;
+  /** 指纹与版本都对得上，才叫「运行时一致」 */
+  verified: boolean;
+  contract: IntentContract;
+  /** 这位面试官实际拿到的 system prompt，可逐字对照契约 */
+  systemPrompt: string;
+}
+
+function metaContracts(meta: Record<string, unknown>): StoredContract[] {
+  const value = meta['contracts'];
+  if (!Array.isArray(value)) return [];
+  const out: StoredContract[] = [];
+  for (const item of value) {
+    if (item === null || typeof item !== 'object') continue;
+    const raw = item as Record<string, unknown>;
+    const id = raw['id'];
+    const digest = raw['digest'];
+    if (typeof id !== 'string' || typeof digest !== 'string') continue;
+    const version = raw['version'];
+    out.push({ id, version: typeof version === 'number' ? version : 1, digest });
+  }
+  return out;
+}
+
+/** 由角色 + 预算生成契约视图；纯函数，不碰数据库也不调模型 */
+export function contractViews(
+  roles: readonly InterviewerRole[],
+  budget: ContractBudgetView,
+  stored: readonly StoredContract[] = [],
+): ContractView[] {
+  return buildContracts(roles, budget, 1).map((contract) => {
+    const digest = contractDigest(contract);
+    let match: StoredContract | undefined;
+    for (const item of stored) {
+      if (item.id === contract.id) match = item;
+    }
+    return {
+      id: contract.id,
+      version: contract.version,
+      digest,
+      storedDigest: match === undefined ? null : match.digest,
+      verified: match !== undefined && match.digest === digest && match.version === contract.version,
+      contract,
+      systemPrompt: renderSystemPrompt(contract),
+    };
+  });
 }
 
 /** 从事件日志里取最后一次某类事件的载荷。事件是真相，表只是索引。 */
@@ -240,6 +317,9 @@ export function assembleSession(db: Db, sessionId: string): SessionView | null {
   if (session === null) return null;
   const events = listEvents(db, sessionId, 0);
   const rejectedClaims = lastPayload<RejectedClaim>(events, 'claims', 'rejected');
+  const stored = metaContracts(session.meta);
+  const panel: InterviewerRole[] =
+    stored.length > 0 ? stored.map((item) => item.id as InterviewerRole) : [...DEFAULT_PANEL];
   return {
     session,
     claims: listClaims(db, sessionId),
@@ -252,5 +332,6 @@ export function assembleSession(db: Db, sessionId: string): SessionView | null {
     rejectedClaims,
     verdicts: lastPayload<VerdictOutcome>(events, 'verdicts', 'verdicts'),
     suggestions: lastPayload<SuggestOutcome>(events, 'suggestions', 'suggestions'),
+    contracts: contractViews(panel, session.budget.config, stored),
   };
 }
