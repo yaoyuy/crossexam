@@ -1,8 +1,7 @@
 import { useRef } from 'react';
-import { PERSONA_BLURB, PERSONA_LABEL, SESSION_STATUS_LABEL } from '../labels.ts';
-import { PANEL_ORDER } from '../contract.ts';
+import { SESSION_STATUS_LABEL } from '../labels.ts';
 import { IMPORT_ACCEPT } from '../api.ts';
-import type { InterviewerRole, LlmMode, SessionSummary } from '../api.ts';
+import type { LlmMode, SessionSummary } from '../api.ts';
 import { Chip, Pane } from './Bits.tsx';
 
 export interface IntakeDraft {
@@ -35,8 +34,17 @@ function shortId(id: string): string {
 export function IntakePanel(props: {
   draft: IntakeDraft;
   onDraftChange: (patch: Partial<IntakeDraft>) => void;
-  panel: InterviewerRole[];
-  onToggleRole: (role: InterviewerRole) => void;
+  /** 这一场在场的面试官 id：预设是角色名，自定义是 custom-xxx */
+  panel: string[];
+  onToggleRole: (id: string) => void;
+  /**
+   * 面板上能挑的面试官。预设在前、自定义在后，由上层从契约算好——
+   * 组件不该知道「有哪几位」这件事，否则加一位自定义面试官就要改两个文件。
+   */
+  interviewerChoices: { id: string; label: string; blurb: string; custom: boolean }[];
+  /** 面板里躺着但库里已经没有的 id（面试官被删了），要指名道姓地提示 */
+  missingInterviewers: string[];
+  onOpenStudio: () => void;
   pace: number;
   onPaceChange: (pace: number) => void;
   /** 这一场用什么跑：离线回放 / 联网直连 / 联网录制 */
@@ -154,24 +162,42 @@ export function IntakePanel(props: {
       </label>
 
       <div className="flex flex-col gap-1.5">
-        <span className="text-[11px] text-ink-400">面试官面板（默认三位，可增减）</span>
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] text-ink-400">面试官面板（默认三位，可增减）</span>
+          <button
+            type="button"
+            className="btn btn-quiet ml-auto px-2 py-0.5 text-[11px]"
+            data-shot="open-studio"
+            title="配一位自己行业的面试官：不用懂技术，用一句话描述就行"
+            onClick={props.onOpenStudio}
+          >
+            配置面试官
+          </button>
+        </div>
         <div className="flex flex-wrap gap-1.5">
-          {PANEL_ORDER.map((role) => {
-            const selected = props.panel.includes(role);
+          {props.interviewerChoices.map((choice) => {
+            const selected = props.panel.includes(choice.id);
             return (
               <button
-                key={role}
+                key={choice.id}
                 type="button"
-                title={PERSONA_BLURB[role]}
+                data-shot={'role-' + choice.id}
+                title={choice.blurb}
                 className={'chip ' + (selected ? 'border-ember-500/50 text-ember-300' : 'opacity-70')}
-                onClick={() => props.onToggleRole(role)}
+                onClick={() => props.onToggleRole(choice.id)}
               >
                 {selected ? '\u2713 ' : ''}
-                {PERSONA_LABEL[role]}
+                {choice.label}
+                {choice.custom ? ' ·自建' : ''}
               </button>
             );
           })}
         </div>
+        {props.missingInterviewers.length === 0 ? null : (
+          <p data-shot="panel-missing" className="text-[11px] leading-relaxed text-amber-ink">
+            面板里有 {props.missingInterviewers.join('、')}，但它们已经从面试官库里删掉了。点掉它们，或者去工作室重建一位。
+          </p>
+        )}
       </div>
 
       {/*

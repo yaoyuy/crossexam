@@ -79,6 +79,22 @@ export const PERSONA_BLURB: Record<InterviewerRole, string> = {
   domain_expert: '领域专家，学术腔，爱抠术语定义',
 };
 
+/**
+ * 按面试官 id 取中文名：预设查表，自定义用契约里的 persona.name。
+ * 界面上「谁在问」这件事必须永远有个名字——自定义面试官退化成 custom-marketing-3f2a 是不可接受的。
+ */
+export function personaLabelOf(id: string, name?: string): string {
+  const preset = PERSONA_LABEL[id as InterviewerRole];
+  if (preset !== undefined) return preset;
+  return name !== undefined && name.length > 0 ? name : id;
+}
+
+export function personaBlurbOf(id: string, blurb?: string): string {
+  const preset = PERSONA_BLURB[id as InterviewerRole];
+  if (preset !== undefined) return preset;
+  return blurb ?? '';
+}
+
 /** 阶段名：接口给的是英文，界面要中文 */
 export const STAGE_LABEL: Record<string, string> = {
   extract: '抽取主张',
@@ -121,13 +137,13 @@ export const SESSION_STATUS_LABEL: Record<string, string> = {
  * channel 由服务端拼（见 packages/server/src/orchestrator/*.ts 传给 stageRequest 的第四参）：
  * 阶段名，或「阶段:编号」。认不出来的原样显示，不猜。
  */
-export function channelLabel(channel: string): string {
+export function channelLabel(channel: string, nameOf?: (id: string) => string): string {
   if (channel === 'extract') return '正在抽取主张';
   const cut = channel.indexOf(':');
   if (cut <= 0) return channel;
   const stage = channel.slice(0, cut);
   const id = channel.slice(cut + 1);
-  if (stage === 'probe') return (PERSONA_LABEL[id as InterviewerRole] ?? id) + ' 正在追问';
+  if (stage === 'probe') return personaLabelOf(id, nameOf?.(id)) + ' 正在追问';
   if (stage === 'answer') return '求职者作答 ' + id;
   if (stage === 'verdict') return '判定 ' + id;
   if (stage === 'suggest') return '改写建议 ' + id;
