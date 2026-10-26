@@ -83,8 +83,21 @@ export function consistencyNote(view: ContractView): ConsistencyNote {
  */
 export const PANEL_ORDER: InterviewerRole[] = ['tech', 'hr', 'hiring_manager', 'stress', 'domain_expert'];
 
-/** 增删一位面试官，并按 PANEL_ORDER 归一化顺序（理由见上） */
-export function nextPanel(current: readonly InterviewerRole[], role: InterviewerRole): InterviewerRole[] {
-  const picked = current.includes(role) ? current.filter((item) => item !== role) : [...current, role];
-  return PANEL_ORDER.filter((item) => picked.includes(item));
+/**
+ * 增删一位面试官，并按规范顺序归一化（理由见上）。
+ *
+ * 自定义面试官（custom-xxx）不在枚举里，所以规则是：**预设按 PANEL_ORDER 排在前，
+ * 自定义按加入顺序排在后面**。自定义之间的顺序也必须稳定，否则同样会打乱提示词指纹。
+ */
+export function nextPanel(current: readonly string[], id: string): string[] {
+  const picked = current.includes(id) ? current.filter((item) => item !== id) : [...current, id];
+  const presets = PANEL_ORDER.filter((item) => picked.includes(item));
+  const custom = picked.filter((item) => !PANEL_ORDER.includes(item as InterviewerRole));
+  return [...presets, ...custom];
+}
+
+/** 面板里出现了不在清单里的 id（库里删掉了这位面试官），界面要能指名道姓地提示 */
+export function missingPanelIds(panel: readonly string[], known: readonly string[]): string[] {
+  const set = new Set(known);
+  return panel.filter((id) => !set.has(id));
 }

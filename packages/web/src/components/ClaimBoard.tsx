@@ -1,4 +1,4 @@
-import { CLAIM_CATEGORY_LABEL, PERSONA_LABEL, VERDICT_CRITERIA, VERDICT_LABEL } from '../labels.ts';
+import { CLAIM_CATEGORY_LABEL, personaLabelOf, VERDICT_CRITERIA, VERDICT_LABEL } from '../labels.ts';
 import type { Anchor, VerdictOutcome } from '../api.ts';
 import type { ClaimView, SandboxState } from '../state.ts';
 import { liveText } from '../state.ts';
@@ -63,7 +63,12 @@ function VerdictBlock(props: { outcome: VerdictOutcome; onFocus: (anchor: Anchor
   );
 }
 
-function ClaimCard(props: { item: ClaimView; state: SandboxState; onFocus: (anchor: Anchor) => void }) {
+function ClaimCard(props: {
+  item: ClaimView;
+  state: SandboxState;
+  onFocus: (anchor: Anchor) => void;
+  interviewerName?: (id: string) => string | undefined;
+}) {
   const item = props.item;
   const answeredCount = item.probes.filter((pv) => pv.answer !== null && pv.answer.answered).length;
 
@@ -91,7 +96,7 @@ function ClaimCard(props: { item: ClaimView; state: SandboxState; onFocus: (anch
             <li key={pv.probe.id} className="flex flex-col gap-1.5 border-l-2 border-ink-700 pl-3">
               <div className="flex flex-wrap items-center gap-2">
                 <Chip className="border-ember-500/30 text-ember-300">
-                  {PERSONA_LABEL[pv.probe.interviewerId as keyof typeof PERSONA_LABEL] ?? pv.probe.interviewerId}
+                  {personaLabelOf(pv.probe.interviewerId, props.interviewerName?.(pv.probe.interviewerId))}
                 </Chip>
                 <span className="text-[11px] text-ink-400">
                   {pv.probe.id} · 第 {pv.probe.round} 轮
@@ -167,7 +172,12 @@ function ClaimCard(props: { item: ClaimView; state: SandboxState; onFocus: (anch
   );
 }
 
-export function ClaimBoard(props: { state: SandboxState; onFocus: (anchor: Anchor) => void }) {
+export function ClaimBoard(props: {
+  state: SandboxState;
+  onFocus: (anchor: Anchor) => void;
+  /** 自定义面试官的中文名不在前端枚举里，得由上层从契约里查出来给过来 */
+  interviewerName?: (id: string) => string | undefined;
+}) {
   const state = props.state;
   const notices = state.rejectedProbes;
 
@@ -215,7 +225,13 @@ export function ClaimBoard(props: { state: SandboxState; onFocus: (anchor: Ancho
         />
       ) : (
         state.claims.map((item) => (
-          <ClaimCard key={item.claim.id} item={item} state={state} onFocus={props.onFocus} />
+          <ClaimCard
+            key={item.claim.id}
+            item={item}
+            state={state}
+            onFocus={props.onFocus}
+            interviewerName={props.interviewerName}
+          />
         ))
       )}
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import {
   ApiError,
   createSession,
@@ -6,6 +6,7 @@ import {
   fetchContracts,
   fetchDemo,
   fetchHealth,
+  fetchInterviewers,
   fetchModels,
   fetchStats,
   getSession,
@@ -20,12 +21,13 @@ import type {
   ContractView,
   DemoInfo,
   HealthInfo,
+  InterviewerLibrary,
   LlmMode,
-  InterviewerRole,
   SessionSummary,
   SseEvent,
 } from './api.ts';
-import { nextPanel } from './contract.ts';
+import { nextPanel, PANEL_ORDER } from './contract.ts';
+import { personaBlurbOf, personaLabelOf } from './labels.ts';
 import { markHelpSeen, shouldAutoOpenHelp } from './help.ts';
 import { applyTheme, nextTheme, readStoredTheme, saveTheme, THEME_LABEL } from './theme.ts';
 import type { Theme } from './theme.ts';
@@ -34,12 +36,13 @@ import { Chip } from './components/Bits.tsx';
 import { ClaimBoard } from './components/ClaimBoard.tsx';
 import { HelpPanel } from './components/HelpPanel.tsx';
 import { IntakePanel } from './components/IntakePanel.tsx';
+import { InterviewerStudio } from './components/InterviewerStudio.tsx';
 import type { ImportNote, IntakeDraft } from './components/IntakePanel.tsx';
 import { ResumePane } from './components/ResumePane.tsx';
 import { StageRail } from './components/StageRail.tsx';
 
 const EMPTY_DRAFT: IntakeDraft = { resumeText: '', jdText: '', jobTitle: '' };
-const DEFAULT_PANEL: InterviewerRole[] = ['tech', 'hr', 'hiring_manager'];
+const DEFAULT_PANEL: string[] = ['tech', 'hr', 'hiring_manager'];
 // 慢放模式下分片的节拍：40 ms 吐 3 片，约合每秒 75 片。
 // 比阶段事件（220 ms）快得多，所以字是连着出来的，而阶段仍在慢慢推进。
 const STREAM_TICK_MS = 40;
@@ -83,7 +86,11 @@ export function App() {
   const [demo, setDemo] = useState<DemoInfo | null>(null);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [draft, setDraft] = useState<IntakeDraft>(EMPTY_DRAFT);
-  const [panel, setPanel] = useState<InterviewerRole[]>(DEFAULT_PANEL);
+  // 面板里存的是 id 字符串：预设是角色名，自定义是 custom-xxx，两者同一个数组
+  const [panel, setPanel] = useState<string[]>(DEFAULT_PANEL);
+  // 面试官库（预设 + 自建）。它决定面板上能挑谁，也决定「这一位是不是已经删了」
+  const [library, setLibrary] = useState<InterviewerLibrary | null>(null);
+  const [studioOpen, setStudioOpen] = useState(false);
   const [pace, setPace] = useState(0);
   const [busy, setBusy] = useState(false);
   const [hint, setHint] = useState<string | null>(null);
@@ -121,6 +128,14 @@ export function App() {
     }
   }, []);
 
+  const refreshLibrary = useCallback(async () => {
+    try {
+      setLibrary(await fetchInterviewers());
+    } catch {
+      // 面试官库拉不到不影响预设阵容：面板照旧能用，只是少了自建的那几位
+    }
+  }, []);
+
   useEffect(() => {
     void (async () => {
       try {
@@ -132,9 +147,9 @@ export function App() {
       } catch (error) {
         setHint(error instanceof Error ? error.message : '连不上本地服务，请先 npm run dev');
       }
-      await refreshSessions();
+      await Promise.all([refreshSessions(), refreshLibrary()]);
     })();
-  }, [refreshSessions]);
+  }, [refreshSessions, refreshLibrary]);
 
   /**
    * 契约随面板变化重取：它是纯确定性接口，不调模型、不消耗预算。
@@ -234,6 +249,8 @@ export function App() {
         ...(jobTitle.length > 0 ? { jobTitle } : {}),
         mode: runMode,
         ...(runMode === 'replay' || runModel.trim() === '' ? {} : { model: runModel.trim() }),
+        // 阵容随会话落库：跑完之后再改面板，也不会把历史会话的面试官换掉
+        interviewers: panel,
       });
       sessionId = created.id;
       setMaterial({ resumeText: draft.resumeText, title: created.jobTitle });
@@ -369,9 +386,11 @@ export function App() {
       });
   }, []);
 
-  const handleToggleRole = useCallback((role: InterviewerRole) => {
-    setPanel((current) => nextPanel(current, role));
+  const handleToggleRole = useCallback((id: string) => {
+    setPanel((current) => nextPanel(current, id));
   }, []);
+
+  const handleCloseStudio = useCallback(() => setStudioOpen(false), []);
 
   const handleClear = useCallback(() => {
     setDraft(EMPTY_DRAFT);
@@ -395,6 +414,48 @@ export function App() {
       return next;
     });
   }, []);
+
+  /**
+   * 面板上能挑谁：预设按固定顺序在前，自建按建库顺序在后。
+   * 名字与简介一律从契约里取——自建面试官的中文名不在前端枚举里。
+   */
+  const interviewerChoices = useMemo(() => {
+    // 库还没到（或者拉失败）时也要有预设可挑：面板不能因为一次请求而空掉。
+    const byId = new Map<string, ContractView>();
+    for (const view of library?.presets ?? []) byId.set(view.id, view);
+    for (const view of library?.custom ?? []) byId.set(view.id, view);
+    const presets = PANEL_ORDER.map((id) => {
+      const view = byId.get(id);
+      return {
+        id,
+        label: personaLabelOf(id, view?.contract.persona.name),
+        blurb: personaBlurbOf(id, view?.contract.persona.blurb),
+        custom: false,
+      };
+    });
+    const custom = (library?.custom ?? []).map((view) => ({
+      id: view.id,
+      label: view.contract.persona.name,
+      blurb: view.contract.persona.blurb,
+      custom: true,
+    }));
+    return [...presets, ...custom];
+  }, [library]);
+
+  const missingInterviewers = useMemo(() => {
+    if (library === null) return [];
+    const known = interviewerChoices.map((item) => item.id);
+    return panel.filter((id) => !known.includes(id));
+  }, [library, interviewerChoices, panel]);
+
+  /** 自建面试官的中文名：面板、追问列表、实时输出三处共用同一张表 */
+  const interviewerName = useCallback(
+    (id: string): string | undefined => {
+      const found = interviewerChoices.find((item) => item.id === id);
+      return found === undefined ? undefined : found.label;
+    },
+    [interviewerChoices],
+  );
 
   const mode = modeChip(health === null ? null : runMode, health);
   const hasReport = sandbox.sessionId !== null && sandbox.claims.length > 0;
@@ -482,6 +543,9 @@ export function App() {
             onDraftChange={(patch) => setDraft((current) => ({ ...current, ...patch }))}
             panel={panel}
             onToggleRole={handleToggleRole}
+            interviewerChoices={interviewerChoices}
+            missingInterviewers={missingInterviewers}
+            onOpenStudio={() => setStudioOpen(true)}
             pace={pace}
             onPaceChange={setPace}
             onUseDemo={handleUseDemo}
@@ -506,7 +570,11 @@ export function App() {
           <StageRail state={sandbox} panel={panel} health={health} contracts={contracts} />
         </aside>
 
-        <ClaimBoard state={sandbox} onFocus={(anchor) => dispatch({ type: 'focus', anchor })} />
+        <ClaimBoard
+          state={sandbox}
+          onFocus={(anchor) => dispatch({ type: 'focus', anchor })}
+          interviewerName={interviewerName}
+        />
 
         <ResumePane
           text={material.resumeText}
@@ -517,6 +585,14 @@ export function App() {
       </main>
 
       <HelpPanel open={helpOpen} onClose={handleCloseHelp} />
+      <InterviewerStudio
+        open={studioOpen}
+        onClose={handleCloseStudio}
+        library={library}
+        runMode={runMode}
+        runModel={runModel}
+        onChanged={() => void refreshLibrary()}
+      />
     </div>
   );
 }

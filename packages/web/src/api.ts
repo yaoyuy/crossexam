@@ -242,7 +242,8 @@ export interface IntentContract {
 }
 
 export interface ContractView {
-  id: InterviewerRole;
+  /** 预设面试官是角色名（tech / hr…），自定义是 custom-xxx：这里必须是宽松的字符串 */
+  id: string;
   version: number;
   /** 服务端此刻按代码里的契约算出的指纹 */
   digest: string;
@@ -255,7 +256,7 @@ export interface ContractView {
 }
 
 export interface ContractsResponse {
-  panel: InterviewerRole[];
+  panel: string[];
   budget: ContractBudget;
   contracts: ContractView[];
 }
@@ -298,10 +299,109 @@ export function fetchDemo(): Promise<DemoInfo> {
   return getJson<DemoInfo>('/api/demo');
 }
 
-/** 契约是声明式的：给定角色就能算出全文与指纹，不需要跑沙盘、不调模型 */
-export function fetchContracts(panel?: InterviewerRole[]): Promise<ContractsResponse> {
+/** 契约是声明式的：给定面试官 id 就能算出全文与指纹，不需要跑沙盘、不调模型 */
+export function fetchContracts(panel?: string[]): Promise<ContractsResponse> {
   const query = panel !== undefined && panel.length > 0 ? '?panel=' + panel.join(',') : '';
   return getJson<ContractsResponse>('/api/contracts' + query);
+}
+
+/**
+ * 自定义面试官的一份草稿：**窄字段**是故意的。
+ * 契约要能被评审，就不该容忍一段两百字的「人设散文」。
+ */
+export interface InterviewerDraft {
+  name: string;
+  domain: string;
+  seniority: string;
+  tone: string;
+  blurb: string;
+  goal: string;
+  tactics: string[];
+}
+
+/** 字段级 diff：让「AI 改了什么」看得见，而不是让人对着两段 JSON 找不同 */
+export interface DraftDiff {
+  field: string;
+  before: string;
+  after: string;
+}
+
+/** 库里的一位自定义面试官：契约视图与预设同形，界面不用写两套渲染 */
+export interface InterviewerEntry extends ContractView {
+  domain: string;
+  /** llm = 模型生成的；local = 本地规则兜底 */
+  source: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface InterviewerLibrary {
+  presets: ContractView[];
+  custom: InterviewerEntry[];
+  limit: number;
+  budget: ContractBudget;
+}
+
+/** 「用 AI 优化」的结果：草稿 + 谁生成的 + 改了什么 + 渲染出的 prompt */
+export interface DraftResult {
+  draft: InterviewerDraft;
+  source: 'llm' | 'local';
+  notes: string[];
+  fallbackReason: string | null;
+  diff: DraftDiff[];
+  id: string;
+  version: number;
+  digest: string;
+  contract: IntentContract;
+  systemPrompt: string;
+  replayed: boolean;
+  usage: Usage;
+}
+
+export interface DraftInput {
+  description: string;
+  jobTitle?: string;
+  jdText?: string;
+  resumeText?: string;
+  /** 已经有一份草稿时再优化：服务端会算出改了什么 */
+  before?: InterviewerDraft;
+  /** 编辑既有面试官时传它的 id：名字改了也不能换人 */
+  id?: string;
+  /** false = 只用本地规则，一个网络包都不发 */
+  useModel?: boolean;
+  mode?: LlmMode;
+  model?: string;
+}
+
+export function fetchInterviewers(): Promise<InterviewerLibrary> {
+  return getJson<InterviewerLibrary>('/api/interviewers');
+}
+
+export function draftInterviewer(input: DraftInput): Promise<DraftResult> {
+  return postJson<DraftResult>('/api/interviewers/draft', input);
+}
+
+export function saveInterviewer(input: {
+  draft: InterviewerDraft;
+  id?: string;
+  source?: string;
+}): Promise<{ ok: boolean; interviewer: InterviewerEntry }> {
+  return postJson<{ ok: boolean; interviewer: InterviewerEntry }>('/api/interviewers', input);
+}
+
+export async function deleteInterviewer(id: string): Promise<void> {
+  const res = await fetch('/api/interviewers/' + encodeURIComponent(id), { method: 'DELETE' });
+  if (!res.ok) throw new ApiError(await readError(res), res.status);
+}
+
+async function postJson<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(path, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new ApiError(await readError(res), res.status);
+  return (await res.json()) as T;
 }
 
 export async function listSessions(limit = 20): Promise<SessionSummary[]> {
@@ -327,6 +427,8 @@ export interface CreateSessionInput {
   mode?: LlmMode;
   /** 联网时要用的模型名；回放模式会忽略它。 */
   model?: string;
+  /** 这一场的面试官阵容：预设 id 或自定义 id，顺序即提问顺序。不传就用默认三位。 */
+  interviewers?: string[];
 }
 
 export interface CreatedSession {
@@ -334,6 +436,8 @@ export interface CreatedSession {
   mode: LlmMode;
   model: string;
   jobTitle: string;
+  /** 服务端落定的阵容（已按上限截断、已校验存在） */
+  panel: string[];
 }
 
 export async function createSession(input: CreateSessionInput): Promise<CreatedSession> {
@@ -482,7 +586,7 @@ export async function readSseStream(
 }
 
 export interface RunOptions {
-  panel?: InterviewerRole[];
+  panel?: string[];
   maxClaims?: number;
   signal?: AbortSignal;
 }

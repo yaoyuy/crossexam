@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { channelLabel, PERSONA_BLURB, PERSONA_LABEL, STAGE_HINT, STAGE_LABEL, VERDICT_LABEL } from '../labels.ts';
-import type { ContractView, HealthInfo, InterviewerRole } from '../api.ts';
+import { channelLabel, personaBlurbOf, personaLabelOf, STAGE_HINT, STAGE_LABEL, VERDICT_LABEL } from '../labels.ts';
+import type { ContractView, HealthInfo } from '../api.ts';
 import { consistencyNote, contractLines } from '../contract.ts';
 import type { SandboxState } from '../state.ts';
 import { liveChannels, progressOf, readableStreamText, tailText, totalProbes, verdictCounts } from '../state.ts';
@@ -32,7 +32,7 @@ function probeCountOf(state: SandboxState, interviewerId: string): number {
  */
 export function StageRail(props: {
   state: SandboxState;
-  panel: InterviewerRole[];
+  panel: string[];
   health: HealthInfo | null;
   contracts: ContractView[] | null;
 }) {
@@ -42,7 +42,17 @@ export function StageRail(props: {
   const progress = progressOf(state);
   const counts = verdictCounts(state);
   const live = liveChannels(state);
-  const panel = state.interviewers.length > 0 ? (state.interviewers as InterviewerRole[]) : props.panel;
+  const panel = state.interviewers.length > 0 ? state.interviewers : props.panel;
+
+  /**
+   * 自定义面试官的中文名只能从契约里取（库里存的就是它），
+   * 所以这里建一张 id → 人设 的表，界面各处共用。
+   */
+  const personaOf = (id: string): { name?: string; blurb?: string } => {
+    const view = props.contracts?.find((item) => item.id === id);
+    if (view === undefined) return {};
+    return { name: view.contract.persona.name, blurb: view.contract.persona.blurb };
+  };
   const running = state.phase === 'running';
 
   return (
@@ -69,9 +79,9 @@ export function StageRail(props: {
               >
                 <div className="min-w-0">
                   <p className={'truncate text-[13px] font-semibold ' + (ROLE_ACCENT[role] ?? 'text-ink-100')}>
-                    {PERSONA_LABEL[role] ?? role}
+                    {personaLabelOf(role, personaOf(role).name)}
                   </p>
-                  <p className="truncate text-[11px] text-ink-400">{PERSONA_BLURB[role] ?? ''}</p>
+                  <p className="truncate text-[11px] text-ink-400">{personaBlurbOf(role, personaOf(role).blurb)}</p>
                 </div>
                 <Chip title="这位面试官提出的追问条数">{String(asked)} 问</Chip>
               </li>
@@ -107,7 +117,7 @@ export function StageRail(props: {
                     className="flex w-full items-center justify-between gap-2 px-2.5 py-1.5 text-left"
                   >
                     <span className={'text-[12px] font-semibold ' + (ROLE_ACCENT[view.id] ?? 'text-ink-200')}>
-                      {PERSONA_LABEL[view.id] ?? view.id} · 契约 v{String(view.version)}
+                      {personaLabelOf(view.id, view.contract.persona.name)} · 契约 v{String(view.version)}
                     </span>
                     <span className="text-[11px] text-ink-400">{expanded ? '收起' : '展开'}</span>
                   </button>
@@ -193,7 +203,7 @@ export function StageRail(props: {
                 >
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-[11px] font-semibold text-ember-300">
-                      {channelLabel(buffer.channel)}
+                      {channelLabel(buffer.channel, (id) => personaLabelOf(id, personaOf(id).name))}
                     </span>
                     <span className="text-[10px] text-ink-500">
                       {buffer.reasoning === '' ? '输出' : '思考 + 输出'}
