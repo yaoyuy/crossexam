@@ -1,0 +1,36 @@
+[
+  {
+    "fileName": "2026-10-26-查阅博学谷比赛报名详情.md",
+    "sessionId": "session-064164e3-9e00-4b50-8227-8ea4b7e62ecf",
+    "title": "查阅博学谷比赛报名详情",
+    "date": "2026-10-26",
+    "cwd": "D:\\CZB",
+    "humanMessageCount": 4,
+    "eventCount": 153,
+    "tokens": {
+      "calls": 13,
+      "inputTokens": 62165,
+      "outputTokens": 31432,
+      "cacheReadTokens": 884480,
+      "reasoningTokens": 19702
+    },
+    "bytes": 140517
+  },
+  {
+    "fileName": "2026-10-26-开发类似ResumeForge比赛项目.md",
+    "sessionId": "session-9791af4a-18f0-4e22-86e6-5dbe200db248",
+    "title": "开发类似ResumeForge比赛项目",
+    "date": "2026-10-26",
+    "cwd": "D:\\CZB",
+    "humanMessageCount": 3,
+    "eventCount": 3058,
+    "tokens": {
+      "calls": 282,
+      "inputTokens": 976578,
+      "outputTokens": 482986,
+      "cacheReadTokens": 25404160,
+      "reasoningTokens": 218863
+    },
+    "bytes": 1478793
+  }
+]
