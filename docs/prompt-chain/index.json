@@ -14,23 +14,199 @@
       "cacheReadTokens": 884480,
       "reasoningTokens": 19702
     },
-    "bytes": 140517
+    "bytes": 140517,
+    "part": 1,
+    "parts": 1,
+    "turnFrom": 1,
+    "turnTo": 4
   },
   {
-    "fileName": "2026-10-26-开发类似ResumeForge比赛项目.md",
+    "fileName": "2026-10-26-传智杯-1.md",
     "sessionId": "session-9791af4a-18f0-4e22-86e6-5dbe200db248",
-    "title": "开发类似ResumeForge比赛项目",
+    "title": "传智杯",
     "date": "2026-10-26",
     "cwd": "D:\\CZB",
-    "humanMessageCount": 3,
-    "eventCount": 3746,
+    "humanMessageCount": 4,
+    "eventCount": 7862,
     "tokens": {
-      "calls": 346,
-      "inputTokens": 1178649,
-      "outputTokens": 599180,
-      "cacheReadTokens": 32561792,
-      "reasoningTokens": 271549
+      "calls": 767,
+      "inputTokens": 2534977,
+      "outputTokens": 1137361,
+      "cacheReadTokens": 81456128,
+      "reasoningTokens": 572112
     },
-    "bytes": 1805566
+    "bytes": 471070,
+    "part": 1,
+    "parts": 9,
+    "turnFrom": 1,
+    "turnTo": 2
+  },
+  {
+    "fileName": "2026-10-26-传智杯-2.md",
+    "sessionId": "session-9791af4a-18f0-4e22-86e6-5dbe200db248",
+    "title": "传智杯",
+    "date": "2026-10-26",
+    "cwd": "D:\\CZB",
+    "humanMessageCount": 4,
+    "eventCount": 7862,
+    "tokens": {
+      "calls": 767,
+      "inputTokens": 2534977,
+      "outputTokens": 1137361,
+      "cacheReadTokens": 81456128,
+      "reasoningTokens": 572112
+    },
+    "bytes": 467484,
+    "part": 2,
+    "parts": 9,
+    "turnFrom": 2,
+    "turnTo": 2
+  },
+  {
+    "fileName": "2026-10-26-传智杯-3.md",
+    "sessionId": "session-9791af4a-18f0-4e22-86e6-5dbe200db248",
+    "title": "传智杯",
+    "date": "2026-10-26",
+    "cwd": "D:\\CZB",
+    "humanMessageCount": 4,
+    "eventCount": 7862,
+    "tokens": {
+      "calls": 767,
+      "inputTokens": 2534977,
+      "outputTokens": 1137361,
+      "cacheReadTokens": 81456128,
+      "reasoningTokens": 572112
+    },
+    "bytes": 458765,
+    "part": 3,
+    "parts": 9,
+    "turnFrom": 2,
+    "turnTo": 3
+  },
+  {
+    "fileName": "2026-10-26-传智杯-4.md",
+    "sessionId": "session-9791af4a-18f0-4e22-86e6-5dbe200db248",
+    "title": "传智杯",
+    "date": "2026-10-26",
+    "cwd": "D:\\CZB",
+    "humanMessageCount": 4,
+    "eventCount": 7862,
+    "tokens": {
+      "calls": 767,
+      "inputTokens": 2534977,
+      "outputTokens": 1137361,
+      "cacheReadTokens": 81456128,
+      "reasoningTokens": 572112
+    },
+    "bytes": 448470,
+    "part": 4,
+    "parts": 9,
+    "turnFrom": 3,
+    "turnTo": 3
+  },
+  {
+    "fileName": "2026-10-26-传智杯-5.md",
+    "sessionId": "session-9791af4a-18f0-4e22-86e6-5dbe200db248",
+    "title": "传智杯",
+    "date": "2026-10-26",
+    "cwd": "D:\\CZB",
+    "humanMessageCount": 4,
+    "eventCount": 7862,
+    "tokens": {
+      "calls": 767,
+      "inputTokens": 2534977,
+      "outputTokens": 1137361,
+      "cacheReadTokens": 81456128,
+      "reasoningTokens": 572112
+    },
+    "bytes": 463779,
+    "part": 5,
+    "parts": 9,
+    "turnFrom": 3,
+    "turnTo": 4
+  },
+  {
+    "fileName": "2026-10-26-传智杯-6.md",
+    "sessionId": "session-9791af4a-18f0-4e22-86e6-5dbe200db248",
+    "title": "传智杯",
+    "date": "2026-10-26",
+    "cwd": "D:\\CZB",
+    "humanMessageCount": 4,
+    "eventCount": 7862,
+    "tokens": {
+      "calls": 767,
+      "inputTokens": 2534977,
+      "outputTokens": 1137361,
+      "cacheReadTokens": 81456128,
+      "reasoningTokens": 572112
+    },
+    "bytes": 435863,
+    "part": 6,
+    "parts": 9,
+    "turnFrom": 4,
+    "turnTo": 4
+  },
+  {
+    "fileName": "2026-10-26-传智杯-7.md",
+    "sessionId": "session-9791af4a-18f0-4e22-86e6-5dbe200db248",
+    "title": "传智杯",
+    "date": "2026-10-26",
+    "cwd": "D:\\CZB",
+    "humanMessageCount": 4,
+    "eventCount": 7862,
+    "tokens": {
+      "calls": 767,
+      "inputTokens": 2534977,
+      "outputTokens": 1137361,
+      "cacheReadTokens": 81456128,
+      "reasoningTokens": 572112
+    },
+    "bytes": 424345,
+    "part": 7,
+    "parts": 9,
+    "turnFrom": 4,
+    "turnTo": 4
+  },
+  {
+    "fileName": "2026-10-26-传智杯-8.md",
+    "sessionId": "session-9791af4a-18f0-4e22-86e6-5dbe200db248",
+    "title": "传智杯",
+    "date": "2026-10-26",
+    "cwd": "D:\\CZB",
+    "humanMessageCount": 4,
+    "eventCount": 7862,
+    "tokens": {
+      "calls": 767,
+      "inputTokens": 2534977,
+      "outputTokens": 1137361,
+      "cacheReadTokens": 81456128,
+      "reasoningTokens": 572112
+    },
+    "bytes": 449835,
+    "part": 8,
+    "parts": 9,
+    "turnFrom": 4,
+    "turnTo": 4
+  },
+  {
+    "fileName": "2026-10-26-传智杯-9.md",
+    "sessionId": "session-9791af4a-18f0-4e22-86e6-5dbe200db248",
+    "title": "传智杯",
+    "date": "2026-10-26",
+    "cwd": "D:\\CZB",
+    "humanMessageCount": 4,
+    "eventCount": 7862,
+    "tokens": {
+      "calls": 767,
+      "inputTokens": 2534977,
+      "outputTokens": 1137361,
+      "cacheReadTokens": 81456128,
+      "reasoningTokens": 572112
+    },
+    "bytes": 252983,
+    "part": 9,
+    "parts": 9,
+    "turnFrom": 4,
+    "turnTo": 4
   }
 ]
