@@ -31,7 +31,7 @@
 
 import type { Db } from './db.ts';
 
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 const SESSION_TABLE =
   'CREATE TABLE IF NOT EXISTS session (' +
@@ -149,6 +149,42 @@ const INTERVIEWER_TABLE =
   '  updated_at TEXT NOT NULL' +
   ')';
 
+/**
+ * 采纳改写（v5）。
+ *
+ * 这一对表回答的是「用户确认之后，简历到底被改成了什么样」：
+ *   - revision 记每一条真正落地的改动（原文区间 + 改前 + 改后），按会话存；
+ *   - revised_resume 记改完的全文与指纹，一个会话一行。
+ *
+ * 为什么要存全文而不是每次重算：改写是确定性的（同样的原文 + 同样的采纳列表
+ * 得到逐字节相同的结果），但「用户当初确认的那一版」是一份事实，不该取决于
+ * 之后的代码有没有改过 applyRevisions。存下来，导出与展示读的是同一份东西。
+ */
+const REVISION_TABLE =
+  'CREATE TABLE IF NOT EXISTS revision (' +
+  '  session_id TEXT NOT NULL REFERENCES session(id) ON DELETE CASCADE,' +
+  '  claim_id TEXT NOT NULL,' +
+  '  ordinal INTEGER NOT NULL,' +
+  '  start INTEGER NOT NULL,' +
+  '  end INTEGER NOT NULL,' +
+  '  before TEXT NOT NULL,' +
+  '  after TEXT NOT NULL,' +
+  '  created_at TEXT NOT NULL,' +
+  '  PRIMARY KEY (session_id, claim_id)' +
+  ')';
+
+const REVISED_RESUME_TABLE =
+  'CREATE TABLE IF NOT EXISTS revised_resume (' +
+  '  session_id TEXT PRIMARY KEY REFERENCES session(id) ON DELETE CASCADE,' +
+  '  text TEXT NOT NULL,' +
+  '  digest TEXT NOT NULL,' +
+  '  accepted_json TEXT NOT NULL,' +
+  '  pending_json TEXT NOT NULL,' +
+  '  skipped_json TEXT NOT NULL,' +
+  '  created_at TEXT NOT NULL,' +
+  '  updated_at TEXT NOT NULL' +
+  ')';
+
 const LLM_CALL_INDEX_DIGEST = 'CREATE INDEX IF NOT EXISTS llm_call_by_digest ON llm_call(digest)';
 const LLM_CALL_INDEX_SESSION = 'CREATE INDEX IF NOT EXISTS llm_call_by_session ON llm_call(session_id, created_at)';
 
@@ -165,6 +201,8 @@ function schemaStatements(options: { probeTurnUnique: boolean }): readonly strin
     LLM_CALL_INDEX_DIGEST,
     LLM_CALL_INDEX_SESSION,
     INTERVIEWER_TABLE,
+    REVISION_TABLE,
+    REVISED_RESUME_TABLE,
   ];
 }
 
@@ -267,11 +305,29 @@ function migrateV4(db: Db): void {
   );
 }
 
+/**
+ * v4 → v5：新增「采纳改写」的两张表。
+ *
+ * 同样是只加新表、不动既有列。老库升上来以后，历史会话没有 revised_resume 行，
+ * 读侧一律按「还没改过」处理，不会因为缺一行就报错。
+ */
+function migrateV5(db: Db): void {
+  rebuild(
+    db,
+    () => {
+      db.exec(REVISION_TABLE);
+      db.exec(REVISED_RESUME_TABLE);
+    },
+    5,
+  );
+}
+
 /** 版本号 → 升级动作。只写「从上一版升上来」的那一步，不写全量建表。 */
 const MIGRATIONS: Record<number, (db: Db) => void> = {
   2: migrateV2,
   3: migrateV3,
   4: migrateV4,
+  5: migrateV5,
 };
 
 export class SchemaVersionError extends Error {

@@ -17,6 +17,8 @@ import type {
   ClaimCategory,
   IntentContract,
   Probe,
+  Revision,
+  RevisionSkip,
   Suggestion,
   Verdict,
   VerdictKind,
@@ -631,3 +633,134 @@ export function deleteInterviewer(db: Db, id: string): boolean {
   return (result.changes ?? 0) > 0;
 }
 
+/* ------------------------------------------------------------ 采纳改写（v5） */
+
+/**
+ * 一条真正落地的改写。区间是**原文**坐标，不是改完之后的坐标——
+ * 改完之后的坐标由 shared 的 movedSpans 算，不存两份互相矛盾的坐标。
+ */
+export interface RevisionRow extends Revision {
+  ordinal: number;
+  createdAt: string;
+}
+
+/**
+ * 改完的简历。
+ *
+ * accepted / pending / skipped 三份清单一起存：界面要能回答
+ * 「我确认了几条、还剩几条没理、哪几条改不动、为什么」。
+ * 只存改完的全文而不存这三份清单，历史会话就再也说不清这件事了。
+ */
+export interface RevisedResumeRow {
+  sessionId: string;
+  text: string;
+  digest: string;
+  accepted: string[];
+  pending: string[];
+  skipped: RevisionSkip[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface RevisionDbRow {
+  session_id: string;
+  claim_id: string;
+  ordinal: number;
+  start: number;
+  end: number;
+  before: string;
+  after: string;
+  created_at: string;
+}
+
+interface RevisedResumeDbRow {
+  session_id: string;
+  text: string;
+  digest: string;
+  accepted_json: string;
+  pending_json: string;
+  skipped_json: string;
+  created_at: string;
+  updated_at: string;
+}
+
+function mapRevision(row: RevisionDbRow): RevisionRow {
+  return {
+    claimId: row.claim_id,
+    start: toInt(row.start),
+    end: toInt(row.end),
+    before: row.before,
+    after: row.after,
+    ordinal: toInt(row.ordinal),
+    createdAt: row.created_at,
+  };
+}
+
+function mapRevisedResume(row: RevisedResumeDbRow): RevisedResumeRow {
+  return {
+    sessionId: row.session_id,
+    text: row.text,
+    digest: row.digest,
+    accepted: parseJson<string[]>(row.accepted_json, []),
+    pending: parseJson<string[]>(row.pending_json, []),
+    skipped: parseJson<RevisionSkip[]>(row.skipped_json, []),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+/** 抹掉上一轮的采纳记录。重新确认一次就是从零开始，不留叠加。 */
+export function clearRevisions(db: Db, sessionId: string): void {
+  db.prepare('DELETE FROM revision WHERE session_id = ?').run(sessionId);
+  db.prepare('DELETE FROM revised_resume WHERE session_id = ?').run(sessionId);
+}
+
+export function insertRevision(db: Db, sessionId: string, revision: Revision, ordinal: number, at: string = nowIso()): void {
+  db.prepare(
+    'INSERT INTO revision (session_id, claim_id, ordinal, start, end, before, after, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)' +
+      ' ON CONFLICT(session_id, claim_id) DO UPDATE SET ordinal = excluded.ordinal, start = excluded.start,' +
+      ' end = excluded.end, before = excluded.before, after = excluded.after, created_at = excluded.created_at',
+  ).run(sessionId, revision.claimId, ordinal, revision.start, revision.end, revision.before, revision.after, at);
+}
+
+export function listRevisions(db: Db, sessionId: string): RevisionRow[] {
+  const rows = asRows<RevisionDbRow>(db.prepare('SELECT * FROM revision WHERE session_id = ? ORDER BY ordinal').all(sessionId));
+  return rows.map(mapRevision);
+}
+
+/** 一个会话只有一份「改完的简历」：再确认一次就是覆盖，不是追加。 */
+export function saveRevisedResume(
+  db: Db,
+  input: {
+    sessionId: string;
+    text: string;
+    digest: string;
+    accepted: readonly string[];
+    pending: readonly string[];
+    skipped: readonly RevisionSkip[];
+    at?: string;
+  },
+): void {
+  const at = input.at ?? nowIso();
+  db.prepare(
+    'INSERT INTO revised_resume (session_id, text, digest, accepted_json, pending_json, skipped_json, created_at, updated_at)' +
+      ' VALUES (?, ?, ?, ?, ?, ?, ?, ?)' +
+      ' ON CONFLICT(session_id) DO UPDATE SET text = excluded.text, digest = excluded.digest,' +
+      ' accepted_json = excluded.accepted_json, pending_json = excluded.pending_json,' +
+      ' skipped_json = excluded.skipped_json, updated_at = excluded.updated_at',
+  ).run(
+    input.sessionId,
+    input.text,
+    input.digest,
+    JSON.stringify(input.accepted),
+    JSON.stringify(input.pending),
+    JSON.stringify(input.skipped),
+    at,
+    at,
+  );
+}
+
+export function getRevisedResume(db: Db, sessionId: string): RevisedResumeRow | null {
+  const row = db.prepare('SELECT * FROM revised_resume WHERE session_id = ?').get(sessionId) as RevisedResumeDbRow | undefined;
+  return row === undefined ? null : mapRevisedResume(row);
+}
