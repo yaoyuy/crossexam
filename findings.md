@@ -206,3 +206,43 @@ run_code 直接报「Error: code run failed (exception): Expected a semicolon」
 - 文件内容用 String.raw 承载；
 - 内容里**绝不出现反引号与美元花括号**（要行内代码样式就用「」，要代码块就用四空格缩进）；
 - 一次程序只写 1–2 个文件；确实需要反引号时，改用「字符串数组 join」并控制程序体大小。
+## F14. PERSONA_PRESETS 的真实形状是三层，不是一层（2026-10-26）
+
+写 packages/web/test/labels.test.ts 的漂移断言时，我照印象把人设写成了 `{ name, blurb }`，
+实际形状是：
+
+    PERSONA_PRESETS[role] = { persona: { name, role, seniority, tone, blurb }, goal, tactics }
+
+断言当场报 `expected '技术面试官' to be undefined`。
+
+**教训**：写「对照实现」的漂移测试之前，先把真实结构打印一遍（console.log 或读源码），
+不要照印象断言。漂移测试的价值在于它盯着别人改，不在于它盯着我的记忆——
+但这次它先盯住了我的记忆，也算物尽其用。
+
+## F15. npm install -w <workspace> 会静默失败，退出码仍是 0（2026-10-26）
+
+给前端包装 Tailwind 时用过 `npm install -w @crossexam/web ...`，命令 exit 0、stderr 只有一行
+`npm warn workspaces @crossexam/web in filter set, but no workspace folder present`，
+**依赖根本没被写进 packages/web/package.json**，直到构建报「找不到 tailwind」才发现。
+
+**教训**：workspace 过滤安装装完必须核对目标 workspace 的 package.json 真的多了那一条；
+只信退出码会得到一个「装过了」的错误结论。这条与 F10、F11 同族：
+**退出码为 0 不代表事情办成了**，凡是「静默忽略」的机制都要在事后做一次正面确认。
+
+## F16. 不装 Playwright 也能驱动真浏览器：Edge + CDP + Node 自带 WebSocket（2026-10-26）
+
+P3 需要「真的在浏览器里点一遍」而不是只看编译过不过，但仓库里没有 Playwright（也不该为一个 demo 装）。
+零依赖路径：
+
+1. spawn 系统 Edge：`--headless=new --disable-gpu --no-first-run --remote-debugging-port=9222
+   --user-data-dir=<临时目录> about:blank`；
+2. HTTP 轮询 `http://127.0.0.1:9222/json/version` 与 `/json/list`，取 page target 的 webSocketDebuggerUrl；
+3. 用 Node 22+ 自带的全局 WebSocket 连上去，发 Runtime.evaluate / Page.captureScreenshot / Emulation.*；
+4. 同时收 Runtime.exceptionThrown、consoleAPICalled(error|warning)、Log.entryAdded —— 这才是「零报错」的证据。
+
+**边界（踩过）**：`window.scrollTo` 对本项目的三栏布局完全无效——滚动容器是各栏的 pane div，
+不是 window，所以截图只会得到同一屏内容（四张 212492 B 的图一模一样）。要截下方内容必须
+滚动对应元素（element.scrollTop = N 或 scrollIntoView）。
+
+**顺带**：这条路径本身可以固化成可复跑的截图命令（P4 要做的 npm run shots），
+演示视频与 README 的截图都从它出，而不是靠手点。
