@@ -190,6 +190,30 @@ check('空状态列了四条机制', first.indexOf('证据锚定') >= 0 && first
 const runDisabledEmpty = await evalJs('document.querySelector(String.fromCharCode(91) + "data-shot=" + String.fromCharCode(34) + "run" + String.fromCharCode(34) + String.fromCharCode(93) + "").disabled');
 check('简历为空时「开始质询」是灰的', runDisabledEmpty === true, String(runDisabledEmpty));
 
+// 新手教程：这份浏览器 profile 是本次新建的，所以第一次打开必然自动弹一次。
+// 按内容断言，而不是只断言「有个弹层」——教程的价值就在那几句话里。
+const firstHelp = await bodyText();
+check('第一次打开自动弹出新手教程', firstHelp.indexOf('新手教程') >= 0 && firstHelp.indexOf('四步用起来') >= 0, '');
+check('教程里讲了三种模式的区别', firstHelp.indexOf('离线回放') >= 0 && firstHelp.indexOf('联网录制') >= 0 && firstHelp.indexOf('联网直连') >= 0, '');
+check('教程里写明隐私口径（只在联网时才发给模型服务商）', firstHelp.indexOf('模型服务商') >= 0 && firstHelp.indexOf('SQLite') >= 0, '');
+await evalJs("document.querySelector('[data-shot=\"help-close\"]').click()");
+await sleep(250);
+const helpGone = await evalJs("document.querySelector('[data-shot=\"help\"]') === null");
+check('点「知道了，开始用」教程收起', helpGone === true, String(helpGone));
+
+// 配色：默认深色，点一下变浅色并记住选择。颜色全靠 CSS 变量，
+// 所以这里断言的是 html 上的 data-theme 与存储，而不是去比对某个元素的颜色值。
+const themeBefore = await evalJs('document.documentElement.dataset.theme');
+await evalJs("document.querySelector('[data-shot=\"theme\"]').click()");
+await sleep(200);
+const themeAfter = await evalJs('document.documentElement.dataset.theme');
+const themeStored = await evalJs("localStorage.getItem('crossexam.theme')");
+check('配色能在深色与浅色之间切换，并记住选择', themeBefore === 'dark' && themeAfter === 'light' && themeStored === 'light', String(themeBefore) + ' → ' + String(themeAfter) + ' / 存了 ' + String(themeStored));
+await evalJs("document.querySelector('[data-shot=\"theme\"]').click()");
+await sleep(200);
+const themeBack = await evalJs('document.documentElement.dataset.theme');
+check('再点一下切回深色', themeBack === 'dark', String(themeBack));
+
 const typed = await setTextarea(0, CUSTOM_RESUME);
 check('能在浏览器里自己打一份简历', typed === CUSTOM_RESUME.length, String(typed) + ' 字');
 await waitText('字', 5000);
@@ -238,6 +262,9 @@ const advised = view.suggestions.filter((s) => s.status === 'suggested');
 check('服务端判定 5 条，其中 4 条给出改写建议', view.verdicts.length === 5 && advised.length === 4 && view.suggestions.length === 5, '判定 ' + String(view.verdicts.length) + ' / 建议 ' + String(advised.length) + '（outcome ' + String(view.suggestions.length) + '）');
 const drawn = String(doneText).split('置信度').length - 1;
 check('界面画出的判定条数与服务端一致', drawn === view.verdicts.length, '界面 ' + String(drawn) + ' / 服务端 ' + String(view.verdicts.length));
+// 每条判定都要写清「为什么这样判」：判据是固定文案，模型的解释只是措辞。
+const whyLines = await evalJs('(document.body.innerText.match(/为什么这样判：/g) || []).length');
+check('每条判定都写了判定口径', whyLines === view.verdicts.length, String(whyLines) + ' 条 / 判定 ' + String(view.verdicts.length) + ' 条');
 // 报告有三种形态：Markdown 便于携带、可打印 HTML（浏览器另存为 PDF）、Word 便于接着改。
 // 三种都要真取一遍：只看按钮存在，等于没验证「点下去拿得到东西」。
 const reportHrefs = await evalJs('(() => { const pick = (name) => { const a = document.querySelector(\'[data-shot="\' + name + \'"]\'); return a === null ? "" : a.getAttribute("href"); }; return { md: pick("report-md"), pdf: pick("report-pdf"), doc: pick("report-doc") }; })()');

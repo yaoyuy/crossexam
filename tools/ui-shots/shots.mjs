@@ -279,6 +279,14 @@ async function main() {
     await sleep(700);
     await cdp.waitFor("document.querySelector('[data-shot=\"use-demo\"]') !== null", '投料台出现', 20000);
 
+    // 第一次打开会自动弹一次新手教程。截图要的是界面本身，先关掉它，
+    // 最后再把教程本身拍一张（它就是「刚装上的人怎么开始用」的证据）。
+    const helpClose = "document.querySelector('[data-shot=\"help-close\"]')";
+    if ((await cdp.evaluate(helpClose + " !== null")) === true) {
+      await cdp.evaluate(helpClose + ".click()");
+      await sleep(250);
+}
+
     // 表达式里刻意不声明变量：CDP 的 Runtime.evaluate 共用同一个全局作用域，
     // 第二次 const 同名会直接抛 SyntaxError（第一版就踩了）。
     const pane = (name) => "document.querySelector('[data-shot=\"" + name + "\"]').lastElementChild";
@@ -325,6 +333,17 @@ async function main() {
     await cdp.shot(opts.out, '10-contracts.png', "document.querySelector('[data-shot=\"contracts\"]').scrollIntoView({ block: 'start' })");
     await cdp.shot(opts.out, '11-system-prompt.png', "document.querySelector('[data-shot=\"contracts\"] pre').scrollIntoView({ block: 'center' })");
 
+    // 新手教程与浅色配色：这两张回答「第一次拿到这个项目的人怎么开始用」以及
+    // 「白天/投影仪上看得清吗」。教程只会在第一次打开时自动弹，之后从头部按钮进。
+    await cdp.evaluate(click('help-open'));
+    await sleep(300);
+    await cdp.shot(opts.out, '12-help.png');
+    await cdp.evaluate(click('help-close'));
+    await sleep(250);
+    await cdp.evaluate(click('theme'));
+    await sleep(350);
+    await cdp.shot(opts.out, '13-light.png', top('claims'));
+
     // 报告导出：同一份结果有三种形态（Markdown 便于携带、可打印 HTML 便于阅读、Word 便于改）。
     // 这一张拍的是服务端渲染出来的可打印 HTML——PDF 就是它经浏览器打印得到的，服务端不自己造 PDF。
     const sid = await cdp.evaluate("fetch('/api/sessions').then((r) => r.json()).then((data) => (data.sessions[0] ?? {}).id ?? '')");
@@ -332,7 +351,7 @@ async function main() {
     await cdp.send('Page.navigate', { url: base + '/api/sessions/' + sid + '/report.html' });
     await cdp.waitFor("document.body.innerText.includes('主张与判定')", '报告页打开', 20000);
     await sleep(300);
-    await cdp.shot(opts.out, '12-report.png');
+    await cdp.shot(opts.out, '14-report.png');
 
     const problems = cdp.problems();
     log(NL + '控制台/日志问题：' + (problems.length === 0 ? '无' : String(problems.length) + ' 条'));
