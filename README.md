@@ -99,6 +99,7 @@ CROSSEXAM_MODE=live npm run preview
 | `npm run repro` | 干净目录复现预演，逐步计时并与 10 分钟上限比对 |
 | `npm run export:prompt` | 导出 AI 协同的 Prompt 链快照到 `docs/prompt-chain/` |
 | `npm run docs:pdf` | 从 `docs/tech/*.md` 重新生成技术文档 PDF（超过 30 页直接失败） |
+| `npm run docs:html` | 只渲染 HTML（排查排版用，不调浏览器） |
 
 ---
 
@@ -140,7 +141,7 @@ crossexam/
 ├─ tools/ui-shots/      真浏览器截图（兼作界面控制台门禁）
 ├─ tools/repro/         干净目录复现预演
 ├─ fixtures/llm/        模型响应卡带（离线回放的数据）
-└─ docs/                ADR、Prompt 链快照、界面截图
+└─ docs/                ADR、Prompt 链快照、界面截图、技术文档源与 PDF、视频脚本
 ```
 
 技术栈：Node 24 + TypeScript（**服务端零构建**，Node 原生剥离类型直接跑 `.ts`，见 ADR-0001）、
@@ -162,6 +163,8 @@ Vite + React 19 + Tailwind v4、zod（模型输出先过 schema 再入库）、v
 | [docs/screenshots/](docs/screenshots/) | 界面截图（由 `npm run shots` 生成，不是手点的） |
 | [docs/CrossExam-技术文档.pdf](docs/CrossExam-技术文档.pdf) | 技术文档 PDF（≤ 30 页，由 `npm run docs:pdf` 生成） |
 | [docs/tech/](docs/tech/) | 技术文档的 Markdown 源（六章 + 封面） |
+| [docs/video/script.md](docs/video/script.md) | 演示视频脚本（分镜 + AI 协同段落 + 录制核对表） |
+| [docs/release-checklist.md](docs/release-checklist.md) | 发布清单（五项提交物逐项核对，含只有本人能决定的事项） |
 
 ## 许可
 
