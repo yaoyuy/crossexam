@@ -277,3 +277,46 @@ npm run seed:demo 自检通过：3 轮 · 5 条主张 · 10 次追问 · 判定 
 
 P3 前端：Vite + React + Tailwind，质询舞台做流式可视化与思考过程展示，
 判定视图与报告下载。这批卡带同时是 P4 演示视频的素材。
+## Session 5（2026-10-26）P3 前端：三栏质询界面 + 单端口演示
+
+### 做了什么
+
+1. **前端独立成包**（packages/web）：Vite 8 + React 19 + Tailwind v4，自己的 tsconfig（含 .tsx 与
+   vite/client 类型），根 typecheck 改成再串一遍各包的 typecheck。
+2. **线上契约与 SSE**：api.ts 重新声明 HTTP 类型（前端消费 JSON，不引 shared——shared 经 util.ts
+   依赖 node:crypto，进浏览器包即崩）；跑沙盘是 POST，所以用 fetch + ReadableStream 手切 SSE。
+3. **纯函数折叠器** state.ts：把事件流折成界面状态，直播（SSE）与翻历史（事件表）共用一条路径；
+   highlight.ts 负责把简历原文切成「普通 / 被引用 / 当前聚焦」三种片段。
+4. **三栏界面**：左栏投料台与面试官面板、中栏主张卡片与追问链、右栏简历原文联动高亮；
+   判定被代码收敛时用琥珀色写明「这条判定不是模型直接给的」。
+5. **单端口演示**（server/src/http/static.ts）：/api 放行，其余走静态资源并对前端路由回退 index.html；
+   npm run preview = 构建 + 起服，评审打开 http://127.0.0.1:8787 就是完整产品。
+
+### 真浏览器实测（不是只看编译过不过）
+
+Playwright 没装（npx 也不会自动装），于是用系统 Edge 无头 + CDP 零依赖驱动（Node 自带全局 WebSocket）：
+点「一键示例」→ 点「开始质询」→ 等跑完 → 截图。结果：**控制台 0 条报错/警告**，
+整场跑完 3 轮、5 条主张、10 次追问，界面显示「调用 29 次 · 回放 29 · token 23533」「事件 18」「追问 10」，
+判定分布与建议、被拦下的追问、被锚定机制拦下的主张都在页面上。
+
+### 两个坑
+
+1. **TS6133 未使用的 import**：web 的 typecheck 第一次报 highlight.ts(7,1) 里 Anchor 声明未使用。
+   低级错误，但正好说明 web 包的 typecheck 确实进了门禁。
+2. **漂移测试先红了一次，红得有价值**：我照印象把 PERSONA_PRESETS 当成 { name, blurb } 来断言，
+   实际形状是 { persona: { name, blurb }, goal, tactics }。测试当场报「expected 技术面试官 to be undefined」，
+   打印真实结构后改正。这条测试的存在意义被它自己证明了。
+
+### 门禁
+
+npm run verify **exit 0**：typecheck（根 + 各包）+ **25 个测试文件 / 234 条断言** + 冒烟 9 项 + build。
+前端产物：CSS 20.41 kB、JS 257.24 kB（gzip 80.47 kB）。
+
+### 提交
+
+本轮 7 个细粒度提交（chore 2 / feat 4 / test 1），工作区干净。
+
+### 下一步
+
+P4 打磨：把「开跑时的流式观感」做细（慢放节奏、阶段高亮、思考过程的呈现），
+并把无头浏览器截图固化成一条可复跑的命令（演示视频与 README 都要用）。
