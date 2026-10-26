@@ -16,7 +16,12 @@ import type {
   Claim,
   ClaimCategory,
   IntentContract,
+  JobDescription,
+  MatchStatus,
   Probe,
+  Requirement,
+  RequirementKind,
+  RequirementMatch,
   Revision,
   RevisionSkip,
   Suggestion,
@@ -308,6 +313,11 @@ interface ProbeDbRow {
   answer_mode: string | null;
   answer_cites_json: string | null;
   verdict: string | null;
+  requirement_id: string | null;
+  jd_quote: string | null;
+  jd_start: number | null;
+  jd_end: number | null;
+  jd_exact: number | null;
   created_at: string;
 }
 
@@ -321,6 +331,10 @@ function mapProbe(row: ProbeDbRow): ProbeRow {
           mode: (row.answer_mode ?? 'simulated') as Answer['mode'],
           citedAnchors: parseJson<Anchor[]>(row.answer_cites_json, []),
         };
+  // 第二条锚（岗位要求原文）没存过就是 null：老会话与纯简历场次都走这一支，
+  // 语义是「这条追问只锚了简历」，不是「锚点丢了」。
+  const jdAnchor: Anchor | null =
+    row.jd_quote === null ? null : anchorOf(row.jd_quote, row.jd_start, row.jd_end, row.jd_exact);
   return {
     id: row.id,
     claimId: row.claim_id,
@@ -332,14 +346,19 @@ function mapProbe(row: ProbeDbRow): ProbeRow {
     anchor: anchorOf(row.quote, row.start, row.end, row.exact),
     answer: answer,
     verdict: row.verdict === null ? null : (row.verdict as VerdictKind),
+    requirementId: row.requirement_id,
+    jdAnchor: jdAnchor,
     createdAt: row.created_at,
   };
 }
 
 export function insertProbe(db: Db, sessionId: string, probe: Probe, createdAt: string = nowIso()): void {
+  // 第二条锚（岗位要求原文）在纯简历场次是 null，在「追岗位要求」时才有值；
+  // 两处都得能读出来，否则重开历史会话时追问就只剩一个锚了。
+  const jdAnchor = probe.jdAnchor ?? null;
   db.prepare(
-    'INSERT INTO probe (id, session_id, claim_id, interviewer_id, round, question, rationale, parent_probe_id, quote, start, end, exact, answer_text, answer_mode, verdict, created_at)' +
-      ' VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?)',
+    'INSERT INTO probe (id, session_id, claim_id, interviewer_id, round, question, rationale, parent_probe_id, quote, start, end, exact, answer_text, answer_mode, verdict, requirement_id, jd_quote, jd_start, jd_end, jd_exact, created_at)' +
+      ' VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?, ?, ?, ?, ?)',
   ).run(
     probe.id,
     sessionId,
@@ -353,6 +372,11 @@ export function insertProbe(db: Db, sessionId: string, probe: Probe, createdAt: 
     probe.anchor.start,
     probe.anchor.end,
     bit(probe.anchor.exact),
+    jdAnchor === null ? null : (probe.requirementId ?? null),
+    jdAnchor === null ? null : jdAnchor.quote,
+    jdAnchor === null ? null : jdAnchor.start,
+    jdAnchor === null ? null : jdAnchor.end,
+    jdAnchor === null ? null : bit(jdAnchor.exact),
     createdAt,
   );
 }
@@ -453,6 +477,10 @@ export function clearRunArtifacts(db: Db, sessionId: string): void {
   db.prepare('DELETE FROM probe WHERE session_id = ?').run(sessionId);
   db.prepare('DELETE FROM claim WHERE session_id = ?').run(sessionId);
   db.prepare('DELETE FROM event WHERE session_id = ?').run(sessionId);
+  // 岗位要求也是这场运行的产物（编号 R1..Rn 每场重新数起），重跑前必须一起抹掉；
+  // jd 表反而是**输入**：它跟着会话创建时写入，重跑时原样还在。
+  db.prepare('DELETE FROM requirement_match WHERE session_id = ?').run(sessionId);
+  db.prepare('DELETE FROM requirement WHERE session_id = ?').run(sessionId);
 }
 
 /* ------------------------------------------------------------------ llm_call */
@@ -764,3 +792,138 @@ export function getRevisedResume(db: Db, sessionId: string): RevisedResumeRow | 
   const row = db.prepare('SELECT * FROM revised_resume WHERE session_id = ?').get(sessionId) as RevisedResumeDbRow | undefined;
   return row === undefined ? null : mapRevisedResume(row);
 }
+
+/* ------------------------------------------------------- 岗位要求（多 JD 驱动） */
+
+interface JdDbRow {
+  session_id: string;
+  id: string;
+  ordinal: number;
+  title: string;
+  text: string;
+}
+
+function mapJd(row: JdDbRow): JobDescription {
+  return { id: row.id, ordinal: toInt(row.ordinal), title: row.title, text: row.text };
+}
+
+/**
+ * JD 原文随会话创建时写入。ordinal 取自数组下标，J1..Jn 由调用方编好——
+ * 编号一旦落库就固定下来，重跑不会因为页面上的顺序变了而换号。
+ */
+export function insertJds(db: Db, sessionId: string, jds: readonly JobDescription[]): void {
+  const stmt = db.prepare('INSERT INTO jd (session_id, id, ordinal, title, text) VALUES (?, ?, ?, ?, ?)');
+  jds.forEach(function (jd, index) {
+    stmt.run(sessionId, jd.id, index, jd.title, jd.text);
+  });
+}
+
+export function listJds(db: Db, sessionId: string): JobDescription[] {
+  const rows = asRows<JdDbRow>(db.prepare('SELECT * FROM jd WHERE session_id = ? ORDER BY ordinal').all(sessionId));
+  return rows.map(mapJd);
+}
+
+interface RequirementDbRow {
+  session_id: string;
+  id: string;
+  ordinal: number;
+  kind: string;
+  text: string;
+  keywords_json: string;
+  jd_id: string;
+  sources_json: string;
+  quote: string;
+  start: number;
+  end: number;
+  exact: number;
+}
+
+function mapRequirement(row: RequirementDbRow): Requirement {
+  return {
+    id: row.id,
+    kind: row.kind as RequirementKind,
+    text: row.text,
+    keywords: parseJson<string[]>(row.keywords_json, []),
+    anchor: anchorOf(row.quote, row.start, row.end, row.exact),
+    jdId: row.jd_id,
+    sources: parseJson<string[]>(row.sources_json, []),
+  };
+}
+
+/**
+ * 要求清单整批替换（先清后写）。顺序按数组下标存，读回来就是 R1..Rn——
+ * 排序一旦交给 ORDER BY id，R10 就会排到 R2 前面，报告里的编号顺序会莫名其妙。
+ */
+export function insertRequirements(db: Db, sessionId: string, requirements: readonly Requirement[]): void {
+  db.prepare('DELETE FROM requirement_match WHERE session_id = ?').run(sessionId);
+  db.prepare('DELETE FROM requirement WHERE session_id = ?').run(sessionId);
+  const stmt = db.prepare(
+    'INSERT INTO requirement (session_id, id, ordinal, kind, text, keywords_json, jd_id, sources_json, quote, start, end, exact)' +
+      ' VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+  );
+  requirements.forEach(function (item, index) {
+    stmt.run(
+      sessionId,
+      item.id,
+      index,
+      item.kind,
+      item.text,
+      JSON.stringify(item.keywords),
+      item.jdId,
+      JSON.stringify(item.sources),
+      item.anchor.quote,
+      item.anchor.start,
+      item.anchor.end,
+      bit(item.anchor.exact),
+    );
+  });
+}
+
+export function listRequirements(db: Db, sessionId: string): Requirement[] {
+  const rows = asRows<RequirementDbRow>(
+    db.prepare('SELECT * FROM requirement WHERE session_id = ? ORDER BY ordinal').all(sessionId),
+  );
+  return rows.map(mapRequirement);
+}
+
+interface RequirementMatchDbRow {
+  session_id: string;
+  requirement_id: string;
+  claim_id: string | null;
+  status: string;
+  reason: string;
+}
+
+function mapRequirementMatch(row: RequirementMatchDbRow): RequirementMatch {
+  return {
+    requirementId: row.requirement_id,
+    claimId: row.claim_id,
+    status: row.status as MatchStatus,
+    reason: row.reason,
+  };
+}
+
+export function insertRequirementMatches(db: Db, sessionId: string, matches: readonly RequirementMatch[]): void {
+  db.prepare('DELETE FROM requirement_match WHERE session_id = ?').run(sessionId);
+  const stmt = db.prepare(
+    'INSERT INTO requirement_match (session_id, requirement_id, claim_id, status, reason) VALUES (?, ?, ?, ?, ?)',
+  );
+  for (const item of matches) {
+    stmt.run(sessionId, item.requirementId, item.claimId, item.status, item.reason);
+  }
+}
+
+/** 按要求的顺序读回来：对照结果是给人按 R1..Rn 看的，不是按字母序。 */
+export function listRequirementMatches(db: Db, sessionId: string): RequirementMatch[] {
+  const rows = asRows<RequirementMatchDbRow>(
+    db
+      .prepare(
+        'SELECT m.* FROM requirement_match m' +
+          ' JOIN requirement r ON r.session_id = m.session_id AND r.id = m.requirement_id' +
+          ' WHERE m.session_id = ? ORDER BY r.ordinal',
+      )
+      .all(sessionId),
+  );
+  return rows.map(mapRequirementMatch);
+}
+

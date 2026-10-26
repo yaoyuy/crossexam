@@ -31,7 +31,7 @@
 
 import type { Db } from './db.ts';
 
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 7;
 
 const SESSION_TABLE =
   'CREATE TABLE IF NOT EXISTS session (' +
@@ -70,8 +70,9 @@ const CLAIM_TABLE =
 const CLAIM_INDEX = 'CREATE INDEX IF NOT EXISTS claim_by_session ON claim(session_id, ordinal)';
 
 /**
- * probe 表的建表语句。列从来没变过，只有唯一约束在 v3 被去掉，
- * 所以这里用一个参数区分两个时点的形态，避免把整张表抄两遍。
+ * probe 表的建表语句。用参数区分 v2 与 v3 的形态（「一轮一条」的唯一约束在 v3 被去掉），
+ * 免得把整张表抄两遍。v7 给这张表补了「第二条锚」五列（requirement_id / jd_*）——
+ * 那是加列、不改约束，所以这一个参数仍然只需要区分约束。
  */
 function probeTableSql(turnUnique: boolean): string {
   const lines = [
@@ -92,6 +93,11 @@ function probeTableSql(turnUnique: boolean): string {
     '  answer_mode TEXT,',
     '  answer_cites_json TEXT,',
     '  verdict TEXT,',
+    '  requirement_id TEXT,',
+    '  jd_quote TEXT,',
+    '  jd_start INTEGER,',
+    '  jd_end INTEGER,',
+    '  jd_exact INTEGER,',
     '  created_at TEXT NOT NULL,',
     '  PRIMARY KEY (session_id, id),',
   ];
@@ -185,6 +191,60 @@ const REVISED_RESUME_TABLE =
   '  updated_at TEXT NOT NULL' +
   ')';
 
+/**
+ * 岗位要求（v6）：这场沙盘到底是照着哪几份 JD 问的。
+ *
+ * 三张表各回答一件事：
+ *   - jd：用户交进来的原文（1–8 份，J1..Jn），进库是为了让报告能引用「要求出自哪一份」；
+ *   - requirement：抽出来并跨份合并后的要求清单（R1..Rn），锚点落在它所属的那份 JD 原文上；
+ *   - requirement_match：每条要求与简历主张的对照结果（hit / weak / missing）。
+ *
+ * 为什么不只留在事件里：要求原文与锚点坐标是「我们照着什么问的」这份证据本身，
+ * 报告、界面、追问提示词三处都要按它渲染；而三张表的编号都是会话内编号，
+ * 所以主键一律带 session_id——与 claim / probe 同一个理由。
+ */
+const JD_TABLE =
+  'CREATE TABLE IF NOT EXISTS jd (' +
+  '  session_id TEXT NOT NULL REFERENCES session(id) ON DELETE CASCADE,' +
+  '  id TEXT NOT NULL,' +
+  '  ordinal INTEGER NOT NULL,' +
+  '  title TEXT NOT NULL,' +
+  '  text TEXT NOT NULL,' +
+  '  PRIMARY KEY (session_id, id)' +
+  ')'
+
+const REQUIREMENT_TABLE =
+  'CREATE TABLE IF NOT EXISTS requirement (' +
+  '  session_id TEXT NOT NULL REFERENCES session(id) ON DELETE CASCADE,' +
+  '  id TEXT NOT NULL,' +
+  '  ordinal INTEGER NOT NULL,' +
+  '  kind TEXT NOT NULL,' +
+  '  text TEXT NOT NULL,' +
+  '  keywords_json TEXT NOT NULL,' +
+  '  jd_id TEXT NOT NULL,' +
+  '  sources_json TEXT NOT NULL,' +
+  '  quote TEXT NOT NULL,' +
+  '  start INTEGER NOT NULL,' +
+  '  end INTEGER NOT NULL,' +
+  '  exact INTEGER NOT NULL,' +
+  '  PRIMARY KEY (session_id, id),' +
+  '  FOREIGN KEY (session_id, jd_id) REFERENCES jd(session_id, id) ON DELETE CASCADE' +
+  ')'
+
+const REQUIREMENT_MATCH_TABLE =
+  'CREATE TABLE IF NOT EXISTS requirement_match (' +
+  '  session_id TEXT NOT NULL REFERENCES session(id) ON DELETE CASCADE,' +
+  '  requirement_id TEXT NOT NULL,' +
+  '  claim_id TEXT,' +
+  '  status TEXT NOT NULL,' +
+  '  reason TEXT NOT NULL,' +
+  '  PRIMARY KEY (session_id, requirement_id),' +
+  '  FOREIGN KEY (session_id, requirement_id) REFERENCES requirement(session_id, id) ON DELETE CASCADE' +
+  ')'
+
+const JD_INDEX = 'CREATE INDEX IF NOT EXISTS jd_by_session ON jd(session_id, ordinal)';
+const REQUIREMENT_INDEX = 'CREATE INDEX IF NOT EXISTS requirement_by_session ON requirement(session_id, ordinal)';
+
 const LLM_CALL_INDEX_DIGEST = 'CREATE INDEX IF NOT EXISTS llm_call_by_digest ON llm_call(digest)';
 const LLM_CALL_INDEX_SESSION = 'CREATE INDEX IF NOT EXISTS llm_call_by_session ON llm_call(session_id, created_at)';
 
@@ -203,6 +263,11 @@ function schemaStatements(options: { probeTurnUnique: boolean }): readonly strin
     INTERVIEWER_TABLE,
     REVISION_TABLE,
     REVISED_RESUME_TABLE,
+    JD_TABLE,
+    JD_INDEX,
+    REQUIREMENT_TABLE,
+    REQUIREMENT_INDEX,
+    REQUIREMENT_MATCH_TABLE,
   ];
 }
 
@@ -322,12 +387,60 @@ function migrateV5(db: Db): void {
   );
 }
 
+/**
+ * v5 → v6：新增岗位要求的三张表。
+ *
+ * 同样只加新表、不动既有列。纯简历场次（没上传 JD）在 jd 表里一行都没有，
+ * 读侧按空数组处理即可——「这场没有 JD」是一个正常状态，不是缺数据。
+ */
+function migrateV6(db: Db): void {
+  rebuild(
+    db,
+    () => {
+      db.exec(JD_TABLE);
+      db.exec(JD_INDEX);
+      db.exec(REQUIREMENT_TABLE);
+      db.exec(REQUIREMENT_INDEX);
+      db.exec(REQUIREMENT_MATCH_TABLE);
+    },
+    6,
+  );
+}
+
+/**
+ * v6 → v7：追问表补上「第二条锚」（岗位要求原文）。
+ *
+ * 双锚点是这个功能的证据本身：报告与历史会话都要能回答「这条追问是照着哪条岗位要求问的」。
+ * 只把它留在事件流里不够——重开一场历史会话读的是业务表，事件流是给重连与复现用的，
+ * 两处都得有。（这是自审时才发现的：写测试要断言双锚点，才发现它根本没落库。）
+ * 老库里的追问一律 jd_* 全 NULL，语义正好是「这条追问只锚了简历」。
+ */
+const PROBE_COLUMNS_V6 =
+  'id, session_id, claim_id, interviewer_id, round, question, rationale, parent_probe_id, quote, start, end, exact, answer_text, answer_mode, answer_cites_json, verdict, created_at';
+
+function migrateV7(db: Db): void {
+  rebuild(
+    db,
+    () => {
+      db.exec('DROP INDEX IF EXISTS probe_by_claim');
+      db.exec('ALTER TABLE probe RENAME TO probe_v6');
+      db.exec(probeTableSql(false));
+      db.exec(PROBE_INDEX);
+      db.exec('INSERT INTO probe (' + PROBE_COLUMNS_V6 + ') SELECT ' + PROBE_COLUMNS_V6 + ' FROM probe_v6');
+      db.exec('DROP TABLE probe_v6');
+    },
+    7,
+  );
+}
+
 /** 版本号 → 升级动作。只写「从上一版升上来」的那一步，不写全量建表。 */
 const MIGRATIONS: Record<number, (db: Db) => void> = {
   2: migrateV2,
   3: migrateV3,
   4: migrateV4,
   5: migrateV5,
+  6: migrateV6,
+  7: migrateV7,
 };
 
 export class SchemaVersionError extends Error {

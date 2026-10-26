@@ -21,12 +21,17 @@ import {
   contractDigest,
   customInterviewerId,
   interviewerDraftSchema,
+  jdDigest,
+  jdIdOf,
+  jdProblems,
+  jdTitleOf,
+  normalizeJdText,
   renderSystemPrompt,
   shortHash,
   templateById,
   templateDigest,
 } from '@crossexam/shared';
-import type { IntentContract, InterviewerDraft } from '@crossexam/shared';
+import type { IntentContract, InterviewerDraft, JobDescription } from '@crossexam/shared';
 import { DEMO_JD, DEMO_RESUME, DEMO_TITLE } from '../demo-content.ts';
 import { createLlmClient, defaultCassetteDir, describeClient, listLiveModels, LLM_MODES, MODE_LABEL, resolveLiveConfig } from '../llm/index.ts';
 import type { LlmClient, LlmMode } from '../llm/types.ts';
@@ -43,6 +48,7 @@ import {
   deleteSession,
   getInterviewer,
   getSession,
+  insertJds,
   insertSession,
   listEvents,
   listInterviewers,
@@ -93,6 +99,18 @@ export interface AppOptions {
 
 function textField(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
+}
+
+/**
+ * JD 标题的兜底：调用方没填标题时取正文第一行非空文本。
+ * JD 正文的第一行通常就是岗位名，比界面上一律显示「岗位 1」有用得多。
+ */
+function firstLineOf(text: string): string {
+  for (const line of text.split(String.fromCharCode(10))) {
+    const trimmed = line.trim();
+    if (trimmed !== '') return trimmed;
+  }
+  return '';
 }
 
 /**
@@ -229,6 +247,40 @@ function viewOfRow(row: InterviewerRow | null): Record<string, unknown> | null {
     updatedAt: row.updatedAt,
     contract,
     systemPrompt: renderSystemPrompt(contract),
+  };
+}
+
+/**
+ * 把请求里的 JD 收成一份清单。
+ *
+ * 三条刻意的设计：
+ *   - 空文本是「还没粘」而不是错误：用户可能正在一份份往里贴，中途拦下来只会让人困惑；
+ *   - 老字段 jdText 仍然认，等价于「只有一份 JD」——老会话、脚本与内置演示都不必改；
+ *   - 份数与长度交给 shared 的 jdProblems 判，错误信息由它给中文说法。
+ */
+function jdsOf(raw: unknown, fallbackText: string): { list: JobDescription[]; problem: string | null } {
+  const drafts: { title: string; text: string }[] = [];
+  const items = Array.isArray(raw) ? raw : [];
+  for (const item of items) {
+    const record = item !== null && typeof item === 'object' ? (item as Record<string, unknown>) : {};
+    const text = normalizeJdText(textField(record['text']));
+    if (text === '') continue;
+    drafts.push({ title: textField(record['title']) || firstLineOf(text), text });
+  }
+  if (drafts.length === 0) {
+    const legacy = normalizeJdText(fallbackText);
+    if (legacy !== '') drafts.push({ title: firstLineOf(legacy), text: legacy });
+  }
+  const problems = jdProblems(drafts);
+  if (problems.length > 0) return { list: [], problem: problems.join(' ') };
+  return {
+    list: drafts.map((item, index) => ({
+      id: jdIdOf(index + 1),
+      ordinal: index + 1,
+      title: jdTitleOf(item.title, index + 1),
+      text: item.text,
+    })),
+    problem: null,
   };
 }
 
@@ -517,8 +569,9 @@ export function createApp(opts: AppOptions): Hono {
     if (resumeText.length < MIN_RESUME_CHARS) {
       return c.json({ error: '简历太短了：至少 ' + String(MIN_RESUME_CHARS) + ' 个字符，才有东西可追问。' }, 400);
     }
-    const jdText = textField(body['jdText']) || (useDemo ? DEMO_JD : '');
     const jobTitle = textField(body['jobTitle']) || (useDemo ? DEMO_TITLE : '未填写岗位');
+    const jds = jdsOf(body['jds'], textField(body['jdText']) || (useDemo ? DEMO_JD : ''));
+    if (jds.problem !== null) return c.json({ error: jds.problem }, 400);
 
     // 这一场用什么跑：默认沿用进程启动时的模式，页面上可以逐场改。
     const wantedMode = modeField(body['mode']);
@@ -549,14 +602,33 @@ export function createApp(opts: AppOptions): Hono {
 
     const id = insertSession(db, {
       jobTitle,
-      jdText,
+      // 老字段只留第一份：它是给旧代码与报告头部看的投影，真正的清单在 jd 表里。
+      jdText: jds.list.length > 0 ? jds.list[0]!.text : '',
       resumeText,
       resumeHash: shortHash(resumeText, 24),
       llmMode: mode,
       budget: { config: DEFAULT_BUDGET, totalProbes: 0, claims: {} },
-      meta: { source: useDemo ? 'demo' : 'user', model: wantedModel, panel: resolved.ids },
+      meta: {
+        source: useDemo ? 'demo' : 'user',
+        model: wantedModel,
+        panel: resolved.ids,
+        // 指纹逐份留档：JD 原文是输入，日后想核对「当时贴的是不是这一版」只看指纹就够。
+        jdDigests: jds.list.map((jd) => jdDigest(jd.text)),
+      },
     });
-    return c.json({ id, mode, model: wantedModel, jobTitle, panel: resolved.ids }, 201);
+    if (jds.list.length > 0) insertJds(db, id, jds.list);
+    return c.json(
+      {
+        id,
+        mode,
+        model: wantedModel,
+        jobTitle,
+        panel: resolved.ids,
+        // 只回编号与标题：原文界面本来就有，没必要再传一遍。
+        jds: jds.list.map((jd) => ({ id: jd.id, ordinal: jd.ordinal, title: jd.title })),
+      },
+      201,
+    );
   });
 
   app.get('/api/sessions/:id', (c) => {

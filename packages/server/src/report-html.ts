@@ -9,7 +9,7 @@
  * 事实只有一个来源；多写一个薄呈现层，好过让服务端去依赖一个工具目录。
  */
 
-import { CLAIM_CATEGORY_LABEL, PERSONA_PRESETS, VERDICT_LABEL } from '@crossexam/shared';
+import { CLAIM_CATEGORY_LABEL, MATCH_LABEL, PERSONA_PRESETS, REQUIREMENT_KIND_LABEL, VERDICT_LABEL } from '@crossexam/shared';
 import type { Anchor, Verdict, VerdictKind } from '@crossexam/shared';
 import type { ProbeRow } from './store/index.ts';
 import type { SessionView } from './pipeline.ts';
@@ -23,6 +23,13 @@ const VERDICT_COLOR: Record<VerdictKind, string> = {
   unsupported: '#6d28d9',
   contradicts: '#b91c1c',
   unanswerable: '#475569',
+};
+
+/** 岗位要求对照的配色：答得上 / 答得含糊 / 简历里没写。与判定用的是同一套语义色 */
+const MATCH_COLOR: Record<string, string> = {
+  hit: '#0f766e',
+  weak: '#b45309',
+  missing: '#6b7280',
 };
 
 const STYLE = [
@@ -54,6 +61,7 @@ const STYLE = [
   '.probe .who { color: #b45309; font-size: 12px; }',
   '.answer { background: #f9fafb; border-radius: 6px; padding: 6px 10px; margin-top: 5px; font-size: 13px; white-space: pre-wrap; }',
   '.advice { border: 1px solid #fed7aa; background: #fff7ed; border-radius: 8px; padding: 12px 14px; margin: 10px 0 16px; break-inside: avoid; }',
+  '.req { border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px 14px; margin: 10px 0 16px; break-inside: avoid; }',
   '.before { color: #9ca3af; text-decoration: line-through; }',
   '.after { color: #047857; font-weight: 600; }',
   '.notice { background: #f3f4f6; border-radius: 6px; padding: 8px 12px; font-size: 12.5px; }',
@@ -95,6 +103,21 @@ function probesOf(view: SessionView, claimId: string): ProbeRow[] {
   return view.probes.filter((probe) => probe.claimId === claimId);
 }
 
+function claimTextOf(view: SessionView, claimId: string | null): string {
+  if (claimId === null) return '';
+  for (const claim of view.claims) {
+    if (claim.id === claimId) return claim.text;
+  }
+  return '';
+}
+
+function jdTitleOfId(view: SessionView, jdId: string): string {
+  for (const jd of view.jds) {
+    if (jd.id === jdId) return jd.title;
+  }
+  return jdId;
+}
+
 function quote(label: string, anchor: Anchor): string {
   const hit = anchor.exact ? '逐字命中' : '归一化命中';
   return (
@@ -118,6 +141,7 @@ function metaRows(view: SessionView): string[] {
     ['跑法', s.llmMode + '，模型调用 ' + String(view.llm.calls) + ' 次（其中离线回放 ' + String(view.llm.replayedCalls) + ' 次）'],
     ['Token', '输入 ' + String(view.llm.inputTokens) + ' / 输出 ' + String(view.llm.outputTokens) + ' / 缓存命中 ' + String(view.llm.cacheReadTokens) + ' / 推理 ' + String(view.llm.reasoningTokens)],
     ['追问预算', '已用 ' + String(s.budget.totalProbes) + ' 次，上限 ' + String(s.budget.config.maxTotalProbes) + ' 次；主张 ' + String(view.claims.length) + ' 条'],
+    ['岗位要求', view.jds.length === 0 ? '未上传（面试官按各自的经验追问）' : String(view.jds.length) + ' 份 JD，抽出 ' + String(view.requirements.length) + ' 条要求（答得上 ' + String(view.requirementSummary.hit) + ' · 答得含糊 ' + String(view.requirementSummary.weak) + ' · 简历里没写 ' + String(view.requirementSummary.missing) + '）'],
   ];
   return rows.map((row) => '<tr><th>' + esc(row[0]) + '</th><td>' + esc(row[1]) + '</td></tr>');
 }
@@ -169,8 +193,60 @@ function claimSection(view: SessionView): string[] {
   return out;
 }
 
+/**
+ * 岗位要求对照（HTML 版）。
+ *
+ * 与 Markdown 报告同一份数据、同一个视角：这一节回答的是「这份 JD 的每条要求有没有被回答到」，
+ * 而「主张与判定」回答的是「简历里这句话站不站得住」。
+ * 缺的那几条只列在这里、不生成追问——那是回去补经历的事，不是追问能问出来的。
+ */
+function requirementSection(view: SessionView): string[] {
+  const out: string[] = [];
+  out.push('<h2>二、岗位要求对照</h2>');
+  if (view.jds.length === 0) {
+    out.push('<p>（这场没有上传岗位要求，面试官按各自的经验追问）</p>');
+    return out;
+  }
+  const summary = view.requirementSummary;
+  out.push('<ul class="facts">');
+  out.push('<li>JD：' + view.jds.map((jd) => esc(jd.title) + '（' + String(jd.text.length) + ' 字）').join('、') + '</li>');
+  out.push('<li>对照结果：答得上 ' + String(summary.hit) + ' 条 / 答得含糊 ' + String(summary.weak) + ' 条 / 简历里没写 ' + String(summary.missing) + ' 条，共 ' + String(summary.total) + ' 条</li>');
+  out.push('</ul>');
+  for (const requirement of view.requirements) {
+    const match = view.requirementMatches.find((item) => item.requirementId === requirement.id) ?? null;
+    const kind = match === null ? 'missing' : match.status;
+    out.push('<div class="req">');
+    out.push(
+      '<div class="claim-head"><span class="id">' + esc(requirement.id) + '</span>' +
+        '<span class="badge" style="background:' + MATCH_COLOR[kind] + '">' +
+        esc(REQUIREMENT_KIND_LABEL[requirement.kind] + ' · ' + (match === null ? '未对照' : MATCH_LABEL[match.status])) +
+        '</span></div>',
+    );
+    out.push('<p class="text">' + esc(requirement.text) + '</p>');
+    out.push(quote('要求原文 · ' + jdTitleOfId(view, requirement.jdId), requirement.anchor));
+    if (match !== null) {
+      out.push('<ul class="facts">');
+      out.push('<li>为什么这么判：' + esc(match.reason) + '</li>');
+      if (match.claimId !== null) {
+        out.push('<li>对应主张：' + esc(match.claimId) + ' · ' + esc(claimTextOf(view, match.claimId)) + '</li>');
+      }
+      out.push('</ul>');
+    }
+    out.push('</div>');
+  }
+  if (view.requirementRejected.length > 0) {
+    out.push('<h3>被丢掉的要求（锚不到 JD 原文，没有进入对照）</h3>');
+    out.push('<ul class="facts">');
+    for (const rejected of view.requirementRejected) {
+      out.push('<li>「' + esc(rejected.text) + '」—— ' + esc(rejected.reason) + '</li>');
+    }
+    out.push('</ul>');
+  }
+  return out;
+}
+
 function transcriptSection(view: SessionView): string[] {
-  const out: string[] = ['<h2>二、追问实录</h2>'];
+  const out: string[] = ['<h2>三、追问实录</h2>'];
   for (const claim of view.claims) {
     out.push('<h3>' + esc(claim.id) + ' ' + esc(claim.text) + '</h3>');
     const probes = probesOf(view, claim.id);
@@ -201,7 +277,7 @@ function transcriptSection(view: SessionView): string[] {
 }
 
 function adviceSection(view: SessionView): string[] {
-  const out: string[] = ['<h2>三、简历修改建议</h2>'];
+  const out: string[] = ['<h2>四、简历修改建议</h2>'];
   const advice = view.suggestions.filter((item) => item.status === 'suggested' && item.suggestion !== null);
   if (advice.length === 0) out.push('<p>（没有被判定为需要改写的条目）</p>');
   for (const item of advice) {
@@ -225,7 +301,7 @@ function adviceSection(view: SessionView): string[] {
 function reproSection(view: SessionView): string[] {
   const s = view.session;
   return [
-    '<h2>四、复现方式</h2>',
+    '<h2>五、复现方式</h2>',
     '<ul class="facts">',
     '<li>本次跑法：' + esc(s.llmMode) + '</li>',
     '<li>事件条数：' + String(view.events.length) + '（全部落本地 SQLite，可按 seq 重放）</li>',
@@ -258,6 +334,7 @@ export function renderReportHtml(view: SessionView, options: ReportHtmlOptions =
     out.push('</ul></div>');
   }
   for (const block of claimSection(view)) out.push(block);
+  for (const block of requirementSection(view)) out.push(block);
   for (const block of transcriptSection(view)) out.push(block);
   for (const block of adviceSection(view)) out.push(block);
   for (const block of reproSection(view)) out.push(block);

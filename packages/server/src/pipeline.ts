@@ -10,12 +10,18 @@
  * 这样前端"重放一遍"与"查表"看到的是同一件事，不需要把 JSON 拆成十个列。
  */
 
-import { contractDigest, renderSystemPrompt, shortHash } from '@crossexam/shared';
+import { contractDigest, matchSummary, renderSystemPrompt, requirementNotes, shortHash } from '@crossexam/shared';
 import type {
   BudgetConfig,
   ContractBudgetView,
   IntentContract,
+  JobDescription,
+  MatchSummary,
   RejectedClaim,
+  RejectedRequirement,
+  Requirement,
+  RequirementMatch,
+  RequirementNote,
   Suggestion,
 } from '@crossexam/shared';
 import type { LlmClient, LlmRequest, LlmResult, LlmStreamEvent, LlmUsage } from './llm/types.ts';
@@ -32,10 +38,16 @@ import {
   clearRunArtifacts,
   getSession,
   insertClaims,
+  insertJds,
   insertProbe,
+  insertRequirementMatches,
+  insertRequirements,
   listClaims,
   listEvents,
+  listJds,
   listProbes,
+  listRequirementMatches,
+  listRequirements,
   llmStats,
   recordLlmCall,
   saveAnswer,
@@ -51,6 +63,9 @@ import type { ClaimRow, Db, EventRow, LlmStats, ProbeRow, SessionRow, SessionSta
 /** 阶段 → 会话状态：刷新页面也能看出跑到哪一步了 */
 const STAGE_STATUS: Record<string, SessionStatus> = {
   extract: 'extracting',
+  'jd-extract': 'extracting',
+  'jd-merge': 'extracting',
+  'jd-match': 'extracting',
   probe: 'probing',
   answer: 'probing',
   verdict: 'scoring',
@@ -169,11 +184,14 @@ export async function runAndPersist(input: PersistRunInput): Promise<RunSessionR
 
   updateSessionStatus(db, sessionId, 'extracting');
   const base = input.onStream === undefined ? input.client : withStreaming(input.client, input.onStream);
+  // JD 是随会话创建写进库的输入：重跑读的还是当初那几份，页面上此刻贴了什么不算数。
+  const jds = listJds(db, sessionId);
   try {
     const result = await runSession({
       client: withAccounting(base, { db, sessionId, model: input.model }),
       resumeText: session.resumeText,
       jdText: session.jdText,
+      jds,
       contracts: roster.contracts,
       budgetConfig: input.budgetConfig,
       maxRounds: input.maxRounds ?? DEFAULT_MAX_ROUNDS,
@@ -209,6 +227,15 @@ export function persistResult(db: Db, sessionId: string, result: RunSessionResul
       for (const probeId of detail.verdict.probeIds) saveProbeVerdict(db, sessionId, probeId, detail.verdict.kind);
     }
 
+    // 岗位要求这一块：JD 原文是输入，要求清单与对照结果是产物。
+    // 原文通常在建会话时就写好了，这里兜一次底——测试与脚本会直接调 persistResult，
+    // 那时没有 HTTP 层的建会话那一步。已有行时绝不重写：JD 是输入，不该被第二次跑覆盖。
+    if (listJds(db, sessionId).length === 0 && result.jds.length > 0) {
+      insertJds(db, sessionId, result.jds);
+    }
+    insertRequirements(db, sessionId, result.requirements);
+    insertRequirementMatches(db, sessionId, result.requirementMatches);
+
     saveSessionBudget(db, sessionId, result.budgetState);
     saveSessionMeta(db, sessionId, {
       panel: result.panel,
@@ -241,6 +268,17 @@ export interface SessionView {
   rejectedClaims: RejectedClaim[];
   verdicts: VerdictOutcome[];
   suggestions: SuggestOutcome[];
+  /** 这场沙盘照着哪几份 JD 问的。没上传过 JD 就是空数组，不是缺数据 */
+  jds: JobDescription[];
+  /** 抽出来并跨份合并后的要求清单（R1..Rn） */
+  requirements: Requirement[];
+  /** 锚不到原文、被丢掉的要求（带丢弃理由） */
+  requirementRejected: RejectedRequirement[];
+  /** 每条要求与简历主张的对照结果，顺序与要求一致 */
+  requirementMatches: RequirementMatch[];
+  /** 直接喂给追问提示词的那几条（只有能对上主张的才在里面） */
+  requirementNotes: RequirementNote[];
+  requirementSummary: MatchSummary;
   /** 这场沙盘当时用的意图契约。表里只存了指纹，全文是按同样输入重算出来的 */
   contracts: ContractView[];
 }
@@ -412,6 +450,9 @@ export function assembleSession(db: Db, sessionId: string): SessionView | null {
   const stored = metaContracts(session.meta);
   const recorded = metaPanelIds(session.meta);
   const panel: string[] = recorded.length > 0 ? recorded : [...DEFAULT_PANEL];
+  const jds = listJds(db, sessionId);
+  const requirements = listRequirements(db, sessionId);
+  const requirementMatches = listRequirementMatches(db, sessionId);
   return {
     session,
     claims: listClaims(db, sessionId),
@@ -425,5 +466,13 @@ export function assembleSession(db: Db, sessionId: string): SessionView | null {
     verdicts: lastPayload<VerdictOutcome>(events, 'verdicts', 'verdicts'),
     suggestions: lastPayload<SuggestOutcome>(events, 'suggestions', 'suggestions'),
     contracts: contractViews(panel, session.budget.config, stored),
+    jds,
+    requirements,
+    requirementRejected: lastPayload<RejectedRequirement>(events, 'requirements', 'rejected'),
+    requirementMatches,
+    // 提示词要的那几条按同样规则从库里重算，不存第三份：
+    // 「哪些要求能进提示词」是纯函数，存下来只会多一个会和代码不一致的副本。
+    requirementNotes: requirementNotes(jds, requirements, requirementMatches),
+    requirementSummary: matchSummary(requirementMatches),
   };
 }

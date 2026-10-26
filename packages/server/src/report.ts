@@ -8,7 +8,7 @@
  * 所以它只读数据库里的事实，不做任何润色或补写。
  */
 
-import { CLAIM_CATEGORY_LABEL, PERSONA_PRESETS, VERDICT_LABEL } from '@crossexam/shared';
+import { CLAIM_CATEGORY_LABEL, MATCH_LABEL, PERSONA_PRESETS, REQUIREMENT_KIND_LABEL, VERDICT_LABEL } from '@crossexam/shared';
 import type { Anchor, Verdict, VerdictKind } from '@crossexam/shared';
 import type { ProbeRow } from './store/index.ts';
 import type { SessionView } from './pipeline.ts';
@@ -48,6 +48,69 @@ function adjustmentNote(view: SessionView, claimId: string): string | null {
 
 function probesOf(view: SessionView, claimId: string): ProbeRow[] {
   return view.probes.filter((probe) => probe.claimId === claimId);
+}
+
+function claimTextOf(view: SessionView, claimId: string | null): string {
+  if (claimId === null) return '';
+  for (const claim of view.claims) {
+    if (claim.id === claimId) return claim.text;
+  }
+  return '';
+}
+
+function jdTitleOfId(view: SessionView, jdId: string): string {
+  for (const jd of view.jds) {
+    if (jd.id === jdId) return jd.title;
+  }
+  return jdId;
+}
+
+/**
+ * 岗位要求对照。
+ *
+ * 这一节与「主张与判定」是两种视角：那边看的是简历里的一句话站不站得住，
+ * 这边看的是这份 JD 的每条要求有没有被回答到。缺的那几条**不生成追问**，
+ * 只列在这里——因为「简历里没写」不是可以靠追问解决的事，那是回去补经历的事。
+ */
+function requirementLines(view: SessionView): string[] {
+  const out: string[] = [];
+  out.push('## 二、岗位要求对照');
+  out.push('');
+  if (view.jds.length === 0) {
+    out.push('（这场没有上传岗位要求，面试官按各自的经验追问）');
+    out.push('');
+    return out;
+  }
+  out.push('- 岗位要求来源：' + String(view.jds.length) + ' 份 JD —— ' + view.jds.map((jd) => jd.title + '（' + String(jd.text.length) + ' 字）').join('、'));
+  const summary = view.requirementSummary;
+  out.push('- 对照结果：答得上 ' + String(summary.hit) + ' 条 / 答得含糊 ' + String(summary.weak) + ' 条 / 简历里没写 ' + String(summary.missing) + ' 条，共 ' + String(summary.total) + ' 条');
+  out.push('');
+  for (const requirement of view.requirements) {
+    const match = view.requirementMatches.find((item) => item.requirementId === requirement.id) ?? null;
+    const status = match === null ? '未对照' : MATCH_LABEL[match.status];
+    out.push('### ' + requirement.id + ' · ' + REQUIREMENT_KIND_LABEL[requirement.kind] + ' · ' + status);
+    out.push('');
+    out.push('要求：' + requirement.text);
+    out.push('');
+    out.push('> 要求原文：「' + requirement.anchor.quote + '」（来自《' + jdTitleOfId(view, requirement.jdId) + '》，字符 ' + String(requirement.anchor.start) + '-' + String(requirement.anchor.end) + '）');
+    out.push('');
+    if (match !== null) {
+      out.push('- 为什么这么判：' + match.reason);
+      if (match.claimId !== null) {
+        out.push('- 对应主张：' + match.claimId + ' · ' + claimTextOf(view, match.claimId));
+      }
+    }
+    out.push('');
+  }
+  if (view.requirementRejected.length > 0) {
+    out.push('### 被丢掉的要求（锚不到 JD 原文，没有进入对照）');
+    out.push('');
+    for (const rejected of view.requirementRejected) {
+      out.push('- 「' + rejected.text + '」→ ' + rejected.reason);
+    }
+    out.push('');
+  }
+  return out;
 }
 
 function probeLines(probes: readonly ProbeRow[]): string[] {
@@ -125,7 +188,9 @@ export function renderReport(view: SessionView): string {
     out.push('');
   }
 
-  out.push('## 二、追问实录');
+  for (const line of requirementLines(view)) out.push(line);
+
+  out.push('## 三、追问实录');
   out.push('');
   for (const claim of view.claims) {
     out.push('### ' + claim.id + ' ' + claim.text);
@@ -134,7 +199,7 @@ export function renderReport(view: SessionView): string {
     out.push('');
   }
 
-  out.push('## 三、简历修改建议');
+  out.push('## 四、简历修改建议');
   out.push('');
   const advice = view.suggestions.filter((item) => item.status === 'suggested' && item.suggestion !== null);
   if (advice.length === 0) out.push('（没有被判定为需要改写的条目）');
@@ -151,7 +216,7 @@ export function renderReport(view: SessionView): string {
     out.push('');
   }
 
-  out.push('## 四、复现方式');
+  out.push('## 五、复现方式');
   out.push('');
   out.push('- 本次跑法：' + s.llmMode);
   out.push('- 事件条数：' + String(view.events.length) + '（全部落本地 SQLite，可按 seq 重放）');
