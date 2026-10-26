@@ -100,6 +100,14 @@ export interface Probe {
   parentProbeId: string | null;
   /** 为什么问这个——可解释性要求，前端要展示 */
   rationale: string;
+  /**
+   * 岗位要求锚点（双锚点）。
+   * 命中某条岗位要求但答得含糊时，追问会同时锚住简历原文与要求原文——
+   * 「你为什么说我答得含糊」于是有据可查，而不是面试官的主观印象。
+   * 纯简历场次与老会话没有这两个字段，一律按「只锚简历」处理。
+   */
+  requirementId?: string | null;
+  jdAnchor?: Anchor | null;
 }
 
 export interface Answer {
@@ -140,4 +148,58 @@ export interface SessionRecord {
   jdText: string;
   mode: SessionMode;
   createdAt: number;
+}
+
+/* ------------------------------------------------------------- 岗位要求（多 JD 驱动） */
+
+/** 一条要求在招聘语境里的分量。三类分开摆，界面才不会把「硬性」和「职责」混成一锅。 */
+export type RequirementKind = 'must' | 'plus' | 'duty';
+
+export const REQUIREMENT_KIND_LABEL: Record<RequirementKind, string> = {
+  must: '硬性要求',
+  plus: '加分项',
+  duty: '岗位职责',
+};
+
+/** 用户交进来的一份岗位描述。id 由代码按顺序编（J1..Jn），与 JD 文本一起落库。 */
+export interface JobDescription {
+  id: string;
+  ordinal: number;
+  title: string;
+  text: string;
+}
+
+/**
+ * 一条岗位要求。
+ *
+ * anchor 锚在这条要求所属的那份 JD 原文上（resolveAnchor 不关心 source 是简历还是 JD，
+ * 所以这里不需要新机制）；sources 记的是跨份 JD 合并时并进来的 JD id。
+ */
+export interface Requirement {
+  id: string;
+  kind: RequirementKind;
+  text: string;
+  keywords: string[];
+  anchor: Anchor;
+  /** 代表句出自哪份 JD（合并后取最长引文那一份） */
+  jdId: string;
+  /** 合并进来的所有 JD id，按 JD 顺序 */
+  sources: string[];
+}
+
+/** 简历对一条要求的回答程度。missing 不生成追问——没写过的经历，逼问没有意义。 */
+export type MatchStatus = 'hit' | 'weak' | 'missing';
+
+export const MATCH_LABEL: Record<MatchStatus, string> = {
+  hit: '答得上',
+  weak: '答得含糊',
+  missing: '简历里没写',
+};
+
+export interface RequirementMatch {
+  requirementId: string;
+  /** 命中的主张 id；missing 时是 null */
+  claimId: string | null;
+  status: MatchStatus;
+  reason: string;
 }
