@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'r
 import {
   acceptRevisions,
   ApiError,
+  applyTemplate,
   createSession,
   deleteSession,
   discardRevisions,
@@ -12,6 +13,7 @@ import {
   fetchModels,
   fetchRevisions,
   fetchStats,
+  fetchTemplates,
   getSession,
   importResumeFile,
   listSessions,
@@ -21,6 +23,7 @@ import {
   streamRun,
 } from './api.ts';
 import type {
+  AppliedTemplate,
   ContractView,
   DemoInfo,
   HealthInfo,
@@ -28,6 +31,7 @@ import type {
   LlmMode,
   SessionSummary,
   SseEvent,
+  TemplateLibrary,
 } from './api.ts';
 import { nextPanel, PANEL_ORDER } from './contract.ts';
 import { MODEL_NOTE_PENDING, modelNoteOf } from './runmode.ts';
@@ -47,6 +51,7 @@ import { InterviewerStudio } from './components/InterviewerStudio.tsx';
 import type { ImportNote, IntakeDraft } from './components/IntakePanel.tsx';
 import { ResumePane } from './components/ResumePane.tsx';
 import { StageRail } from './components/StageRail.tsx';
+import { TemplatePicker } from './components/TemplatePicker.tsx';
 
 const EMPTY_DRAFT: IntakeDraft = { resumeText: '', jdText: '', jobTitle: '' };
 const DEFAULT_PANEL: string[] = ['tech', 'hr', 'hiring_manager'];
@@ -98,6 +103,12 @@ export function App() {
   // 面试官库（预设 + 自建）。它决定面板上能挑谁，也决定「这一位是不是已经删了」
   const [library, setLibrary] = useState<InterviewerLibrary | null>(null);
   const [studioOpen, setStudioOpen] = useState(false);
+  // 岗位模板库（只读）+ 上一次「一键采用」的结果。结果留着是为了在界面上说清装了什么，
+  // 而不是让用户自己回去核对 JD 换没换、面试官换成了谁。
+  const [templateLib, setTemplateLib] = useState<TemplateLibrary | null>(null);
+  const [appliedTemplate, setAppliedTemplate] = useState<AppliedTemplate | null>(null);
+  const [templateError, setTemplateError] = useState<string | null>(null);
+  const [templateBusy, setTemplateBusy] = useState(false);
   const [pace, setPace] = useState(0);
   const [busy, setBusy] = useState(false);
   const [hint, setHint] = useState<string | null>(null);
@@ -153,6 +164,14 @@ export function App() {
     }
   }, []);
 
+  const refreshTemplates = useCallback(async () => {
+    try {
+      setTemplateLib(await fetchTemplates());
+    } catch {
+      // 模板库拉不到不影响主流程：自己贴简历、自己挑面试官照样能跑
+    }
+  }, []);
+
   useEffect(() => {
     void (async () => {
       try {
@@ -164,9 +183,9 @@ export function App() {
       } catch (error) {
         setHint(error instanceof Error ? error.message : '连不上本地服务，请先 npm run dev');
       }
-      await Promise.all([refreshSessions(), refreshLibrary()]);
+      await Promise.all([refreshSessions(), refreshLibrary(), refreshTemplates()]);
     })();
-  }, [refreshSessions, refreshLibrary]);
+  }, [refreshSessions, refreshLibrary, refreshTemplates]);
 
   /**
    * 契约随面板变化重取：它是纯确定性接口，不调模型、不消耗预算。
@@ -531,6 +550,42 @@ export function App() {
     },
     [interviewerChoices],
   );
+  /** 采用模板后那句提示里要用面试官的中文名；查不到就退回 id，不让提示出现空白 */
+  const templateNameOf = useCallback(
+    (id: string): string => interviewerName(id) ?? id,
+    [interviewerName],
+  );
+
+  /**
+   * 一键采用一套岗位模板：JD、示例简历、面试官阵容一起换。
+   * 阵容由服务端算好（它顺手把模板自带的那位自建面试官存进库，按模板 id 幂等），
+   * 界面只负责把结果填进去 —— 前端不引 shared 的聚合出口，算不了这件事。
+   */
+  const handleApplyTemplate = useCallback(
+    async (id: string) => {
+      setTemplateError(null);
+      setTemplateBusy(true);
+      try {
+        const applied = await applyTemplate(id);
+        setAppliedTemplate(applied);
+        setDraft({
+          resumeText: applied.template.resume,
+          jdText: applied.template.jd,
+          jobTitle: applied.template.title,
+        });
+        setPanel(applied.panel);
+        // 换了一份材料，上一次导入的提示（「已从 xx.pdf 解析出…」）就该消失
+        setImportNote(null);
+        await refreshLibrary();
+      } catch (error) {
+        setAppliedTemplate(null);
+        setTemplateError(error instanceof Error ? error.message : '采用这套模板时出错了。');
+      } finally {
+        setTemplateBusy(false);
+      }
+    },
+    [refreshLibrary],
+  );
 
   /** 有改写建议、因此可以勾选采纳的主张 id（顺序与界面上主张的顺序一致） */
   const acceptCandidates = useMemo(
@@ -629,6 +684,17 @@ export function App() {
       <main className="grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-auto p-3 xl:grid-cols-[330px_minmax(0,1fr)_minmax(0,430px)] xl:overflow-hidden">
         <aside className="flex min-h-0 flex-col gap-3">
           <IntakePanel
+            templatePicker={
+              <TemplatePicker
+                industries={templateLib?.industries ?? []}
+                templates={templateLib?.templates ?? []}
+                onApply={(id) => void handleApplyTemplate(id)}
+                applied={appliedTemplate}
+                nameOf={templateNameOf}
+                busy={templateBusy || busy}
+                error={templateError}
+              />
+            }
             draft={draft}
             onDraftChange={(patch) => setDraft((current) => ({ ...current, ...patch }))}
             panel={panel}
