@@ -18,7 +18,8 @@
     "build": "npm run build --workspaces --if-present",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "verify": "npm run typecheck && npm run test && npm run build",
+    "verify": "npm run typecheck && npm run test && npm run smoke && npm run build",
+    "smoke": "node tools/smoke/smoke.mjs",
     "export:prompt": "node tools/dsh-export/bin/dsh-export.mjs"
   },
   "devDependencies": {
