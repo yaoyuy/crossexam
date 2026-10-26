@@ -83,6 +83,7 @@ async function answerOne(
       outline: input.outline,
       history: input.history.filter((p) => p.id !== probe.id),
     }),
+    'answer:' + probe.id,
   );
   const result = await input.client.complete(request);
   const parsed = parseLlmOutput(answerDraftSchema, result.text);

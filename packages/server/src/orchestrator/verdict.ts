@@ -120,6 +120,7 @@ async function verdictOne(
     'verdict',
     VERDICT_SYSTEM,
     buildVerdictPrompt({ claim, probes, answers, resumeText: input.resumeText, outline: input.outline }),
+    'verdict:' + claim.id,
   );
   const result = await input.client.complete(request);
   const parsed = parseLlmOutput(verdictDraftSchema, result.text);

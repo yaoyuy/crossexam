@@ -88,6 +88,7 @@ async function suggestOne(
     'suggest',
     SUGGEST_SYSTEM,
     buildSuggestPrompt({ claim, verdict, probes, answers }),
+    'suggest:' + claim.id,
   );
   const result = await input.client.complete(request);
   const parsed = parseLlmOutput(suggestionDraftSchema, result.text);

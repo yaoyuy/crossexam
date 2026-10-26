@@ -23,6 +23,11 @@ export interface LlmRequest {
   maxTokens?: number;
   /** 要求模型只输出 JSON。具体结构由 shared/schemas.ts 校验，这里只管收。 */
   json?: boolean;
+  /**
+   * 这一路调用在界面上的路由标识（如 probe:tech、answer:P1）。
+   * 只用于把流式分片送回对应的卡片，**不参与** fixture 指纹计算。
+   */
+  channel?: string;
 }
 
 export interface LlmUsage {
