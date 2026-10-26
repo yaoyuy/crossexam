@@ -218,6 +218,72 @@ describe('建表与迁移', function () {
     }
   });
 
+  it('v6 老库升到 v7：追问表补上第二条锚，老追问仍然读得回', function () {
+    const legacy = openDatabase({ path: ':memory:', skipMigrate: true });
+    try {
+      legacy.exec(
+        'CREATE TABLE session (id TEXT PRIMARY KEY, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,' +
+          ' mode TEXT NOT NULL, job_title TEXT NOT NULL, jd_text TEXT NOT NULL, resume_text TEXT NOT NULL,' +
+          ' resume_hash TEXT NOT NULL, status TEXT NOT NULL, budget_json TEXT NOT NULL,' +
+          " meta_json TEXT NOT NULL DEFAULT '{}')",
+      );
+      legacy.exec(
+        'CREATE TABLE claim (session_id TEXT NOT NULL REFERENCES session(id) ON DELETE CASCADE, id TEXT NOT NULL,' +
+          ' ordinal INTEGER NOT NULL, text TEXT NOT NULL, category TEXT NOT NULL, weight REAL NOT NULL,' +
+          ' quote TEXT NOT NULL, start INTEGER NOT NULL, end INTEGER NOT NULL, exact INTEGER NOT NULL,' +
+          ' status TEXT NOT NULL, verdict TEXT, advice_json TEXT,' +
+          ' PRIMARY KEY (session_id, id), UNIQUE (session_id, ordinal))',
+      );
+      legacy.exec('CREATE INDEX IF NOT EXISTS claim_by_session ON claim(session_id, ordinal)');
+      // v6 的 probe 表：只有简历那一处锚，没有 requirement_id / jd_* 这五列
+      legacy.exec(
+        'CREATE TABLE probe (session_id TEXT NOT NULL REFERENCES session(id) ON DELETE CASCADE, id TEXT NOT NULL,' +
+          ' claim_id TEXT NOT NULL, interviewer_id TEXT NOT NULL, round INTEGER NOT NULL, question TEXT NOT NULL,' +
+          ' rationale TEXT NOT NULL, parent_probe_id TEXT, quote TEXT NOT NULL, start INTEGER NOT NULL,' +
+          ' end INTEGER NOT NULL, exact INTEGER NOT NULL, answer_text TEXT, answer_mode TEXT,' +
+          ' answer_cites_json TEXT, verdict TEXT, created_at TEXT NOT NULL, PRIMARY KEY (session_id, id),' +
+          ' FOREIGN KEY (session_id, claim_id) REFERENCES claim(session_id, id) ON DELETE CASCADE)',
+      );
+      legacy.exec('CREATE INDEX IF NOT EXISTS probe_by_claim ON probe(session_id, claim_id, round)');
+      legacy.exec('CREATE TABLE event (session_id TEXT NOT NULL, seq INTEGER NOT NULL, kind TEXT NOT NULL, payload_json TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY (session_id, seq))');
+      legacy.exec('CREATE TABLE llm_call (id TEXT PRIMARY KEY, session_id TEXT, digest TEXT NOT NULL, purpose TEXT NOT NULL, model TEXT NOT NULL, replayed INTEGER NOT NULL, input_tokens INTEGER NOT NULL, output_tokens INTEGER NOT NULL, cache_read_tokens INTEGER NOT NULL, reasoning_tokens INTEGER NOT NULL, elapsed_ms INTEGER NOT NULL, created_at TEXT NOT NULL)');
+      legacy.exec('PRAGMA user_version = 6');
+      legacy
+        .prepare('INSERT INTO session VALUES (?,?,?,?,?,?,?,?,?,?,?)')
+        .run('sess-v6', '2026-10-26T00:00:00.000Z', '2026-10-26T00:00:00.000Z', 'replay', '老岗位', '老 JD', RESUME, 'v6hash', 'done', '{}', '{}');
+      legacy
+        .prepare('INSERT INTO claim VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
+        .run('sess-v6', 'C1', 0, '老主张', 'achievement', 0.8, '主导重构订单系统', 0, 8, 1, 'open', 'solid', null);
+      legacy
+        .prepare('INSERT INTO probe VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+        .run('sess-v6', 'P1', 'C1', 'tech', 1, '老问题？', '老理由', null, '主导重构订单系统', 0, 8, 1, '老答案', 'simulated', null, 'solid', '2026-10-26T00:00:00.000Z');
+
+      expect(migrate(legacy)).toBe(SCHEMA_VERSION);
+      const probes = listProbes(legacy, 'sess-v6');
+      expect(probes).toHaveLength(1);
+      expect(probes[0]?.question).toBe('老问题？');
+      // 老追问没有第二条锚，语义是「这条只锚了简历」，不是「锚点丢了」
+      expect(probes[0]?.requirementId).toBeNull();
+      expect(probes[0]?.jdAnchor).toBeNull();
+
+      // 反过来，新写进去的双锚点必须原样读得回来。这条断言存在的理由：
+      // 第一版只把 requirementId / jdAnchor 塞进了事件流，追问表里根本没这两列，
+      // 于是「历史会话里追问照着哪条要求问的」在重开之后就查不到了。
+      const withJd: Probe = {
+        ...probeOf('P2', 'C1', 2),
+        requirementId: 'R1',
+        jdAnchor: anchor('5 年以上后端研发经验', 3, 14),
+      };
+      insertProbe(legacy, 'sess-v6', withJd, '2026-10-27T00:00:00.000Z');
+      const back = listProbes(legacy, 'sess-v6').find(function (p) { return p.id === 'P2'; });
+      expect(back?.requirementId).toBe('R1');
+      expect(back?.jdAnchor?.quote).toBe('5 年以上后端研发经验');
+      expect(back?.jdAnchor?.exact).toBe(true);
+    } finally {
+      closeDatabase(legacy);
+    }
+  });
+
   it('库版本比代码新时拒绝启动，而不是按老结构去读', function () {
     db.exec('PRAGMA user_version = ' + String(SCHEMA_VERSION + 1));
     let caught: unknown;
