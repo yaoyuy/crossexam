@@ -314,6 +314,15 @@ async function main() {
     await cdp.shot(opts.out, '10-contracts.png', "document.querySelector('[data-shot=\"contracts\"]').scrollIntoView({ block: 'start' })");
     await cdp.shot(opts.out, '11-system-prompt.png', "document.querySelector('[data-shot=\"contracts\"] pre').scrollIntoView({ block: 'center' })");
 
+    // 报告导出：同一份结果有三种形态（Markdown 便于携带、可打印 HTML 便于阅读、Word 便于改）。
+    // 这一张拍的是服务端渲染出来的可打印 HTML——PDF 就是它经浏览器打印得到的，服务端不自己造 PDF。
+    const sid = await cdp.evaluate("fetch('/api/sessions').then((r) => r.json()).then((data) => (data.sessions[0] ?? {}).id ?? '')");
+    if (typeof sid !== 'string' || sid === '') throw new Error('拿不到会话编号，报告那一张拍不了');
+    await cdp.send('Page.navigate', { url: base + '/api/sessions/' + sid + '/report.html' });
+    await cdp.waitFor("document.body.innerText.includes('主张与判定')", '报告页打开', 20000);
+    await sleep(300);
+    await cdp.shot(opts.out, '12-report.png');
+
     const problems = cdp.problems();
     log(NL + '控制台/日志问题：' + (problems.length === 0 ? '无' : String(problems.length) + ' 条'));
     for (const problem of problems) log('  - ' + problem);
