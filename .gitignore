@@ -160,6 +160,7 @@ pnpm-debug.log*
 *.swo
 *~
 *.tmp
+.tmp/
 *.temp
 *.crdownload
 *.part
