@@ -1,6 +1,6 @@
 # tools/ui-shots —— 可复跑的界面截图
 
-一条命令，真起服务 + 真起浏览器（系统 Edge/Chrome，走 CDP），把界面每个关键状态截成 10 张 PNG。
+一条命令，真起服务 + 真起浏览器（系统 Edge/Chrome，走 CDP），把界面每个关键状态截成 11 张 PNG。
 README 配图、技术文档插图、演示视频封面都从这里出——**不是手点的图，随时能重生成**。
 
 ## 用法
@@ -31,9 +31,11 @@ CDP 是纯 JSON 协议，Node 22 自带全局 WebSocket，于是「真浏览器�
 
 1. **别用 `window.scrollTo`**：本项目的三栏布局里，滚动容器是每一栏自己的 `div`，不是 window。
    所以脚本按 `data-shot` 找到栏位，滚 `lastElementChild`（也就是 Pane 的正文容器）。
-2. **界面上的 `data-shot` 属性是给这个脚本用的稳定锚点**（四栏容器、四个按钮、意图契约区块与它的展开按钮 `contract-toggle` / `contract-prompt`、实时输出栏 `live`）。
+2. **界面上的 `data-shot` 属性是给这个脚本用的稳定锚点**（四栏容器、四个按钮、意图契约区块与它的展开按钮 `contract-toggle` / `contract-prompt`、实时输出栏 `live` 与它的思考行 `live-reasoning`）。
    改界面时不要随手删——删了截图脚本会明确报「等不到界面状态」，而不是截出一堆错图。
 3. **拍直播画面要等它真的有字**：`04-live-output.png` 拍的是模型正在写字的那一栏，脚本会先等 `[data-shot="live"]` 的文本长度超过 30，再滚到栏位中间才按快门；不等就会拍到一只空盒子。
+4. **思考那一行只在 answer / verdict 两个阶段出现，窗口只有一两百毫秒**：`05-thinking.png` 不能靠外面每 150 毫秒轮询一次（会漏），
+   而是把轮询塞进页面里（`setInterval` 10 毫秒的 Promise），抓住 `[data-shot="live-reasoning"]` 有字的那一刻再截图。
 
 ## 它顺便是一道界面门禁
 

@@ -290,13 +290,20 @@ async function main() {
     // 它只活在直播期间（跑完就收），所以必须趁 running 拍。
     await cdp.waitFor("(document.querySelector('[data-shot=\"live\"]')?.innerText ?? '').length > 30", '实时输出出现文字', RUN_TIMEOUT_MS);
     await cdp.shot(opts.out, '04-live-output.png', "document.querySelector('[data-shot=\"live\"]').scrollIntoView({ block: 'center' })");
+    // 思考可视化：思考模型（deepseek-reasoner）的 reasoning 分片与正文分开推，
+    // 只在 answer / verdict 两个阶段出现，而且同样只活在直播期间——
+    // 所以用一个跑在页面里的 10 毫秒轮询把这段窗口抓住，再截图。
+    const sawThinking = await cdp.evaluate("new Promise((resolve) => { const tick = setInterval(() => { const el = document.querySelector('[data-shot=\"live-reasoning\"]'); if (el !== null && el.innerText.length > 20) resolve(true); }, 10); setTimeout(() => { clearInterval(tick); resolve(false); }, " + String(RUN_TIMEOUT_MS) + "); })");
+    if (sawThinking !== true) throw new Error('等不到思考分片（live-reasoning 锚点一直是空的）');
+    await cdp.shot(opts.out, '05-thinking.png');
+
     await cdp.evaluate(top('stage'));
     await cdp.waitFor("document.querySelector('[data-shot=\"stage\"]').innerText.includes('已完成')", '质询跑完', RUN_TIMEOUT_MS);
     await sleep(400);
-    await cdp.shot(opts.out, '05-done-top.png', top('claims'));
-    await cdp.shot(opts.out, '06-verdicts.png', bottom('claims'));
-    await cdp.shot(opts.out, '07-resume-focus.png', "(" + pane('claims') + ".querySelector('button.quote') ?? { click: () => undefined }).click(), " + pane('claims') + '.scrollTop = ' + pane('claims') + '.scrollHeight * 0.55');
-    await cdp.shot(opts.out, '08-history.png', bottom('intake'));
+    await cdp.shot(opts.out, '06-done-top.png', top('claims'));
+    await cdp.shot(opts.out, '07-verdicts.png', bottom('claims'));
+    await cdp.shot(opts.out, '08-resume-focus.png', "(" + pane('claims') + ".querySelector('button.quote') ?? { click: () => undefined }).click(), " + pane('claims') + '.scrollTop = ' + pane('claims') + '.scrollHeight * 0.55');
+    await cdp.shot(opts.out, '09-history.png', bottom('intake'));
 
     // 意图契约：展开一位面试官的契约，再摊开他实际拿到的 System Prompt。
     // 这一张是「意图控制」这条评分项的直接证据：目标/手法/禁区/预算都是结构化数据，
@@ -304,8 +311,8 @@ async function main() {
     await cdp.evaluate("document.querySelectorAll('[data-shot=\"contract-toggle\"]')[0].click()");
     await cdp.evaluate("document.querySelectorAll('[data-shot=\"contract-prompt\"]')[0].click()");
     await sleep(250);
-    await cdp.shot(opts.out, '09-contracts.png', "document.querySelector('[data-shot=\"contracts\"]').scrollIntoView({ block: 'start' })");
-    await cdp.shot(opts.out, '10-system-prompt.png', "document.querySelector('[data-shot=\"contracts\"] pre').scrollIntoView({ block: 'center' })");
+    await cdp.shot(opts.out, '10-contracts.png', "document.querySelector('[data-shot=\"contracts\"]').scrollIntoView({ block: 'start' })");
+    await cdp.shot(opts.out, '11-system-prompt.png', "document.querySelector('[data-shot=\"contracts\"] pre').scrollIntoView({ block: 'center' })");
 
     const problems = cdp.problems();
     log(NL + '控制台/日志问题：' + (problems.length === 0 ? '无' : String(problems.length) + ' 条'));
