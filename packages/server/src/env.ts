@@ -19,3 +19,16 @@ export function loadDotEnv(file = '.env'): string | null {
     return null;
   }
 }
+/**
+ * PANEL_SIZE：同时上场的面试官数量上限（1-6）。
+ *
+ * 只做截断不补齐 —— 默认面板本来就是 3 位，这个变量只在请求里点名更多面试官时才生效。
+ * 非法值（非整数、超出范围）当没设处理：一个手滑的字符串不该把面板悄悄变成 1 位。
+ */
+export function parsePanelSize(raw: string | undefined): number | undefined {
+  const text = (raw ?? '').trim();
+  if (text === '') return undefined;
+  const size = Number(text);
+  if (!Number.isInteger(size) || size < 1 || size > 6) return undefined;
+  return size;
+}

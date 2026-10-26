@@ -80,12 +80,16 @@ interface Rig {
 
 const opened: Db[] = [];
 
-function rig(): Rig {
+function rig(extra: { panelSize?: number } = {}): Rig {
   const db = openDatabase({ path: ':memory:' });
   migrate(db);
   opened.push(db);
   const client = scripted();
-  return { db, client, app: createApp({ db, client, cassetteDir: '.tmp/fixtures' }) };
+  return {
+    db,
+    client,
+    app: createApp({ db, client, cassetteDir: '.tmp/fixtures', panelSize: extra.panelSize }),
+  };
 }
 
 afterEach(() => {
@@ -342,7 +346,46 @@ describe('HTTP 层', () => {
     for (const view of body.contracts) {
       expect(view.storedDigest).toBe(view.digest);
       expect(view.verified).toBe(true);
+      expect(view.storedDigest).toBe(view.digest);
+      expect(view.verified).toBe(true);
       expect(view.systemPrompt).toContain('## 追问预算');
     }
+  });
+
+  it('PANEL_SIZE 只截断不补齐：点名的面试官多于上限时只留前几位', async () => {
+    const t = rig({ panelSize: 2 });
+    // 默认面板本来就是 3 位，上限 2 应当把它压到 2 位
+    const byDefault = await t.app.request('/api/contracts');
+    const defaultBody = (await byDefault.json()) as { panel: string[]; contracts: { id: string }[] };
+    expect(defaultBody.panel).toEqual(['tech', 'hr']);
+    expect(defaultBody.contracts).toHaveLength(2);
+
+    // 请求里点名三位也一样被截断——上限是硬约束，不是默认值
+    const named = await t.app.request('/api/contracts?panel=tech,hr,hiring_manager');
+    const namedBody = (await named.json()) as { panel: string[] };
+    expect(namedBody.panel).toEqual(['tech', 'hr']);
+
+    // 少于上限时原样放行，不做补齐
+    const single = await t.app.request('/api/contracts?panel=stress');
+    const singleBody = (await single.json()) as { panel: string[] };
+    expect(singleBody.panel).toEqual(['stress']);
+  });
+
+  it('上限对开跑同样生效：只剩一位面试官上场，契约也只有一份', async () => {
+    const t = rig({ panelSize: 1 });
+    const id = await newSessionId(t);
+    // 不带 ?panel=，走默认面板，但被上限压成只有技术面试官
+    const res = await t.app.request('/api/sessions/' + id + '/run?stream=0', { method: 'POST' });
+    expect(res.status).toBe(200);
+    const summary = (await res.json()) as RunSummary;
+    // 一位面试官、每人每主张 2 问：第一轮问一条，第二轮问第二条，第三轮无额度可用
+    expect(summary.rounds).toBe(2);
+    expect(summary.probes).toBe(2);
+    expect(t.client.countPurpose('probe')).toBe(2);
+
+    const view = await t.app.request('/api/sessions/' + id);
+    const body = (await view.json()) as { contracts: { id: string; verified: boolean }[] };
+    expect(body.contracts.map((item) => item.id)).toEqual(['tech']);
+    expect(body.contracts[0]?.verified).toBe(true);
   });
 });
