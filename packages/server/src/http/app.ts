@@ -21,6 +21,7 @@ import type { LlmClient } from '../llm/types.ts';
 import { assembleSession, contractViews, runAndPersist } from '../pipeline.ts';
 import type { SessionView } from '../pipeline.ts';
 import { renderReport, reportFileName } from '../report.ts';
+import { renderReportHtml, reportDocFileName, reportHtmlFileName } from '../report-html.ts';
 import { deleteSession, getSession, insertSession, listEvents, listSessions, llmStats } from '../store/index.ts';
 import type { Db } from '../store/index.ts';
 import { DEFAULT_PANEL } from '../orchestrator/run.ts';
@@ -213,6 +214,31 @@ export function createApp(opts: AppOptions): Hono {
     return c.body(renderReport(view), 200, {
       'content-type': 'text/markdown; charset=utf-8',
       'content-disposition': 'attachment; filename="' + reportFileName(view) + '"',
+    });
+  });
+
+  /**
+   * 可直接打印的 HTML 报告。不带 print 参数时是普通页面（浏览器里看），
+   * 带 ?print=1 时页面加载完自己调 window.print()——「另存为 PDF」少点一次。
+   * 服务端刻意不自己生成 PDF：那需要带上一个无头浏览器，会把「10 分钟复现」变成赌本机装了什么。
+   */
+  app.get('/api/sessions/:id/report.html', (c) => {
+    const view = assembleSession(db, c.req.param('id'));
+    if (view === null) return c.json({ error: '会话不存在' }, 404);
+    const print = c.req.query('print') === '1';
+    return c.body(renderReportHtml(view, { print }), 200, {
+      'content-type': 'text/html; charset=utf-8',
+      'content-disposition': 'inline; filename="' + reportHtmlFileName(view) + '"',
+    });
+  });
+
+  /** Word（.doc）导出：同一份 HTML，换成 Word 认识的类型与附件名 */
+  app.get('/api/sessions/:id/report.doc', (c) => {
+    const view = assembleSession(db, c.req.param('id'));
+    if (view === null) return c.json({ error: '会话不存在' }, 404);
+    return c.body(renderReportHtml(view), 200, {
+      'content-type': 'application/msword; charset=utf-8',
+      'content-disposition': 'attachment; filename="' + reportDocFileName(view) + '"',
     });
   });
 
