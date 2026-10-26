@@ -317,6 +317,27 @@ export async function createSession(input: CreateSessionInput): Promise<{ id: st
   return (await res.json()) as { id: string; mode: LlmMode; jobTitle: string };
 }
 
+export type ImportKind = 'pdf' | 'docx' | 'text';
+
+/** 服务端把 PDF / Word / 文本解出来的简历正文；文件本身不落库、不留盘。 */
+export interface ImportedResume {
+  kind: ImportKind;
+  name: string;
+  text: string;
+  chars: number;
+  notes: string[];
+}
+
+export const IMPORT_ACCEPT = '.pdf,.docx,.txt,.md,.markdown';
+
+export async function importResumeFile(file: File): Promise<ImportedResume> {
+  const form = new FormData();
+  form.append('file', file);
+  const res = await fetch('/api/import', { method: 'POST', body: form });
+  if (!res.ok) throw new ApiError(await readError(res), res.status);
+  return (await res.json()) as ImportedResume;
+}
+
 export async function deleteSession(id: string): Promise<void> {
   const res = await fetch('/api/sessions/' + encodeURIComponent(id), { method: 'DELETE' });
   if (!res.ok) throw new ApiError(await readError(res), res.status);
