@@ -4,5 +4,6 @@ export * from './anchor.ts';
 export * from './segment.ts';
 export * from './budget.ts';
 export * from './contract.ts';
+export * from './interviewer.ts';
 export * from './schemas.ts';
 export * from './util.ts';

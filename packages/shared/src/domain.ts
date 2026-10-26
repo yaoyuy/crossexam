@@ -64,7 +64,8 @@ export type Tone = 'neutral' | 'skeptical' | 'warm' | 'blunt';
 
 export interface Persona {
   name: string;
-  role: InterviewerRole;
+  /** 五位内置面试官用角色名；用户自己定义的面试官用 'custom'（见 interviewer.ts） */
+  role: InterviewerRole | 'custom';
   seniority: Seniority;
   tone: Tone;
   /** 一句话人设描述，同时用于前端展示与提示词渲染 */
