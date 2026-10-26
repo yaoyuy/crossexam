@@ -39,11 +39,25 @@ CrossExam 把这件事提前：喂入简历 + 目标岗位 JD，系统抽出简�
 **前置条件**：Node.js ≥ 22.5（`node -v` 看一眼）。不需要 API Key，不需要数据库，不需要 Docker，
 不需要管理员权限，全仓库**没有任何需要本地编译的原生依赖**。
 
+### 方式一：不用命令行（给完全没用过命令行的人）
+
+1. 打开 https://nodejs.org/zh-cn/download ，下载写着 **LTS** 的那个安装包，一路「下一步」装完。
+2. 把仓库下载下来（右上角 **Code → Download ZIP**，或 `git clone`），解压到一个**路径里没有中文和空格**的目录。
+3. **Windows 双击 `启动.cmd`**（macOS / Linux 用 `./启动.sh`）。
+   第一次它会自己装依赖、自己构建界面，然后把浏览器打开——中途关掉黑窗口就是停止。
+4. 想以后从桌面直接进：双击 **`装个快捷方式.cmd`**，桌面会出现「质询室 CrossExam」。
+
+启动器会检查 Node 版本，太旧就直说该装哪个（不猜、不替你装）；第二次双击只花两秒，
+已经有一个在跑时会直接把浏览器叫到前面来。判断逻辑是纯函数，有 12 条测试守着（`tools/launcher`）。
+
+### 方式二：命令行（开发与评审）
+
 ```bash
 git clone <仓库地址> crossexam
 cd crossexam
 npm install
 npm run preview        # 构建前端 + 起服务，默认 http://127.0.0.1:8787
+# 或者：npm run launch  —— 与双击 启动.cmd 等价，已装好的东西会自动跳过
 ```
 
 然后：打开 `http://127.0.0.1:8787` → 点 **一键示例** → 可切「慢放」看流式过程 → 点 **开始质询**。
@@ -96,6 +110,7 @@ cp .env.example .env   # 填 LLM_BASE_URL / LLM_API_KEY / LLM_MODEL（任何 Ope
 
 | 命令 | 作用 |
 | --- | --- |
+| `npm run launch` | 零门槛启动器：查 Node → 缺什么装什么 → 起服务 → 开浏览器（与双击 `启动.cmd` 等价） |
 | `npm run preview` | 构建前端并起一个端口的完整产品 |
 | `npm run dev` | 前后端热更新（两个进程，开发用） |
 | `npm run verify` | **提交门禁**：类型检查 + 测试 + 真进程冒烟 + 构建 |
@@ -114,7 +129,10 @@ cp .env.example .env   # 填 LLM_BASE_URL / LLM_API_KEY / LLM_MODEL（任何 Ope
 
 | 现象 | 处理 |
 | --- | --- |
-| 端口被占 | `CROSSEXAM_PORT=8899 npm run preview` |
+| 双击 `启动.cmd` 窗口一闪就没 | 说明它中途失败了：在黑窗口里跑 `npm run launch` 能看到完整报错；最常见的是 Node 没装或版本低于 22.5 |
+| 解压后双击没反应 / 报路径错误 | 目录路径里有中文或空格。挪到 `D:\crossexam` 这类纯英文路径再试 |
+| 桌面没有出现「质询室 CrossExam」 | 双击 `装个快捷方式.cmd` 重试一次；它会打印建到了哪个路径，建失败会说原因 |
+| 端口被占 | `CROSSEXAM_PORT=8899 npm run preview`（启动器同样认这个变量） |
 | 想换数据库位置 / 清空重来 | `CROSSEXAM_DB=./data/other.db`；删掉 `data/` 就是全新状态 |
 | 想换卡带目录 | `CROSSEXAM_FIXTURES=/path/to/llm` |
 | 没装 Chrome/Edge | 只有 `npm run shots` 与 `npm run e2e:ui` 需要浏览器，其余命令都不需要 |
