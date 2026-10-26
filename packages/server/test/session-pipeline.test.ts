@@ -14,6 +14,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { DEFAULT_BUDGET } from '@crossexam/shared';
 import { assembleSession, runAndPersist } from '../src/pipeline.ts';
 import {
+  appendEvent,
   closeDatabase,
   getSession,
   insertSession,
@@ -171,6 +172,21 @@ describe('会话执行器', () => {
     await expect(runAndPersist({ db, sessionId, client: scripted(), ...RUN_OPTS })).rejects.toThrow(/已经跑过了/);
   });
 
+
+  it('上次跑到一半就没了（进程被关），重跑会先抹掉痕迹，日志里不会留两份', async () => {
+    // 模拟半截的运行：事件已经写进去了，主张还没落库（主张是最后整批落的）。
+    appendEvent(db, sessionId, 'stage', { type: 'stage', stage: 'extract', round: 0 });
+    appendEvent(db, sessionId, 'claims', { type: 'claims', claims: [] });
+    expect(listEvents(db, sessionId)).toHaveLength(2);
+
+    await runAndPersist({ db, sessionId, client: scripted(), ...RUN_OPTS });
+
+    const events = listEvents(db, sessionId);
+    expect(events.map((e) => e.seq)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+    expect(events.filter((e) => e.kind === 'claims')).toHaveLength(1);
+    expect(listClaims(db, sessionId)).toHaveLength(1);
+    expect(getSession(db, sessionId)?.status).toBe('done');
+  });
   it('失败时会话标记为 failed，并且先留一条错误事件', async () => {
     const client = createScriptedClient((req) => {
       if (req.purpose === 'extract') return new Error('模型连接断了');
