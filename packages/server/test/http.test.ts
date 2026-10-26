@@ -7,6 +7,8 @@
  *   3. 这些断言同时也是给评审看的接口文档——想接前端的同学读这一份就够了。
  */
 
+import { readFileSync } from 'node:fs';
+const NL = String.fromCharCode(10);
 import { afterEach, describe, expect, it } from 'vitest';
 import { createApp } from '../src/http/app.ts';
 import { closeDatabase, migrate, openDatabase } from '../src/store/index.ts';
@@ -434,5 +436,73 @@ describe('HTTP 层', () => {
     const body = (await view.json()) as { contracts: { id: string; verified: boolean }[] };
     expect(body.contracts.map((item) => item.id)).toEqual(['tech']);
     expect(body.contracts[0]?.verified).toBe(true);
+  });
+});
+
+/** 上传夹具：合成内容（李雷），来源见 packages/server/test/fixtures/README.md。 */
+function uploadFixture(name: string): File {
+  const bytes = new Uint8Array(readFileSync(new URL('./fixtures/' + name, import.meta.url)));
+  return new File([bytes], name);
+}
+
+describe('简历导入接口', () => {
+  async function post(target: Rig, file: File | null): Promise<Response> {
+    const form = new FormData();
+    if (file !== null) form.append('file', file);
+    return target.app.request('/api/import', { method: 'POST', body: form });
+  }
+
+  it('上传 Word：200，返回解析出来的正文，且不带 PDF 那条提醒', async () => {
+    const t = rig();
+    const res = await post(t, uploadFixture('resume.docx'));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { kind: string; name: string; text: string; chars: number; notes: string[] };
+    expect(body.kind).toBe('docx');
+    expect(body.name).toBe('resume.docx');
+    expect(body.text).toContain('李雷');
+    expect(body.chars).toBe(body.text.length);
+    expect(body.notes).toEqual([]);
+  });
+
+  it('上传 PDF：200，并附带一句「换行来自版面」的提醒', async () => {
+    const t = rig();
+    const res = await post(t, uploadFixture('resume-edge.pdf'));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { kind: string; notes: string[] };
+    expect(body.kind).toBe('pdf');
+    expect(body.notes[0]).toContain('换行来自版面');
+  });
+
+  it('只接得住简历：四种失败各给一个能对症的状态码与中文说明', async () => {
+    const t = rig();
+    const legacy = new File([new Uint8Array([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1, 0x00])], 'old.doc');
+    const legacyRes = await post(t, legacy);
+    expect(legacyRes.status).toBe(415);
+    expect(((await legacyRes.json()) as { code: string }).code).toBe('legacy-doc');
+
+    const photo = new File([new TextEncoder().encode('图片字节')], 'photo.png');
+    const photoRes = await post(t, photo);
+    expect(photoRes.status).toBe(415);
+    expect(((await photoRes.json()) as { code: string }).code).toBe('unsupported');
+
+    const blank = new File([new TextEncoder().encode('   ' + String.fromCharCode(10))], 'blank.txt');
+    const blankRes = await post(t, blank);
+    expect(blankRes.status).toBe(422);
+    expect(((await blankRes.json()) as { code: string }).code).toBe('empty');
+
+    const noFile = await post(t, null);
+    expect(noFile.status).toBe(400);
+    expect(((await noFile.json()) as { error: string }).error).toContain('没有收到文件');
+  });
+
+  it('文本简历走同一条路，导入的字数与正文一致', async () => {
+    const t = rig();
+    const text = '王五' + NL + '运维工程师' + NL + '负责过 30 台服务器的日常巡检。';
+    const res = await post(t, new File([new TextEncoder().encode(text)], 'resume.md'));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { kind: string; text: string; chars: number };
+    expect(body.kind).toBe('text');
+    expect(body.text).toBe(text);
+    expect(body.chars).toBe(text.length);
   });
 });
