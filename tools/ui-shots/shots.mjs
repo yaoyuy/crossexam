@@ -292,6 +292,15 @@ async function main() {
     await cdp.shot(opts.out, '06-resume-focus.png', "(" + pane('claims') + ".querySelector('button.quote') ?? { click: () => undefined }).click(), " + pane('claims') + '.scrollTop = ' + pane('claims') + '.scrollHeight * 0.55');
     await cdp.shot(opts.out, '07-history.png', bottom('intake'));
 
+    // 意图契约：展开一位面试官的契约，再摊开他实际拿到的 System Prompt。
+    // 这一张是「意图控制」这条评分项的直接证据：目标/手法/禁区/预算都是结构化数据，
+    // prompt 由它确定性渲染，指纹还要和会话里落库的那一份对得上。
+    await cdp.evaluate("document.querySelectorAll('[data-shot=\"contract-toggle\"]')[0].click()");
+    await cdp.evaluate("document.querySelectorAll('[data-shot=\"contract-prompt\"]')[0].click()");
+    await sleep(250);
+    await cdp.shot(opts.out, '08-contracts.png', "document.querySelector('[data-shot=\"contracts\"]').scrollIntoView({ block: 'start' })");
+    await cdp.shot(opts.out, '09-system-prompt.png', "document.querySelector('[data-shot=\"contracts\"] pre').scrollIntoView({ block: 'center' })");
+
     const problems = cdp.problems();
     log(NL + '控制台/日志问题：' + (problems.length === 0 ? '无' : String(problems.length) + ' 条'));
     for (const problem of problems) log('  - ' + problem);
