@@ -20,6 +20,8 @@ import { createLlmClient, defaultCassetteDir, describeClient } from '../llm/inde
 import type { LlmClient } from '../llm/types.ts';
 import { assembleSession, contractViews, runAndPersist } from '../pipeline.ts';
 import type { SessionView } from '../pipeline.ts';
+import { extractResumeFromFile, ImportError, IMPORT_ACCEPT } from '../import/index.ts';
+import type { ImportErrorCode } from '../import/index.ts';
 import { renderReport, reportFileName } from '../report.ts';
 import { renderReportHtml, reportDocFileName, reportHtmlFileName } from '../report-html.ts';
 import { deleteSession, getSession, insertSession, listEvents, listSessions, llmStats } from '../store/index.ts';
@@ -29,6 +31,14 @@ import type { RunSessionResult } from '../orchestrator/run.ts';
 
 /** 简历短于这个长度就没法抽出可被追问的主张，与其跑一盘空的不如直接说清楚 */
 const MIN_RESUME_CHARS = 30;
+const IMPORT_FIELD = 'file';
+
+/** 导入失败时给哪个状态码：太大是 413，格式不收是 415，内容是空的/认不出来是 422。 */
+function importStatus(code: ImportErrorCode): 413 | 415 | 422 {
+  if (code === 'too-large') return 413;
+  if (code === 'unsupported' || code === 'legacy-doc') return 415;
+  return 422;
+}
 const ROLES: readonly string[] = ['tech', 'hr', 'hiring_manager', 'stress', 'domain_expert'];
 
 export interface AppOptions {
@@ -158,6 +168,33 @@ export function createApp(opts: AppOptions): Hono {
     }
     const panel = resolvePanel(raw);
     return c.json({ panel, budget: DEFAULT_BUDGET, contracts: contractViews(panel, DEFAULT_BUDGET) });
+  });
+
+  /**
+   * 简历导入：把用户手上的 PDF / Word / 文本变成一段可编辑的文字。
+   * 上传的文件**不落库、不留盘**——解出文字直接返回给界面，用户看清了再决定要不要拿它开跑。
+   */
+  app.post('/api/import', async (c) => {
+    let body: Record<string, unknown>;
+    try {
+      body = (await c.req.parseBody()) as Record<string, unknown>;
+    } catch (err) {
+      return c.json({ error: '这个上传请求读不出来：' + messageOf(err) }, 400);
+    }
+    const file = body[IMPORT_FIELD];
+    if (!(file instanceof File)) {
+      return c.json({ error: '没有收到文件。挑一份 ' + IMPORT_ACCEPT + ' 简历再试。' }, 400);
+    }
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const imported = await extractResumeFromFile({ name: file.name, bytes });
+      return c.json(imported);
+    } catch (err) {
+      if (err instanceof ImportError) {
+        return c.json({ error: err.message, code: err.code }, importStatus(err.code));
+      }
+      return c.json({ error: '导入失败：' + messageOf(err) }, 500);
+    }
   });
 
   app.get('/api/sessions', (c) => {
