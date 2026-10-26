@@ -19,3 +19,4 @@
 # 生成物：diff 噪音大，语言统计里标成 generated
 package-lock.json linguist-generated=true
 docs/prompt-chain/** linguist-generated=true
+fixtures/llm/** linguist-generated=true
