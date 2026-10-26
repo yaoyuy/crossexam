@@ -365,6 +365,20 @@ async function main() {
     await cdp.shot(opts.out, '15-modes.png');
     await cdp.evaluate(click('mode-replay'));
     await sleep(250);
+
+    // 面试官工作室：自定义面试官是「任何专业都能用」那条要求的入口。
+    // 走本地规则这条路（不联网、确定性），拍下来的正好是「没有 API Key 也能配出面试官」。
+    await cdp.evaluate(click('open-studio'));
+    await cdp.waitFor("document.body.innerText.includes('面试官工作室')", '工作室打开', 15000);
+    await cdp.evaluate("document.querySelector('[data-shot=\"studio-seed-医护\"]').click()");
+    await cdp.waitFor("(document.querySelector('[data-shot=\"studio-desc\"]')?.value ?? '').length > 0", '例子填进描述框', 8000);
+    await cdp.evaluate(click('studio-local'));
+    await cdp.waitFor("(document.querySelector('[data-shot=\"studio-name\"]')?.value ?? '').length > 0", '本地规则生成草稿', 20000);
+    await cdp.evaluate(click('studio-prompt-toggle'));
+    await sleep(350);
+    await cdp.shot(opts.out, '16-studio.png');
+    await cdp.evaluate(click('studio-close'));
+    await sleep(300);
     await cdp.evaluate(click('pace-slow'));
     await cdp.evaluate(click('use-demo'));
     await sleep(300);
