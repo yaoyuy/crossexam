@@ -1,5 +1,7 @@
+import { useRef } from 'react';
 import { PERSONA_BLURB, PERSONA_LABEL, SESSION_STATUS_LABEL } from '../labels.ts';
 import { PANEL_ORDER } from '../contract.ts';
+import { IMPORT_ACCEPT } from '../api.ts';
 import type { InterviewerRole, SessionSummary } from '../api.ts';
 import { Chip, Pane } from './Bits.tsx';
 
@@ -10,6 +12,12 @@ export interface IntakeDraft {
 }
 
 export const MIN_RESUME_CHARS = 30;
+
+/** 导入结果提示：成功是绿的，失败是红的，都直接把服务端的话摊出来。 */
+export interface ImportNote {
+  tone: 'ok' | 'error';
+  text: string;
+}
 
 export const PACE_CHOICES: { value: number; label: string; hint: string }[] = [
   { value: 0, label: '即时', hint: '事件来了就画，回放模式下整场不到一秒' },
@@ -36,6 +44,8 @@ export function IntakePanel(props: {
   onClear: () => void;
   busy: boolean;
   hint: string | null;
+  onImportFile: (file: File) => void;
+  importNote: ImportNote | null;
   sessions: SessionSummary[];
   activeSessionId: string | null;
   onLoadSession: (id: string) => void;
@@ -43,6 +53,7 @@ export function IntakePanel(props: {
 }) {
   const draft = props.draft;
   const tooShort = draft.resumeText.trim().length < MIN_RESUME_CHARS;
+  const fileRef = useRef<HTMLInputElement>(null);
 
   return (
     <Pane
@@ -62,19 +73,54 @@ export function IntakePanel(props: {
       bodyClassName="flex flex-col gap-3 p-3"
       className="max-h-[60vh] xl:max-h-[46vh]"
     >
-      <label className="flex flex-col gap-1">
-        <span className="flex items-center justify-between text-[11px] text-ink-400">
+      <div className="flex flex-col gap-1">
+        <span className="flex items-center justify-between gap-2 text-[11px] text-ink-400">
           <span>简历正文</span>
-          <span>{draft.resumeText.length} 字</span>
+          <span className="flex items-center gap-1.5">
+            <span>{draft.resumeText.length} 字</span>
+            <button
+              type="button"
+              data-shot="import"
+              title={'支持 ' + IMPORT_ACCEPT + '，单个文件不超过 8 MB；文件只在本机解析，不入库'}
+              className="btn btn-quiet px-1.5 py-0.5 text-[11px]"
+              disabled={props.busy}
+              onClick={() => fileRef.current?.click()}
+            >
+              从文件导入
+            </button>
+          </span>
         </span>
         <textarea
           className="field"
           rows={7}
           value={draft.resumeText}
-          placeholder="把简历正文贴进来。所有提问与判定都会被锚定到这里的原文区间。"
+          placeholder="把简历正文贴进来，或点右上角「从文件导入」选一份 PDF / Word。所有提问与判定都会被锚定到这里的原文区间。"
           onChange={(event) => props.onDraftChange({ resumeText: event.target.value })}
         />
-      </label>
+        <input
+          ref={fileRef}
+          data-shot="import-file"
+          type="file"
+          accept={IMPORT_ACCEPT}
+          className="hidden"
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            // 清掉 value：同一个文件连选两次也要能再触发一次 change
+            event.target.value = '';
+            if (file !== undefined) props.onImportFile(file);
+          }}
+        />
+        {props.importNote === null ? null : (
+          <p
+            data-shot="import-note"
+            className={
+              'text-[11px] leading-relaxed ' + (props.importNote.tone === 'ok' ? 'text-mint-400' : 'text-rose-ink')
+            }
+          >
+            {props.importNote.text}
+          </p>
+        )}
+      </div>
 
       <label className="flex flex-col gap-1">
         <span className="text-[11px] text-ink-400">目标岗位 JD</span>

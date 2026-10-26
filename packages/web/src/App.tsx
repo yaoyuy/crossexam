@@ -8,6 +8,7 @@ import {
   fetchHealth,
   fetchStats,
   getSession,
+  importResumeFile,
   listSessions,
   reportDocUrl,
   reportHtmlUrl,
@@ -31,7 +32,7 @@ import { Chip } from './components/Bits.tsx';
 import { ClaimBoard } from './components/ClaimBoard.tsx';
 import { HelpPanel } from './components/HelpPanel.tsx';
 import { IntakePanel } from './components/IntakePanel.tsx';
-import type { IntakeDraft } from './components/IntakePanel.tsx';
+import type { ImportNote, IntakeDraft } from './components/IntakePanel.tsx';
 import { ResumePane } from './components/ResumePane.tsx';
 import { StageRail } from './components/StageRail.tsx';
 
@@ -64,6 +65,7 @@ export function App() {
   const [pace, setPace] = useState(0);
   const [busy, setBusy] = useState(false);
   const [hint, setHint] = useState<string | null>(null);
+  const [importNote, setImportNote] = useState<ImportNote | null>(null);
   const [material, setMaterial] = useState<{ resumeText: string; title: string }>({ resumeText: '', title: '' });
   const [contracts, setContracts] = useState<ContractView[] | null>(null);
   const [theme, setTheme] = useState<Theme>(readStoredTheme);
@@ -286,6 +288,29 @@ export function App() {
     setHint('已填入内置示例简历。这是合成素材，刻意留了两处「经不起追问」的表述给面试官抓。');
   }, [demo]);
 
+  /**
+   * 从 PDF / Word / 文本导入简历：服务端解出纯文字，直接填进输入框。
+   * 这里刻意不自动开跑——导入的排版常有意外，先让人看一眼再决定。
+   */
+  const handleImportFile = useCallback((file: File) => {
+    setImportNote({ tone: 'ok', text: '正在解析「' + file.name + '」…' });
+    void importResumeFile(file)
+      .then((imported) => {
+        setDraft((current) => ({ ...current, resumeText: imported.text }));
+        const kindLabel = imported.kind === 'pdf' ? 'PDF' : imported.kind === 'docx' ? 'Word' : '文本';
+        setImportNote({
+          tone: 'ok',
+          text:
+            '已从「' + imported.name + '」解析出 ' + String(imported.chars) + ' 字（' + kindLabel + '）。' +
+            imported.notes.join(''),
+        });
+        setHint('导入的简历只写在这台机器上，随时可以改；确认无误再点「开始质询」。');
+      })
+      .catch((error: unknown) => {
+        setImportNote({ tone: 'error', text: error instanceof Error ? error.message : '导入失败' });
+      });
+  }, []);
+
   const handleToggleRole = useCallback((role: InterviewerRole) => {
     setPanel((current) => nextPanel(current, role));
   }, []);
@@ -295,6 +320,7 @@ export function App() {
     setMaterial({ resumeText: '', title: '' });
     dispatch({ type: 'reset' });
     setHint(null);
+    setImportNote(null);
   }, []);
 
   const handleCloseHelp = useCallback(() => {
@@ -405,6 +431,8 @@ export function App() {
             onClear={handleClear}
             busy={busy}
             hint={hint}
+            onImportFile={handleImportFile}
+            importNote={importNote}
             sessions={sessions}
             activeSessionId={sandbox.sessionId}
             onLoadSession={(id) => void handleLoadSession(id)}
