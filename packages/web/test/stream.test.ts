@@ -18,6 +18,7 @@ import {
   STREAM_CAP,
   streamText,
   tailText,
+  thoughtText,
 } from '../src/state.ts';
 import type { SandboxState, StreamBuffer } from '../src/state.ts';
 
@@ -25,8 +26,8 @@ function running(over: Partial<SandboxState> = {}): SandboxState {
   return { ...initialSandbox, phase: 'running', sessionId: 's1', ...over };
 }
 
-function buffer(channel: string, text: string, kind: 'reasoning' | 'text' = 'text'): StreamBuffer {
-  return { channel, stage: channel.split(':')[0] ?? channel, kind, text };
+function buffer(channel: string, text: string, reasoning: string = ''): StreamBuffer {
+  return { channel, stage: channel.split(':')[0] ?? channel, reasoning, text };
 }
 
 describe('分片的形状校验', () => {
@@ -74,10 +75,22 @@ describe('分片折叠成状态', () => {
       name: 'stream',
       data: { channel: 'probe:tech', stage: 'probe', kind: 'reasoning', text: '先问口径' },
     });
-    expect(next.streams['probe:tech']?.text).toBe('先问口径');
+    // 思考分片落到 reasoning 上，不混进正文
+    expect(next.streams['probe:tech']?.reasoning).toBe('先问口径');
+    expect(next.streams['probe:tech']?.text).toBe('');
 
     const broken = sandboxReducer(start, { type: 'sse', name: 'stream', data: '不是对象' });
     expect(broken).toEqual(start);
+  });
+
+  it('思考与正文各走各的：先写一段思考、再写一段正文，两边都不串台', () => {
+    let state = running();
+    state = applyStreamChunk(state, { channel: 'verdict:C1', stage: 'verdict', kind: 'reasoning', text: '这条只有结论' });
+    state = applyStreamChunk(state, { channel: 'verdict:C1', stage: 'verdict', kind: 'text', text: '{"kind":' });
+    state = applyStreamChunk(state, { channel: 'verdict:C1', stage: 'verdict', kind: 'reasoning', text: '，没有口径' });
+
+    expect(state.streams['verdict:C1']?.reasoning).toBe('这条只有结论，没有口径');
+    expect(state.streams['verdict:C1']?.text).toBe('{"kind":');
   });
 
   it('重置与重新开跑都会把上场的分片清干净', () => {
@@ -94,6 +107,26 @@ describe('实况文本取用', () => {
     expect(streamText({ ...live, phase: 'done' }, 'answer:P1')).toBeNull();
     expect(streamText(live, 'answer:P9')).toBeNull();
     expect(streamText(live, 'extract')).toBeNull();
+  });
+
+  it('思考文本同样只在 running 时给值，没有思考就是 null', () => {
+    const live = applyStreamChunk(running(), {
+      channel: 'verdict:C1',
+      stage: 'verdict',
+      kind: 'reasoning',
+      text: '先看证据够不够',
+    });
+    expect(thoughtText(live, 'verdict:C1')).toBe('先看证据够不够');
+    expect(thoughtText({ ...live, phase: 'done' }, 'verdict:C1')).toBeNull();
+    expect(thoughtText(live, 'verdict:C9')).toBeNull();
+
+    const noThought = applyStreamChunk(running(), {
+      channel: 'extract',
+      stage: 'extract',
+      kind: 'text',
+      text: '{"claims":[]}',
+    });
+    expect(thoughtText(noThought, 'extract')).toBeNull();
   });
 
   it('实况栏只收当前阶段那几路，最新的排最前，数量有上限', () => {
