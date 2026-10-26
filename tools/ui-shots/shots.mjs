@@ -448,6 +448,14 @@ async function main() {
     await cdp.waitFor("document.body.innerText.includes('主张与判定')", '报告页打开', 20000);
     await sleep(300);
     await cdp.shot(opts.out, '14-report.png');
+    // 岗位模板库：不熟悉某个行业的人，点一下就能得到一份「有东西可问」的料。
+    // 放最后：它会往库里加一位面试官并把料填满投料台，而前面几张要的是干净状态。
+    await cdp.send('Page.navigate', { url: base + '/' });
+    await cdp.waitFor("document.querySelector('[data-shot=\"tpl-med-pharmacy-lead\"]') !== null", '模板选择器出现', 20000);
+    await cdp.evaluate("document.querySelector('[data-shot=\"tpl-med-pharmacy-lead\"]').click()");
+    await cdp.waitFor("(document.querySelectorAll('textarea')[0]?.value ?? '').length >= 200", '模板把料填好', 20000);
+    await sleep(300);
+    await cdp.shot(opts.out, '18-templates.png', top('intake'));
 
     const problems = cdp.problems();
     log(NL + '控制台/日志问题：' + (problems.length === 0 ? '无' : String(problems.length) + ' 条'));
