@@ -10,9 +10,11 @@ export function Pane(props: {
   children: ReactNode;
   className?: string;
   bodyClassName?: string;
+  /** 给自动化截图用的稳定锚点，界面上不可见（tools/ui-shots 按它定位要滚动的栏）。 */
+  dataShot?: string;
 }) {
   return (
-    <section className={'pane flex min-h-0 flex-col ' + (props.className ?? '')}>
+    <section data-shot={props.dataShot} className={'pane flex min-h-0 flex-col ' + (props.className ?? '')}>
       <header className="pane-head">
         <div className="min-w-0">
           <h2 className="truncate text-sm font-semibold text-ink-100">{props.title}</h2>

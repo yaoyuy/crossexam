@@ -28,6 +28,7 @@ export function ResumePane(props: { text: string; focus: Anchor | null; hits: An
   return (
     <Pane
       title="简历原文"
+      dataShot="resume"
       subtitle={props.text.length === 0 ? '还没有材料' : String(props.text.length) + ' 字 · 被引用 ' + String(props.hits.length) + ' 处'}
       bodyClassName="p-0"
     >
