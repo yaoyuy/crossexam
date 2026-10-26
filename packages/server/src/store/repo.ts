@@ -249,20 +249,34 @@ export function listClaims(db: Db, sessionId: string): ClaimRow[] {
   return rows.map(mapClaim);
 }
 
-export function getClaim(db: Db, claimId: string): ClaimRow | null {
-  const row = db.prepare('SELECT * FROM claim WHERE id = ?').get(claimId) as ClaimDbRow | undefined;
+/**
+ * 主张编号是会话内编号（每场都从 C1 数起），所以所有按编号定位的写操作
+ * 都必须带上 sessionId。少带一次就会在第二场会话里改到第一场的行上——
+ * 而且 SQL 不会报错，只会静默改错。
+ */
+export function getClaim(db: Db, sessionId: string, claimId: string): ClaimRow | null {
+  const row = db.prepare('SELECT * FROM claim WHERE session_id = ? AND id = ?').get(sessionId, claimId) as
+    | ClaimDbRow
+    | undefined;
   return row === undefined ? null : mapClaim(row);
 }
 
-export function setClaimStatus(db: Db, claimId: string, status: string): void {
-  db.prepare('UPDATE claim SET status = ? WHERE id = ?').run(status, claimId);
+export function setClaimStatus(db: Db, sessionId: string, claimId: string, status: string): void {
+  db.prepare('UPDATE claim SET status = ? WHERE session_id = ? AND id = ?').run(status, sessionId, claimId);
 }
 
 /** 判定结果与修改建议一起落盘：前端展示时两者如影随形，分两次写没有好处。 */
-export function saveVerdict(db: Db, claimId: string, verdict: Verdict, suggestion: Suggestion | null = null): void {
-  db.prepare('UPDATE claim SET verdict = ?, advice_json = ? WHERE id = ?').run(
+export function saveVerdict(
+  db: Db,
+  sessionId: string,
+  claimId: string,
+  verdict: Verdict,
+  suggestion: Suggestion | null = null,
+): void {
+  db.prepare('UPDATE claim SET verdict = ?, advice_json = ? WHERE session_id = ? AND id = ?').run(
     verdict.kind,
     suggestion === null ? null : JSON.stringify(suggestion),
+    sessionId,
     claimId,
   );
 }
@@ -350,12 +364,17 @@ export function listProbes(db: Db, sessionId: string, claimId?: string): ProbeRo
   return rows.map(mapProbe);
 }
 
-export function saveAnswer(db: Db, probeId: string, answer: Answer): void {
-  db.prepare('UPDATE probe SET answer_text = ?, answer_mode = ? WHERE id = ?').run(answer.text, answer.mode, probeId);
+export function saveAnswer(db: Db, sessionId: string, probeId: string, answer: Answer): void {
+  db.prepare('UPDATE probe SET answer_text = ?, answer_mode = ? WHERE session_id = ? AND id = ?').run(
+    answer.text,
+    answer.mode,
+    sessionId,
+    probeId,
+  );
 }
 
-export function saveProbeVerdict(db: Db, probeId: string, verdict: VerdictKind): void {
-  db.prepare('UPDATE probe SET verdict = ? WHERE id = ?').run(verdict, probeId);
+export function saveProbeVerdict(db: Db, sessionId: string, probeId: string, verdict: VerdictKind): void {
+  db.prepare('UPDATE probe SET verdict = ? WHERE session_id = ? AND id = ?').run(verdict, sessionId, probeId);
 }
 
 /* --------------------------------------------------------------------- event */

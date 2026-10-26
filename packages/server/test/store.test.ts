@@ -25,6 +25,7 @@ import {
   llmStats,
   recordLlmCall,
   saveAnswer,
+  saveProbeVerdict,
   saveVerdict,
   updateSessionStatus,
 } from '../src/store/repo.ts';
@@ -110,6 +111,55 @@ describe('建表与迁移', function () {
       expect(id.length).toBeGreaterThan(0);
     } finally {
       closeDatabase(fresh);
+    }
+  });
+
+  it('v1 老库升到 v2：数据一条不丢，主键换成会话内编号', function () {
+    const legacy = openDatabase({ path: ':memory:', skipMigrate: true });
+    try {
+      legacy.exec(
+        'CREATE TABLE session (id TEXT PRIMARY KEY, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,' +
+          ' mode TEXT NOT NULL, job_title TEXT NOT NULL, jd_text TEXT NOT NULL, resume_text TEXT NOT NULL,' +
+          ' resume_hash TEXT NOT NULL, status TEXT NOT NULL, budget_json TEXT NOT NULL,' +
+          " meta_json TEXT NOT NULL DEFAULT '{}')",
+      );
+      legacy.exec(
+        'CREATE TABLE claim (id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES session(id) ON DELETE CASCADE,' +
+          ' ordinal INTEGER NOT NULL, text TEXT NOT NULL, category TEXT NOT NULL, weight REAL NOT NULL,' +
+          ' quote TEXT NOT NULL, start INTEGER NOT NULL, end INTEGER NOT NULL, exact INTEGER NOT NULL,' +
+          ' status TEXT NOT NULL, verdict TEXT, advice_json TEXT, UNIQUE (session_id, ordinal))',
+      );
+      legacy.exec(
+        'CREATE TABLE probe (id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES session(id) ON DELETE CASCADE,' +
+          ' claim_id TEXT NOT NULL REFERENCES claim(id) ON DELETE CASCADE, interviewer_id TEXT NOT NULL,' +
+          ' round INTEGER NOT NULL, question TEXT NOT NULL, rationale TEXT NOT NULL, parent_probe_id TEXT,' +
+          ' quote TEXT NOT NULL, start INTEGER NOT NULL, end INTEGER NOT NULL, exact INTEGER NOT NULL,' +
+          ' answer_text TEXT, answer_mode TEXT, verdict TEXT, created_at TEXT NOT NULL,' +
+          ' UNIQUE (claim_id, round, interviewer_id))',
+      );
+      legacy.exec('CREATE TABLE event (session_id TEXT NOT NULL, seq INTEGER NOT NULL, kind TEXT NOT NULL, payload_json TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY (session_id, seq))');
+      legacy.exec('CREATE TABLE llm_call (id TEXT PRIMARY KEY, session_id TEXT, digest TEXT NOT NULL, purpose TEXT NOT NULL, model TEXT NOT NULL, replayed INTEGER NOT NULL, input_tokens INTEGER NOT NULL, output_tokens INTEGER NOT NULL, cache_read_tokens INTEGER NOT NULL, reasoning_tokens INTEGER NOT NULL, elapsed_ms INTEGER NOT NULL, created_at TEXT NOT NULL)');
+      legacy.exec('PRAGMA user_version = 1');
+      legacy
+        .prepare('INSERT INTO session VALUES (?,?,?,?,?,?,?,?,?,?,?)')
+        .run('sess-old', '2026-10-01T00:00:00.000Z', '2026-10-01T00:00:00.000Z', 'replay', '老岗位', '老 JD', RESUME, 'oldhash', 'done', '{}', '{}');
+      legacy
+        .prepare('INSERT INTO claim VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
+        .run('C1', 'sess-old', 0, '老主张', 'achievement', 0.8, '主导重构订单系统', 0, 8, 1, 'open', 'solid', null);
+      legacy
+        .prepare('INSERT INTO probe VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+        .run('P1', 'sess-old', 'C1', 'tech', 1, '老问题？', '老理由', null, '主导重构订单系统', 0, 8, 1, '老答案', 'simulated', 'solid', '2026-10-01T00:00:00.000Z');
+
+      expect(migrate(legacy)).toBe(SCHEMA_VERSION);
+      const claim = getClaim(legacy, 'sess-old', 'C1');
+      expect(claim?.text).toBe('老主张');
+      expect(claim?.verdict).toBe('solid');
+      const probes = listProbes(legacy, 'sess-old');
+      expect(probes).toHaveLength(1);
+      expect(probes[0]?.answer?.text).toBe('老答案');
+      expect(listClaims(legacy, 'sess-old')).toHaveLength(1);
+    } finally {
+      closeDatabase(legacy);
     }
   });
 
@@ -205,12 +255,44 @@ describe('主张', function () {
       problem: '数字缺口径', before: '首屏从 2.4s 降到 0.8s', after: '首屏（Lighthouse，Moto G4 模拟）从 2.4s 降到 0.8s',
       why: '面试官一定会问数字怎么测的。',
     };
-    saveVerdict(db, 'claim-1', verdict, suggestion);
+    saveVerdict(db, 'sess-1', 'claim-1', verdict, suggestion);
 
-    const row = getClaim(db, 'claim-1');
+    const row = getClaim(db, 'sess-1', 'claim-1');
     expect(row?.verdict).toBe('unsupported');
     expect(row?.suggestion?.after).toContain('Lighthouse');
     expect(row?.suggestion?.problem).toBe('数字缺口径');
+  });
+});
+
+describe('跨会话隔离', function () {
+  it('两场会话各自都有 C1/P1，互不覆盖', function () {
+    seedSession();
+    insertSession(db, {
+      id: 'sess-2',
+      jobTitle: '第二个岗位',
+      jdText: '第二份 JD',
+      resumeText: RESUME,
+      resumeHash: 'cafebabe',
+      llmMode: 'replay',
+      budget: initBudget(['C1']),
+      createdAt: '2026-10-27T00:00:00.000Z',
+    });
+    insertClaims(db, 'sess-1', [claimOf('C1', '第一场的主张', '主导重构订单系统')]);
+    insertClaims(db, 'sess-2', [claimOf('C1', '第二场的主张', '熟悉 TypeScript')]);
+    insertProbe(db, 'sess-1', probeOf('P1', 'C1', 1), '2026-10-26T01:00:00.000Z');
+    insertProbe(db, 'sess-2', probeOf('P1', 'C1', 1), '2026-10-27T01:00:00.000Z');
+    saveAnswer(db, 'sess-2', 'P1', { probeId: 'P1', text: '第二场的答案', mode: 'simulated', citedAnchors: [] });
+    saveVerdict(db, 'sess-2', 'C1', {
+      claimId: 'C1', kind: 'unsupported', confidence: 0.5,
+      rationale: '第二场的理由', evidence: [], probeIds: ['P1'],
+    });
+
+    expect(listClaims(db, 'sess-1').map(function (c) { return c.text; })).toEqual(['第一场的主张']);
+    expect(listClaims(db, 'sess-2').map(function (c) { return c.text; })).toEqual(['第二场的主张']);
+    expect(listClaims(db, 'sess-1')[0]?.verdict).toBeNull();
+    expect(listClaims(db, 'sess-2')[0]?.verdict).toBe('unsupported');
+    expect(listProbes(db, 'sess-1')[0]?.answer).toBeNull();
+    expect(listProbes(db, 'sess-2')[0]?.answer?.text).toBe('第二场的答案');
   });
 });
 
@@ -219,8 +301,8 @@ describe('追问', function () {
     seedSession();
     insertClaims(db, 'sess-1', [claimOf('claim-1', '性能优化', '首屏从 2.4s 降到 0.8s')]);
     insertProbe(db, 'sess-1', probeOf('probe-1', 'claim-1', 1), '2026-10-26T01:00:00.000Z');
-    saveAnswer(db, 'probe-1', { probeId: 'probe-1', text: '用 Lighthouse 在 Moto G4 上跑的。', mode: 'live', citedAnchors: [] });
-    db.prepare('UPDATE probe SET verdict = ? WHERE id = ?').run('solid', 'probe-1');
+    saveAnswer(db, 'sess-1', 'probe-1', { probeId: 'probe-1', text: '用 Lighthouse 在 Moto G4 上跑的。', mode: 'live', citedAnchors: [] });
+    saveProbeVerdict(db, 'sess-1', 'probe-1', 'solid');
 
     const rows = listProbes(db, 'sess-1');
     expect(rows).toHaveLength(1);
