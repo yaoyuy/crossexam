@@ -262,6 +262,8 @@ llm_call(id, session_id, digest, purpose, model, replayed, usage_json, elapsedMs
 | `POST /api/sessions/:id/run` | 跑沙盘：默认 SSE 直播，`?stream=0` 走 JSON |
 | `GET /api/sessions/:id/events?from=` | 事件续传 |
 | `GET /api/sessions/:id/report.md` | 下载 Markdown 报告 |
+| `GET /api/sessions/:id/report.html?print=1` | 可打印 HTML 报告（`print=1` 时自动调 `window.print()`，PDF 由浏览器另存） |
+| `GET /api/sessions/:id/report.doc` | Word 报告（同一份 HTML + `application/msword`） |
 | `GET /api/stats?session=` | 调用账本统计 |
 
 ### 3.6.1 SSE 的收尾承诺
@@ -282,6 +284,15 @@ SSE 有三个终止事件，任何一个发生都意味着这一场结束了：
 这样评委只需要打开一个地址，不需要记两个端口，也不会有跨域问题。
 服务入口用 `new URL('../../../web/dist', import.meta.url)` 定位前端产物，**因此从任何工作目录启动都能找到**。
 
+### 3.6.3 报告导出：服务端出 HTML，PDF 交给浏览器
+
+同一份 `SessionView` 有三种呈现：Markdown（`report.ts`，便于携带与 diff）、可打印 HTML（`report-html.ts`，便于阅读与打印）、
+Word（`.doc` 后缀 + `application/msword`，便于接着改）。**服务端不生成 PDF**：那需要带一个无头浏览器或 PDF 库，
+前者把「十分钟复现」变成赌评委机器上装了什么，后者违反零原生依赖。取舍详见 ADR-0006。
+
+HTML 报告不引用任何外部资源，保存单文件即可离线打开；页脚写明「简历与报告都没有离开这台机器」。
+打印脚本只在 `?print=1` 时注入——默认打开不会突然弹打印对话框（有测试守住）。
+
 ## 3.7 工程质量：门禁四道
 
 `npm run verify` 是提交前必须全绿的一道门，它由四件事组成：
@@ -289,7 +300,7 @@ SSE 有三个终止事件，任何一个发生都意味着这一场结束了：
 | 顺序 | 命令 | 证明什么 | 当前规模 |
 | --- | --- | --- | --- |
 | 1 | `npm run typecheck` | 类型对（`tsc --noEmit`，含各包） | 全仓库 |
-| 2 | `npm run test` | 逻辑对（vitest） | 31 个文件 / 313 条断言 / 3.3 s |
+| 2 | `npm run test` | 逻辑对（vitest） | 33 个文件 / 329 条断言 / 4.2 s |
 | 3 | `npm run smoke` | **产品能跑**（真起进程、真打 HTTP、真等 SSE） | 9 项 |
 | 4 | `npm run build` | 前端能构建 | vite，27 modules |
 
@@ -300,7 +311,7 @@ SSE 有三个终止事件，任何一个发生都意味着这一场结束了：
 
 | 命令 | 作用 | 什么时候跑 |
 | --- | --- | --- |
-| `npm run shots` | 无头浏览器点一遍全流程，出 11 张截图，**控制台有报错即失败** | 改了界面之后 |
+| `npm run shots` | 无头浏览器点一遍全流程，出 12 张截图，**控制台有报错即失败** | 改了界面之后 |
 | `npm run repro` | 干净目录 clone → install → verify → 起服跑一场，逐步计时 | 改复现路径之后 |
 | `npm run seed:demo` | 重新生成 29 盘离线卡带并自检 | 改了提示词之后 |
 
@@ -309,10 +320,10 @@ SSE 有三个终止事件，任何一个发生都意味着这一场结束了：
 | 模块 | 源码行 | 测试行 | 说明 |
 | --- | --- | --- | --- |
 | packages/shared/src | 937 | 489 | 纯函数，测试密度最高 |
-| packages/server/src | 5056 | 3267 | 编排 + IO，含脚本化模型夹具 |
-| packages/web/src | 2827 | 772 | 折叠器与文案（含 index.css） |
-| tools/ | 2498 | 490 | 导出器 / 冒烟 / 截图 / 复现 / 文档构建（只计 .mjs） |
-| **合计** | **11318** | **5018** | 测试/源码 ≈ 0.44 |
+| packages/server/src | 5370 | 3314 | 编排 + IO + 报告三种形态，含脚本化模型夹具 |
+| packages/web/src | 2864 | 796 | 折叠器与文案（含 index.css） |
+| tools/ | 2507 | 490 | 导出器 / 冒烟 / 截图 / 复现 / 文档构建（只计 .mjs） |
+| **合计** | **11678** | **5089** | 测试/源码 ≈ 0.44 |
 
 仓库里 **0 个 TODO / FIXME / HACK、0 处 `as any`、0 处 `@ts-ignore`**（全仓库 grep 实测）。
 console.log 只出现在两个 CLI 入口（serve.ts 与 seed-demo.ts）。
