@@ -95,6 +95,7 @@ CROSSEXAM_MODE=live npm run preview
 | `npm run seed:demo` | 重新合成 29 盘离线演示卡带（改了提示词就必须重跑） |
 | `npm run repro` | 干净目录复现预演，逐步计时并与 10 分钟上限比对 |
 | `npm run export:prompt` | 导出 AI 协同的 Prompt 链快照到 `docs/prompt-chain/` |
+| `npm run docs:pdf` | 从 `docs/tech/*.md` 重新生成技术文档 PDF（超过 30 页直接失败） |
 
 ---
 
@@ -156,6 +157,8 @@ Vite + React 19 + Tailwind v4、zod（模型输出先过 schema 再入库）、v
 | [docs/adr/](docs/adr/) | 架构决策记录 |
 | [docs/prompt-chain/](docs/prompt-chain/) | AI 协同的 Prompt 链快照（自动导出） |
 | [docs/screenshots/](docs/screenshots/) | 界面截图（由 `npm run shots` 生成，不是手点的） |
+| [docs/CrossExam-技术文档.pdf](docs/CrossExam-技术文档.pdf) | 技术文档 PDF（≤ 30 页，由 `npm run docs:pdf` 生成） |
+| [docs/tech/](docs/tech/) | 技术文档的 Markdown 源（六章 + 封面） |
 
 ## 许可
 
