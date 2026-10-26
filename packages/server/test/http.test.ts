@@ -632,3 +632,208 @@ describe('运行模式与模型', () => {
     });
   });
 });
+/**
+ * 面试官库与「用 AI 优化契约」：这一组守三条边界——
+ * 自定义面试官能进阵容并真的上场、认不出的 id 必须拒绝而不是静默少一位、
+ * 模型这条路走不通时本地规则顶上并且**说清楚是它顶上的**。
+ */
+describe('面试官库与自定义契约', () => {
+  const DRAFT_JSON = JSON.stringify({
+    name: '药房主管',
+    domain: '医院药事管理',
+    seniority: 'senior',
+    tone: 'skeptical',
+    blurb: '我在三甲医院药房待了十二年，见过太多把流程写成口号的人。',
+    goal: '确认候选人是否真的经手过处方审核与效期管理，而不是只在旁边看过。',
+    tactics: [
+      '请举一个你自己发现并拦下的用药错误，说明当时依据的是哪一条规定。',
+      '简历里的「负责效期管理」，具体是你查效期，还是你安排别人查、你来复核？',
+    ],
+  });
+
+  const customRig = (extra: { panelSize?: number } = {}): Rig => {
+    const db = openDatabase({ path: ':memory:' });
+    migrate(db);
+    opened.push(db);
+    const client = createScriptedClient((req) => {
+      if (req.purpose === 'contract') return DRAFT_JSON;
+      if (req.purpose === 'extract') return EXTRACT;
+      if (req.purpose === 'probe') return JSON.stringify({ probes: [] });
+      if (req.purpose === 'answer') return ANSWER;
+      if (req.purpose === 'verdict') return VERDICT;
+      if (req.purpose === 'suggest') return JSON.stringify({ suggestions: [] });
+      return new Error('脚本化模型没有为 purpose=' + req.purpose + ' 准备返回值');
+    });
+    return { db, client, app: createApp({ db, client, cassetteDir: '.tmp/fixtures', panelSize: extra.panelSize }) };
+  };
+
+  it('预设与自定义在同一个列表里，预设的契约由代码算出来、指纹可对账', async () => {
+    const t = customRig();
+    const res = await t.app.request('/api/interviewers');
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      presets: { id: string; digest: string; systemPrompt: string }[];
+      custom: unknown[];
+      limit: number;
+    };
+    expect(body.presets.map((item) => item.id)).toEqual(['tech', 'hr', 'hiring_manager', 'stress', 'domain_expert']);
+    expect(body.custom).toEqual([]);
+    for (const view of body.presets) {
+      expect(view.digest).toMatch(/^[0-9a-f]{16}$/);
+      expect(view.systemPrompt).toContain('## 追问预算');
+    }
+  });
+
+  it('用 AI 优化：模型出的草稿过 zod，回来的 id、指纹与渲染好的 System Prompt 一应俱全', async () => {
+    const t = customRig();
+    const res = await t.app.request('/api/interviewers/draft', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ description: '想找一位懂医院药房流程、会追问细节的主管' }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      source: string;
+      draft: { name: string; tactics: string[] };
+      id: string;
+      digest: string;
+      systemPrompt: string;
+      fallbackReason: string | null;
+      diff: unknown[];
+    };
+    expect(body.source).toBe('llm');
+    expect(body.fallbackReason).toBeNull();
+    expect(body.draft.name).toBe('药房主管');
+    expect(body.draft.tactics.length).toBeGreaterThanOrEqual(2);
+    expect(body.id.startsWith('custom-')).toBe(true);
+    expect(body.digest).toMatch(/^[0-9a-f]{16}$/);
+    expect(body.systemPrompt).toContain('药房主管');
+    // 没有旧草稿就没有 diff，而不是返回一堆空字段
+    expect(body.diff).toEqual([]);
+  });
+
+  it('模型这条路走不通时退回本地规则，并把原因写在 fallbackReason 里', async () => {
+    const t = customRig();
+    const broken = createScriptedClient(() => new Error('模型说它今天不想干活'));
+    const app = createApp({ db: t.db, client: broken, cassetteDir: '.tmp/fixtures' });
+    const res = await app.request('/api/interviewers/draft', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ description: '我要一位会追问预算口径的财务主管' }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { source: string; fallbackReason: string | null; notes: string[] };
+    expect(body.source).toBe('local');
+    expect(body.fallbackReason).toContain('模型说它今天不想干活');
+    expect(body.notes[0]).toContain('模型这条路没有走通');
+  });
+
+  it('useModel=false 时一个网络包都不发，纯规则也能生成一份合规草稿', async () => {
+    const t = customRig();
+    const res = await t.app.request('/api/interviewers/draft', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ description: '想找一位懂市场营销、会追问数据来源的总监', useModel: false }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { source: string; draft: { name: string; tactics: string[] }; notes: string[] };
+    expect(body.source).toBe('local');
+    expect(t.client.countPurpose('contract')).toBe(0);
+    expect(body.draft.tactics.length).toBeGreaterThanOrEqual(2);
+    expect(body.notes.length).toBeGreaterThan(0);
+  });
+
+  it('存下来之后能进阵容，并且真的上场：跑完这场的契约里有它', async () => {
+    const t = customRig();
+    const draftRes = await t.app.request('/api/interviewers/draft', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ description: '想找一位懂医院药房流程、会追问细节的主管' }),
+    });
+    const drafted = (await draftRes.json()) as { draft: unknown; id: string };
+    const saveRes = await t.app.request('/api/interviewers', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ draft: drafted.draft, id: drafted.id, source: 'llm' }),
+    });
+    expect(saveRes.status).toBe(201);
+
+    const created = await createSession(t, {
+      resumeText: RESUME,
+      jobTitle: '药房主管',
+      jdText: '负责处方审核',
+      interviewers: [drafted.id],
+    });
+    expect(created.status).toBe(201);
+    const createdBody = (await created.json()) as { id: string; panel: string[] };
+    expect(createdBody.panel).toEqual([drafted.id]);
+
+    const run = await t.app.request('/api/sessions/' + createdBody.id + '/run?stream=0', { method: 'POST' });
+    expect(run.status).toBe(200);
+    const view = await t.app.request('/api/sessions/' + createdBody.id);
+    const body = (await view.json()) as { contracts: { id: string; verified: boolean; systemPrompt: string }[] };
+    expect(body.contracts.map((item) => item.id)).toEqual([drafted.id]);
+    expect(body.contracts[0]?.verified).toBe(true);
+    expect(body.contracts[0]?.systemPrompt).toContain('药房主管');
+  });
+
+  it('认不出的 id 明确拒绝，而不是少一位继续跑', async () => {
+    const t = customRig();
+    const contracts = await t.app.request('/api/contracts?panel=tech,custom-ghost-0000');
+    expect(contracts.status).toBe(400);
+    expect(((await contracts.json()) as { error: string }).error).toContain('custom-ghost-0000');
+
+    const created = await createSession(t, {
+      resumeText: RESUME,
+      jobTitle: '后端工程师',
+      interviewers: ['tech', 'custom-ghost-0000'],
+    });
+    expect(created.status).toBe(400);
+  });
+
+  it('预设不能删，自定义可以删，删完阵容里就没有它了', async () => {
+    const t = customRig();
+    const preset = await t.app.request('/api/interviewers/tech', { method: 'DELETE' });
+    expect(preset.status).toBe(400);
+
+    const draftRes = await t.app.request('/api/interviewers/draft', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ description: '想找一位懂医院药房流程、会追问细节的主管' }),
+    });
+    const drafted = (await draftRes.json()) as { draft: unknown; id: string };
+    await t.app.request('/api/interviewers', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ draft: drafted.draft, id: drafted.id }),
+    });
+    const removed = await t.app.request('/api/interviewers/' + drafted.id, { method: 'DELETE' });
+    expect(removed.status).toBe(200);
+
+    const again = await t.app.request('/api/interviewers/' + drafted.id, { method: 'DELETE' });
+    expect(again.status).toBe(404);
+
+    const contracts = await t.app.request('/api/contracts?panel=' + drafted.id);
+    expect(contracts.status).toBe(400);
+  });
+
+  it('草稿不合约时给 400，而不是存进去一半', async () => {
+    const t = customRig();
+    const res = await t.app.request('/api/interviewers', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({
+        draft: { name: 'x', domain: '', seniority: 'senior', tone: 'warm', blurb: '短', goal: '太短', tactics: [] },
+      }),
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toContain('还不合约');
+  });
+
+  it('PANEL_SIZE 对自定义阵容同样生效：超了就截断', async () => {
+    const t = customRig({ panelSize: 1 });
+    const res = await t.app.request('/api/contracts?panel=tech,hr');
+    const body = (await res.json()) as { panel: string[] };
+    expect(body.panel).toEqual(['tech']);
+  });
+});

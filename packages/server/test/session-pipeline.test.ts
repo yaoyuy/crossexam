@@ -60,7 +60,7 @@ const VERDICT = JSON.stringify({
 
 /** 只留一位面试官、每主张一轮：调用次数因此是确定的 4 次 */
 const RUN_OPTS = {
-  panel: ['tech'],
+  panelIds: ['tech'],
   budgetConfig: { maxRoundsPerClaim: 1, maxProbesPerInterviewerPerClaim: 1, maxTotalProbes: 4, maxConsecutiveUnanswerable: 2 },
 } as const;
 
@@ -207,7 +207,7 @@ describe('会话执行器', () => {
       db,
       sessionId,
       client,
-      panel: ['tech'],
+      panelIds: ['tech'],
       // 轮数上限必须大于 1：否则第二条会被「轮数闸门」拦下，测的就不是唯一约束了。
       budgetConfig: { maxRoundsPerClaim: 2, maxProbesPerInterviewerPerClaim: 2, maxTotalProbes: 4, maxConsecutiveUnanswerable: 2 },
     });
