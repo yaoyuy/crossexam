@@ -63,7 +63,8 @@ D:\CZB
 │   │
 │   ├── server/        编排与 IO
 │   │   ├── llm/           LLM 适配层：live / record / replay 三态 + 卡带 + 流式包装
-│   │   ├── orchestrator/  五阶段：extract / probe / answer / verdict / suggest + run 编排
+│   │   ├── orchestrator/  八阶段：extract / jd-extract / jd-merge / jd-match /
+│   │   │                 probe / answer / verdict / suggest + run 编排
 │   │   ├── store/         node:sqlite 建表、迁移与仓储
 │   │   ├── http/          Hono 路由 + SSE + 静态托管
 │   │   ├── pipeline.ts    编排 → 落库 → 视图 的一体化入口
@@ -74,7 +75,7 @@ D:\CZB
 │       ├── api.ts         HTTP 契约与 SSE 解析
 │       ├── state.ts       事件流折叠成界面状态的纯函数
 │       ├── labels.ts      文案（与 shared 的漂移由测试看守）
-│       └── components/    四栏界面
+│       └── components/    五栏界面（右栏简历 / JD 分屏）
 │
 ├── tools/
 │   ├── dsh-export/    DSH 会话日志 → Prompt 链快照（提交物 #2 的生成器）
@@ -83,7 +84,7 @@ D:\CZB
 │   ├── repro/         干净目录复现预演
 │   └── docs/          Markdown → HTML → PDF 技术文档构建
 │
-├── fixtures/llm/      29 盘离线卡带（按提示词指纹寻址）
+├── fixtures/llm/      32 盘离线卡带（按提示词指纹寻址）
 ├── docs/              ADR / 技术文档 / 截图 / Prompt 链快照
 └── data/              运行时 SQLite（已 gitignore，含用户简历隐私）
 ```
@@ -164,7 +165,7 @@ const base = input.onStream === undefined
   : withStreaming(input.client, input.onStream);
 ```
 
-五个阶段的编排代码完全不知道流式的存在（它们照旧 `await client.complete()`）。
+各阶段的编排代码完全不知道流式的存在（它们照旧 `await client.complete()`）。
 好处是：JSON 路径（`?stream=0`）与 SSE 路径共用同一份编排逻辑，两条路径都被测试覆盖，且不会出现「流式版本和普通版本行为不一致」。
 
 ### 3.3.5 阶段路由：换模型是装配层的事
@@ -174,7 +175,7 @@ withStageModels(inner, { verdict: 'deepseek-reasoner' })
 ```
 
 编排层只关心「问什么」，用哪个模型是装配层的事：`withStageModels` 按 `req.purpose` 在请求上带一个 `model` 字段，
-五个阶段的代码一行都不用改。默认只把**判定**交给思考模型（`CROSSEXAM_REASONING_STAGES` 可改），
+各阶段的代码一行都不用改。默认只把**判定**交给思考模型（`CROSSEXAM_REASONING_STAGES` 可改），
 理由见 ADR-0005：判定才需要「停下来想」，而追问一轮要十几次调用。
 `LlmRequest.model` 与 `channel` 一样**刻意不参与卡带指纹**，所以换模型不必重录任何一盘离线卡带。
 
@@ -204,13 +205,14 @@ withStageModels(inner, { verdict: 'deepseek-reasoner' })
 两条路径的结果必须逐字段相同（除了 `phase` 由来源决定）。
 这条测试保证了一个常被忽略的产品承诺：**刷新页面之后看到的，和刚才实时看到的，是同一场**。
 
-### 3.4.2 界面结构：四栏 + 一条时间线
+### 3.4.2 界面结构：五栏 + 一条时间线
 
 | 栏 | 内容 | 对应评分项 |
 | --- | --- | --- |
-| 左：输入与过程 | 简历输入、节奏控制、意图契约、阶段时间线、实时输出、统计 | 意图控制（契约可摊开） |
-| 中：主张与追问 | 每条主张一张卡片：原文引文、追问链、作答、判定、改写建议 | 实用价值（结论定位到字） |
-| 右：简历原文 | 全文，锚点高亮，点击引文聚焦到具体字符区间 | 证据锚定（看得见的锚） |
+| 左：输入与过程 | 简历输入、岗位 JD（1–8 份）、节奏控制、运行模式、意图契约、阶段时间线、实时输出、统计 | 意图控制（契约可摊开） |
+| 中上：主张与追问 | 每条主张一张卡片：原文引文、追问链、作答、判定、改写建议 | 实用价值（结论定位到字） |
+| 中下：岗位要求对照 | 每条岗位要求一张卡片：要求正文、引文、「为什么这么判」、对应哪条主张 | 实用价值（岗位要求也落到字） |
+| 右：简历原文 / 岗位要求原文 | 左右分屏，两边都能点引文聚焦到具体字符区间，用的是同一套聚焦机制 | 证据锚定（两处锚都看得见） |
 | 顶：状态条 | 模式、调用次数、回放次数、token、事件数、追问数 | 可复现性（回放可见） |
 
 ## 3.5 存储：node:sqlite，零原生依赖
@@ -234,19 +236,34 @@ withStageModels(inner, { verdict: 'deepseek-reasoner' })
 | 迁移步骤冻结在自己时点，不引用当前 DDL | F24：v1→v2 若用当前 DDL，会一步建成 v3 表却把 user_version 写成 2 |
 | 库版本比代码新时拒绝启动 | 防止老代码写新库，把数据写坏 |
 
-当前 `SCHEMA_VERSION = 3`，表结构：
+当前 `SCHEMA_VERSION = 7`，表结构：
 
 ```
 session(id, createdAt, updatedAt, llmMode, jobTitle, jdText, resumeText,
         resumeHash, status, budget_json, meta_json)
+jd(session_id, id, ordinal, title, text)   PRIMARY KEY (session_id, id)
 claim(session_id, id, ordinal, text, start, end, quote, exact, category,
       weight, status, verdict)          PRIMARY KEY (session_id, id)
-probe(session_id, id, claim_id, interviewer_id, round, question, quote,
-      start, end, parent_probe_id, rationale, answer_text, answer_mode,
-      answer_cites_json, verdict)       PRIMARY KEY (session_id, id)
+probe(session_id, id, claim_id, interviewer_id, round, question, rationale,
+      quote, start, end, parent_probe_id, requirement_id, jd_quote, jd_start,
+      jd_end, jd_exact, answer_text, answer_mode, answer_cites_json, verdict)
+                                        PRIMARY KEY (session_id, id)
+requirement(session_id, id, ordinal, kind, text, keywords_json, jd_id,
+      sources_json, quote, start, end, exact)  PRIMARY KEY (session_id, id)
+requirement_match(session_id, requirement_id, claim_id, status, reason)
+                                        PRIMARY KEY (session_id, requirement_id)
+interviewer(id, version, digest, source, domain, contract_json,
+      created_at, updated_at)           PRIMARY KEY (id)
+revision(session_id, claim_id, ordinal, start, end, before, after, created_at)
+revised_resume(session_id, text, digest, accepted_json, pending_json,
+      skipped_json, created_at, updated_at)    PRIMARY KEY (session_id)
 event(session_id, seq, kind, payload_json, createdAt)
 llm_call(id, session_id, digest, purpose, model, replayed, usage_json, elapsedMs, createdAt)
 ```
+
+会话相关的表都挂着 `session_id` 外键并级联删除：删掉一场会话不会留下孤儿行。`interviewer` 是唯一的**全局表**——
+它是一间面试官库，不属于任何一场会话；但一位面试官一旦被某场会话引用，它的 id、版本与指纹就冻结在那场会话的
+`meta_json` 里，之后在库里改了或删了，旧会话的复现与对账仍然成立（第 3.6.6 节）。
 
 复合主键（`session_id, id`）是 v2 迁移引入的。原因很具体：主张编号每场会话都从 `C1` 重新开始，
 全局唯一主键会让同进程第二场会话直接撞 `UNIQUE constraint failed: claim.id`。
@@ -266,7 +283,7 @@ llm_call(id, session_id, digest, purpose, model, replayed, usage_json, elapsedMs
 | `DELETE /api/interviewers/:id` | 删掉一位自建面试官（预设返回 400，不存在返回 404） |
 | `GET /api/templates` | 岗位模板库：12 个行业 × 3 个岗位，每条含 JD、示例简历、可追问点与推荐的两位面试官（只读，**不写任何表**） |
 | `POST /api/templates/:id/apply` | 一键采用：把 JD 与示例简历填进投料台，并把模板自带的那位面试官装进库里（按模板 id 派生 id，**幂等**；返回 `created` 说明是新建还是复用） |
-| `POST /api/sessions` | 建档（useDemo 或 resumeText，可指定 `mode`、`model`、`interviewers`：三者都随会话落库） |
+| `POST /api/sessions` | 建档（useDemo 或 resumeText，可指定 `mode`、`model`、`interviewers`，以及 `jds`——1–8 份岗位 JD：这些选择都随会话落库） |
 | `POST /api/sessions/:id/run` | 跑沙盘：默认 SSE 直播，`?stream=0` 走 JSON |
 | `GET /api/sessions/:id/events?from=` | 事件续传 |
 | `GET /api/sessions/:id/report.md` | 下载 Markdown 报告 |
@@ -371,6 +388,37 @@ HTML 报告不引用任何外部资源，保存单文件即可离线打开；页
 也拿它验「注入一处毛病会被点名」（F49）。取材合规上不做招聘平台爬虫——BOSS 直聘的 robots.txt 对 `User-agent: *` 写 `Disallow: /*?*`，
 而职位列表页全带查询参数；36 条模板的 JD 与示例简历全部原创。取舍见 ADR-0011、决策 D42。
 
+### 3.6.9 岗位要求审阅：1–8 份 JD，两处锚点
+
+上一节解决「不知道怎么喂料」，这一节解决「手里有料，但不知道够不够」。用户可以贴 1–8 份 JD
+（`POST /api/sessions` 的 `jds`，每份 40–6000 字），服务端把它读成两类东西。
+
+**一是一张要求清单**（`requirement` 表）。三段链路：`jd-extract` 逐份 JD 并发抽要求（每份一次调用，上限 12 条），
+`jd-merge` 一次把所有 JD 的要求归并（同一件事写在两份 JD 里算一条，`sources` 记来源），
+`jd-match` 一次把全部要求和全部主张摆在一起逐条对照，给出「答得上 / 答得含糊 / 简历里没写」。
+归并和对照各只调一次是权衡后的选择：卡带按提示词指纹寻址，逐条调用会把 32 盘演示卡带变成上百盘，
+离线演示的成本与「提示词一改就全部失效」的风险都会失控。
+
+**二是追问的第二处锚点**。对「答得上」和「答得含糊」的要求，追问可以带一个 `requirementId`
+**同时**带一段 JD 原文引文（`jdQuote`）；要求原文锚不回 JD 的，退回普通追问并在 rationale 里说明——
+宁可少一个锚，不编一个锚。三个刻意的选择：
+
+- **双锚点不需要新机制**。`resolveAnchor(source, raw)` 从一开始就不关心 `source` 是简历还是 JD，
+  所以「一条追问同时挂简历片段与 JD 片段」只是再调一次同一个函数，双锚点因此与单锚点一样可验证、可回放。
+- **「简历里没写」单独成栏，不生成追问**。面试官该追问的是简历里**说了但站不住**的话；
+  把「简历没写」也变成质问，产品就退化成一份岗位说明书审阅清单，而不是压力测试。
+- **空 JD 是合法的**。没有 JD 时整条链路跳过，面试官照各自的契约追问（`jdProblems([])` 返回空数组）。
+  把「至少要有一份 JD」做成接口错误，纯简历场次就整条路走不通——「还没上传」该不该提醒是界面的事，不是数据校验的事（F55）。
+
+一个只有落库才看得出的问题：双锚点是 `Probe` 的可选字段，第一版只把它写进事件流，业务表里没有对应列。
+于是重开一场历史会话，双锚点就消失了——报告与界面都查不出「这条追问是照着哪条要求问的」。
+修法是 schema v7 给 `probe` 补五列（`requirement_id` / `jd_quote` / `jd_start` / `jd_end` / `jd_exact`）并做一次表重建迁移。
+**「可选字段」不等于「可以不落库」：只要它在界面上显示过，它就是这份记录的一部分**（F54）。
+
+界面按「左简历右 JD」分屏：右栏在简历原文与岗位要求原文之间切换；中栏多一段「岗位要求对照」，
+每条要求一张卡（要求正文、引文、「为什么这么判」、对应哪条主张），点引文右栏就聚焦到 JD 的那一段——
+和简历引文用的是同一套聚焦机制。取舍见 ADR-0012、决策 D43。
+
 ## 3.7 工程质量：门禁四道
 
 `npm run verify` 是提交前必须全绿的一道门，它由四件事组成：
@@ -378,9 +426,9 @@ HTML 报告不引用任何外部资源，保存单文件即可离线打开；页
 | 顺序 | 命令 | 证明什么 | 当前规模 |
 | --- | --- | --- | --- |
 | 1 | `npm run typecheck` | 类型对（`tsc --noEmit`，含各包） | 全仓库 |
-| 2 | `npm run test` | 逻辑对（vitest） | 45 个文件 / 481 条断言 / 4.2 s |
+| 2 | `npm run test` | 逻辑对（vitest） | 49 个文件 / 520 条断言 / 5.0 s |
 | 3 | `npm run smoke` | **产品能跑**（真起进程、真打 HTTP、真等 SSE） | 9 项 |
-| 4 | `npm run build` | 前端能构建 | vite，37 modules（JS 309.48 kB / gzip 96.40 kB） |
+| 4 | `npm run build` | 前端能构建 | vite，40 modules（JS 321.07 kB / gzip 99.64 kB） |
 
 第 3 道是`findings.md` F11 的直接产物：同进程的 `app.request()` 测试全绿，真起服务却第一次写入就报没有表。
 **单元测试证明的是「函数逻辑对」，冒烟证明的是「产品能跑」，这两句话之间隔着一个进程边界，而事故恰好长在边界上。**
@@ -389,19 +437,19 @@ HTML 报告不引用任何外部资源，保存单文件即可离线打开；页
 
 | 命令 | 作用 | 什么时候跑 |
 | --- | --- | --- |
-| `npm run shots` | 无头浏览器点一遍全流程，出 18 张截图，**控制台有报错即失败** | 改了界面之后 |
+| `npm run shots` | 无头浏览器点一遍全流程，出 19 张截图，**控制台有报错即失败** | 改了界面之后 |
 | `npm run repro` | 干净目录 clone → install → verify → 起服跑一场，逐步计时 | 改复现路径之后 |
-| `npm run seed:demo` | 重新生成 29 盘离线卡带并自检 | 改了提示词之后 |
+| `npm run seed:demo` | 重新生成 32 盘离线卡带并自检 | 改了提示词之后 |
 
 ### 3.7.1 代码规模与测试密度
 
 | 模块 | 源码行 | 测试行 | 说明 |
 | --- | --- | --- | --- |
-| packages/shared/src | 2624 | 876 | 纯函数与数据（含 36 条岗位模板），测试密度最高 |
-| packages/server/src | 7309 | 4172 | 编排 + IO + 导入解析 + 面试官库 + 报告三种形态 + 采纳改写，含脚本化模型夹具 |
-| packages/web/src | 4850 | 1317 | 折叠器、文案、工作室、模板选择器与采纳栏（只计 .ts/.tsx，index.css 另 321 行） |
-| tools/ | 3201 | 596 | 导出器 / 冒烟 / 截图 / 界面点测 / 复现 / 文档构建 / 零门槛启动器（只计 .mjs，测试目录另计） |
-| **合计** | **18047** | **7063** | 测试/源码 ≈ 0.39 |
+| packages/shared/src | 3116 | 1074 | 纯函数与数据（含 36 条岗位模板），测试密度最高 |
+| packages/server/src | 8726 | 4703 | 编排 + IO + 导入解析 + 面试官库 + 岗位要求审阅 + 报告三种形态 + 采纳改写，含脚本化模型夹具 |
+| packages/web/src | 5587 | 1531 | 折叠器、文案、工作室、模板选择器、要求对照与采纳栏（只计 .ts/.tsx，index.css 另 321 行） |
+| tools/ | 3270 | 596 | 导出器 / 冒烟 / 截图 / 界面点测 / 复现 / 文档构建 / 零门槛启动器（只计 .mjs，测试目录另计） |
+| **合计** | **20699** | **7904** | 测试/源码 ≈ 0.38 |
 
 ### 3.7.2 零门槛入口：双击就能用，判断逻辑可单测
 

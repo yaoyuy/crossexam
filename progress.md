@@ -1066,3 +1066,45 @@ e2e 里「没配置联网就明说缺哪个环境变量」先失败后成功：�
 ### 下一步
 
 P8 多 JD 岗位审阅（1–8 份 JD、双锚点、schema v6、卡带重录）。
+
+## Session 26 · 2026-10-27 · P8：岗位要求审阅（1–8 份 JD，追问挂第二处锚点）
+
+### 目标
+
+用户 m07544 第 2 条说「用户可以自己多上传一些 JD 让面试官阅览之后，面试官根据这些 JD 中的要求和 jd 所需的知识，审阅它的简历提出问题」，
+第 5 条则要第二个大功能。范围按 roadmap-v2 第 4、6 节拍板：**1–8 份 JD → 逐份抽要求 → 跨份归并 → 与主张逐条对照 → 前两组（答得上 / 答得含糊）拿去追问，一条追问同时挂 JD 原文与简历原文两处锚点**。
+
+### 做了什么
+
+| 层 | 产出 |
+| --- | --- |
+| shared | `schemas.ts` 增 `jdRequirementListSchema` / `jdGroupListSchema` / `jdMatchListSchema`（`probeDraftSchema` 加可选 `requirementId` + `jdQuote`）· `requirements.ts`（`REQUIREMENT_LIMITS`（8 份、40–6000 字、每份 ≤12 条、合计 ≤30）· `jdTitleOf` / `jdIdOf` / `normalizeJdText` / `jdDigest` / `jdProblems` · `groundExtracted` / `mergeExtracted`（一条都不丢，漏掉的成员由代码兜回）· `requirementNotes` / `matchSummary` / `matchConclusion`）· `domain.ts` 增 `JobDescription` / `Requirement` / `RequirementMatch` 与 `MATCH_LABEL` / `REQUIREMENT_KIND_LABEL` · `test/requirements.test.ts` 14 条 |
+| server | 编排层新增 `jd.ts`（`extractRequirements` 逐份并发 / `mergeRequirements` / `matchRequirements`）· `prompts.ts` 增三个阶段（`jd-extract` / `jd-merge` / `jd-match`）与 `renderRequirementNotes` · `probe.ts` 双锚点（`jdAnchorOf` 要求两个字段同时给，锚不回就退回普通追问并在 rationale 里说明）· `run.ts` 只在有 JD 时跑三阶段 · `pipeline.ts` 落三张表并把六项加进 `SessionView` · **schema v7**（`probe` 补五列 + 表重建迁移）· 两份报告加「二、岗位要求对照」章节 · HTTP `POST /api/sessions` 收 `jds` · `test/jd.test.ts` 6 条 + `test/store.test.ts` 迁移 1 条 + `test/demo-cassette.test.ts` 扩到八阶段 |
+| web | 投料台 JD 块改成 1–8 份列表编辑器（增删、逐份校短、`jd-problem` 提示）· 右栏改成「简历原文 / 岗位要求原文」分屏，共用同一套聚焦与高亮机制 · 中栏新增「岗位要求对照」栏（三组分组、每条要求一张卡、「为什么这么判」、点引文两栏同时聚焦）· `test/jds.test.ts` 7 条 + `test/requirements-state.test.ts` 9 条 |
+| tools | `scripted-demo.ts` 增三个阶段与 `requirementNotesIn()`（离线也吐第二处锚，一条主张只挂一次要求）· `seed:demo` 重录 **32 盘**（两遍签名一致 `39ed9f94068b`）· 点测新增两个场景、**88/88** · 截图新增 `19-requirements.png` |
+
+### 三处真问题（都不是设计阶段发现的）
+
+1. **双锚点只活在事件流里**（F54）：`Probe.requirementId` / `jdAnchor` 是可选字段，第一版写完就收工——直播时界面上看得见，测试全绿。
+   直到要「重开一场历史会话」才发现 `probe` 表根本没有这几列，双锚点在重开的那一刻就没了。处置：`SCHEMA_VERSION` 6 → **7**，
+   `probe` 补 `requirement_id` / `jd_quote` / `jd_start` / `jd_end` / `jd_exact` 五列并做一次表重建迁移；**另起 v7 而不是改 v6**，
+   因为任何已跑过 v6 的库都会因表结构对不上而静默出错。迁移测试用手搓的 v6 最小库守住老数据读得回。
+2. **「至少要有一份 JD。」把纯简历场次整条路堵死**（F55）：这条校验站在「这个功能叫岗位审阅」的角度看天经地义，
+   但产品的第一条用法就是「只想拿简历自己练一场」。处置：`jdProblems([])` 返回空数组，并加一条测试守着；
+   顺带暴露出四处测试夹具的桩 JD 不足 40 字——那才是真该报 400 的东西（**保留校验、改夹具**）。
+3. **离线演示里双锚点全都没了**（F56）：合成脚本 `probeText()` 只认「主张 + 引文」，不认提示词里新出现的「岗位要求里对得上的几条」小节，
+   于是联网跑有双锚点、离线演示没有——而评委第一次接触这个产品走的正是离线演示。处置：让合成脚本按正则读回 `renderRequirementNotes()` 的渲染行，
+   把 `requirementId` 与 `jdQuote` 一起吐出来。
+
+另外两处踩在工具上的坑：点测脚本把 Node 这侧的变量 `firstReq` 拼进了**页面**表达式，页面抛 `ReferenceError`、外层看起来只是「等元素超时」（F57）；
+`python` 插入阶段表那次因 `.tmp/p8rows.txt` 还没写就先读而 FileNotFoundError（先 write 再跑即成功）。
+
+### 门禁与实测
+
+`npm run verify` exit 0：**49 个测试文件 / 520 条断言 / 5.02 s** + 冒烟 9 项 + vite build 40 modules / CSS 27.45 kB / JS 321.07 kB（gzip 99.64 kB）。
+`npm run e2e:ui` **88/88**、控制台 0 报错；`npm run shots` **19 张**、控制台 0 报错；仓库提交 215 个。
+实测明细：一键示例的 235 字 JD 抽出 **7 条要求**（答得上 1 / 答得含糊 3 / 没写 3）· 双锚点追问 **4 处** · 服务端落库 32 盘卡带 · 两遍 seed 签名一致 `39ed9f94068b` · token 29,654。
+
+### 下一步
+
+P10 把「问」做深（A1 让求职者补一句真话 / A2 追问难度档位 / A3 报告按类别看短板 / A4 反问环节）。
