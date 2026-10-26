@@ -112,7 +112,8 @@ async function createSession(target: Rig, body: Record<string, unknown>): Promis
 }
 
 async function newSessionId(target: Rig): Promise<string> {
-  const res = await createSession(target, { resumeText: RESUME, jobTitle: '后端工程师', jdText: '负责订单系统' });
+  // 刻意不带 JD：这组用例考的是 HTTP 层本身，不是岗位要求对照。空 JD 是合法输入。
+  const res = await createSession(target, { resumeText: RESUME, jobTitle: '后端工程师' });
   expect(res.status).toBe(201);
   const body = (await res.json()) as { id: string };
   return body.id;
@@ -761,7 +762,6 @@ describe('面试官库与自定义契约', () => {
     const created = await createSession(t, {
       resumeText: RESUME,
       jobTitle: '药房主管',
-      jdText: '负责处方审核',
       interviewers: [drafted.id],
     });
     expect(created.status).toBe(201);
@@ -924,7 +924,6 @@ describe('岗位模板库', () => {
     const res = await createSession(t, {
       resumeText: RESUME,
       jobTitle: '药房主管',
-      jdText: '负责处方审核与效期管理',
       interviewers: applied.panel,
     });
     expect(res.status).toBe(201);
