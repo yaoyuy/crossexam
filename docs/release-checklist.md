@@ -44,7 +44,7 @@ git push -u origin main
 ## 四、提交前的最后一遍门禁（可自动跑）
 
 ```
-npm run verify        # 类型检查 + 38 个测试文件 / 404 条断言 + 9 项真进程冒烟 + 构建
+npm run verify        # 类型检查 + 41 个测试文件 / 441 条断言 + 9 项真进程冒烟 + 构建
 npm run repro         # 干净目录复现预演，确认评委会看到同一件事（约 34 s）
 npm run docs:pdf      # 重建技术文档，确认仍是 29 页且不超 30 页
 npm run export:prompt # 刷新 Prompt 链快照，把最后一次迭代也带进去
