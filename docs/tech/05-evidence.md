@@ -8,7 +8,7 @@
 ```
 npm run verify
   1/4 typecheck   tsc --noEmit（根 + shared + server + web）
-  2/4 test        35 个测试文件 / 345 条断言 / 4.3 s
+  2/4 test        36 个测试文件 / 360 条断言 / 3.5 s
   3/4 smoke       9 项真进程冒烟
   4/4 build       vite 8.3.5 / 27 modules / CSS 24.67 kB / JS 275.79 kB（gzip 86.62 kB）
   exit 0
@@ -19,7 +19,7 @@ npm run verify
 | 包 | 测试文件 | 覆盖重点 |
 | --- | --- | --- |
 | shared | 5 | 锚定的四种拒绝、归一化映射、预算五道闸门、契约渲染确定性、schema 解析 |
-| server | 16 | 五阶段编排、闸门顺序、SSE 收尾、迁移、卡带、流式、阶段路由、报告 |
+| server | 17 | 五阶段编排、闸门顺序、SSE 收尾、迁移、卡带、流式、阶段路由、报告、简历导入（PDF / docx / 文本共 11 条） |
 | web | 8 | 文案漂移与判定口径、高亮切分、事件折叠（直播 vs 历史）、流式分片解析、报告网址、配色主题、新手教程文案 |
 | tools | 6 | 分页、zstd 多帧、脱敏、Markdown 渲染 |
 

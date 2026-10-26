@@ -257,6 +257,7 @@ llm_call(id, session_id, digest, purpose, model, replayed, usage_json, elapsedMs
 | --- | --- |
 | `GET /api/health` | 模式、跑法、模型、卡带目录 |
 | `GET /api/demo` | 内置示例简历与 JD |
+| `POST /api/import` | 上传 PDF / Word / 文本，解析成简历正文（字节不存留；413 太大 / 415 格式不支持 / 422 解析不出文字） |
 | `GET /api/contracts?panel=` | 意图契约全文 + 指纹（纯确定性，不调模型、不读库） |
 | `POST /api/sessions` | 建档（useDemo 或 resumeText） |
 | `POST /api/sessions/:id/run` | 跑沙盘：默认 SSE 直播，`?stream=0` 走 JSON |
@@ -293,6 +294,16 @@ Word（`.doc` 后缀 + `application/msword`，便于接着改）。**服务端�
 HTML 报告不引用任何外部资源，保存单文件即可离线打开；页脚写明「简历与报告都没有离开这台机器」。
 打印脚本只在 `?print=1` 时注入——默认打开不会突然弹打印对话框（有测试守住）。
 
+### 3.6.4 简历导入：解析成文本，但不留档
+
+`POST /api/import` 只做一件事：把上传的字节变成简历正文，填进投料台的输入框，然后**字节就被丢掉**——
+不写临时文件、不入库、不进日志。于是「简历没有离开这台机器」在导入这条路径上也成立（上传的字节连磁盘都不落）。
+
+解析按格式分三条路，每条都尽量少欠依赖：PDF 用 `unpdf`（纯 JS，零原生编译），`.docx` 自己解 zip
+（`node:zlib` 的 `inflateRawSync` 拆出 `word/document.xml`，不引 SDK），纯文本先按 UTF-8 解、出现替换字符再试 GBK
+（中文简历的现实情况）。老版 `.doc` 是二进制复合文档，明确拒绝并提示另存为 `.docx`——**宁可给一句可执行的话，也不给一段看起来像正文的乱码**。
+选型对比与三个反直觉的 PDF 行为见 ADR-0007、findings F39；导入器自己有 11 条单测，HTTP 分档另有 4 条。
+
 ## 3.7 工程质量：门禁四道
 
 `npm run verify` 是提交前必须全绿的一道门，它由四件事组成：
@@ -300,7 +311,7 @@ HTML 报告不引用任何外部资源，保存单文件即可离线打开；页
 | 顺序 | 命令 | 证明什么 | 当前规模 |
 | --- | --- | --- | --- |
 | 1 | `npm run typecheck` | 类型对（`tsc --noEmit`，含各包） | 全仓库 |
-| 2 | `npm run test` | 逻辑对（vitest） | 35 个文件 / 345 条断言 / 4.3 s |
+| 2 | `npm run test` | 逻辑对（vitest） | 36 个文件 / 360 条断言 / 3.5 s |
 | 3 | `npm run smoke` | **产品能跑**（真起进程、真打 HTTP、真等 SSE） | 9 项 |
 | 4 | `npm run build` | 前端能构建 | vite，27 modules |
 
@@ -320,10 +331,10 @@ HTML 报告不引用任何外部资源，保存单文件即可离线打开；页
 | 模块 | 源码行 | 测试行 | 说明 |
 | --- | --- | --- | --- |
 | packages/shared/src | 937 | 489 | 纯函数，测试密度最高 |
-| packages/server/src | 5370 | 3314 | 编排 + IO + 报告三种形态，含脚本化模型夹具 |
-| packages/web/src | 3252 | 979 | 折叠器、文案与主题变量（含 index.css） |
-| tools/ | 3079 | 490 | 导出器 / 冒烟 / 截图 / 界面点测 / 复现 / 文档构建（只计 .mjs） |
-| **合计** | **12638** | **5272** | 测试/源码 ≈ 0.42 |
+| packages/server/src | 5823 | 3521 | 编排 + IO + 导入解析 + 报告三种形态，含脚本化模型夹具 |
+| packages/web/src | 3347 | 979 | 折叠器、文案与主题变量（含 index.css） |
+| tools/ | 2731 | 490 | 导出器 / 冒烟 / 截图 / 界面点测 / 复现 / 文档构建（只计 .mjs，测试目录另计） |
+| **合计** | **12838** | **5479** | 测试/源码 ≈ 0.43 |
 
 仓库里 **0 个 TODO / FIXME / HACK、0 处 `as any`、0 处 `@ts-ignore`**（全仓库 grep 实测）。
 console.log 只出现在两个 CLI 入口（serve.ts 与 seed-demo.ts）。

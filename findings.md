@@ -567,3 +567,48 @@ received '<ul><li>一</li><li>一之一</li><li>二</li></ul>'
 同一个脚本在别人机器上可能因为浏览器 profile 不同而表现不同。凡是「只在第一次出现」的界面状态，
 都要明确回答「脚本怎么把它变成确定的」。
 
+## F39. unpdf / pdf.js 的三个反直觉行为（2026-10-26）
+
+做简历导入时，PDF 这一条路踩了三个坑，每一个都让「代码看起来对、结果不对」：
+
+1. **它会吃掉你传进去的 Uint8Array。** pdf.js worker 的语义是把底层 ArrayBuffer 转移（transfer）走，
+   所以拿同一个字节数组第二次调用 getDocumentProxy，得到的是「这个文件是空的」（ImportError 'empty'）。
+   测试里每次现造一份字节，不要复用变量。
+2. **extractText(document, { mergePages: true }) 返回的 text 就是 string。** 不是字符串数组。
+   写 `typeof text === 'string' ? text : text.join('\n')` 会得到 TS2339 Property 'join' does not exist on type 'never'——
+   类型系统比我先发现了这个问题。
+3. **不是所有「中文 PDF」都读得出文字。** 用 pymupdf 的 china-s 内置字体写出来的 PDF 没有 ToUnicode 表，
+   浏览器能显示（字形在），解析器只能拿到一堆乱码/空字符串，还会报 loadFont / cMapUrl 警告。
+   夹具必须用**真正的排版工具**生成——本仓库用的是 Edge 打印成 PDF。
+
+**教训**：解析器的「输入」不只是字节，还包括这份字节是怎么造出来的。夹具的可信度决定了测试的可信度——
+一个用特殊字体库生成的假样本，会把「解析器坏了」伪装成「解析器没问题」。
+
+## F40. proc.kill() 杀不掉 Edge，残留浏览器会让自动化脚本静默连错人（2026-10-26）
+
+给界面点测加导入场景之后，`npm run e2e:ui` 从第 6 项开始连续 FAIL：「第一次打开自动弹出新手教程」失败，
+随后在 e2e.mjs:199 抛 `TypeError: Cannot read properties of null (reading 'click')`——遮罩按钮不存在。
+产品与构建都没问题（干净 profile 下实测教程确实会弹）：**脚本连上的是上一轮遗留的浏览器。**
+
+根因有两层：
+
+1. 两个浏览器工具都用 `proc.kill()` 收尾。Windows 上这只结束启动器进程，Edge 的进程树还活着，
+   并继续占着 `--remote-debugging-port`。实测 9344 端口上**同时有两个监听者**——用 pwsh 按
+   `CommandLine -match 'remote-debugging-port'` 一次清出 57 个孤儿 Edge 进程。
+2. 脚本连 CDP 时只找「第一个 type=page 的 target」，不检查它是谁。旧浏览器的 profile 里
+   `crossexam.seen-help=1` 早就写过了，于是「首开自动弹教程」必然失败——这不是 flaky，是必然。
+
+处置（三件事一起做，缺一条都会复发）：
+
+- **收尾用 CDP 的 Browser.close**：拿 /json/version 的 webSocketDebuggerUrl 建一条浏览器级连接发 Browser.close，
+  这才是「关掉这个浏览器」的正解；`taskkill /pid <pid> /T /F` 只当兜底（killTree）。
+- **起浏览器前预检调试端口**：端口被占用就响亮失败并打印占用者，绝不静默连上去。
+- **只认刚启动的空窗口**：/json/list 里挑 `type === 'page' && url === 'about:blank'` 的 target；
+  没有就报「端口上的页面是 <url>，不是刚启动的空窗口」。收尾后再 warnIfPortBusy 一次。
+
+修后 e2e 42/42 全绿，跑完孤儿进程 0、端口空。
+
+**教训**：浏览器自动化脚本的第一条断言应该是「我连的是我自己刚开的那个浏览器」。
+把「端口被占用」当成沉默的环境事实，等于让测试结果取决于上一次运行有没有收干净——
+这种失败看起来像产品缺陷，排查会往完全错误的方向走（我先去查了教程弹层的渲染逻辑）。
+
