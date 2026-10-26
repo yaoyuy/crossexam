@@ -22,6 +22,7 @@
     "test": "vitest run",
     "verify": "npm run typecheck && npm run test && npm run smoke && npm run build",
     "smoke": "node tools/smoke/smoke.mjs",
+    "shots": "node tools/ui-shots/shots.mjs",
     "export:prompt": "node tools/dsh-export/bin/dsh-export.mjs",
     "seed:demo": "node packages/server/src/bin/seed-demo.ts"
   },
