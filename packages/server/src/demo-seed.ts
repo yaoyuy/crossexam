@@ -13,13 +13,13 @@
  */
 
 import { unlinkSync } from 'node:fs';
-import { DEFAULT_BUDGET, shortHash, stableStringify } from '@crossexam/shared';
-import { DEMO_JD, DEMO_RESUME, DEMO_TITLE } from './demo-content.ts';
+import { DEFAULT_BUDGET, jdIdOf, jdTitleOf, shortHash, stableStringify } from '@crossexam/shared';
+import { DEMO_JD, DEMO_JD_TITLE, DEMO_RESUME, DEMO_TITLE } from './demo-content.ts';
 import { DEMO_MODEL, createDemoScriptedClient } from './llm/scripted-demo.ts';
 import type { DemoSeedEntry } from './llm/scripted-demo.ts';
 import { cassettePath, listCassettes } from './llm/cassette.ts';
 import { createReplayClient } from './llm/replay.ts';
-import { closeDatabase, insertSession, openDatabase } from './store/index.ts';
+import { closeDatabase, insertJds, insertSession, openDatabase } from './store/index.ts';
 import type { StoredLlmMode } from './store/index.ts';
 import { runAndPersist } from './pipeline.ts';
 import type { RunSessionResult } from './orchestrator/run.ts';
@@ -53,7 +53,7 @@ export interface DemoSeedReport {
 }
 
 function newSessionId(db: AnyDb, mode: StoredLlmMode): string {
-  return insertSession(db, {
+  const id = insertSession(db, {
     jobTitle: DEMO_TITLE,
     jdText: DEMO_JD,
     resumeText: DEMO_RESUME,
@@ -62,6 +62,12 @@ function newSessionId(db: AnyDb, mode: StoredLlmMode): string {
     budget: { config: DEFAULT_BUDGET, totalProbes: 0, claims: {} },
     meta: { source: 'demo-seed' },
   });
+  // 演示场次也要像 HTTP 建会话那样把 JD 写进 jd 表：编排层读的是 listJds(db, sessionId)，
+  // 只写老字段 jdText 等于告诉它「这场没上传岗位要求」，JD 三个阶段会整段被跳过。
+  insertJds(db, id, [
+    { id: jdIdOf(1), ordinal: 1, title: jdTitleOf(DEMO_JD_TITLE, 1), text: DEMO_JD },
+  ]);
+  return id;
 }
 
 function summarize(result: RunSessionResult): DemoRunSummary {
@@ -95,6 +101,19 @@ function signatureOf(result: RunSessionResult): string {
       quote: claim.anchor.quote,
     })),
     rejected: result.rejectedClaims.map((item) => item.quote),
+    jds: result.jds.map((jd) => ({ id: jd.id, title: jd.title })),
+    requirements: result.requirements.map((requirement) => ({
+      id: requirement.id,
+      kind: requirement.kind,
+      text: requirement.text,
+      quote: requirement.anchor.quote,
+    })),
+    requirementMatches: result.requirementMatches.map((match) => ({
+      requirementId: match.requirementId,
+      claimId: match.claimId,
+      status: match.status,
+      reason: match.reason,
+    })),
     probes: result.probes.map((probe) => ({
       id: probe.id,
       claimId: probe.claimId,
@@ -180,7 +199,7 @@ export async function seedDemoCassettes(opts: { dir: string }): Promise<DemoSeed
   }
   // 逐阶段点名：编排层对单个阶段的失败是逐项容错的，
   // 脚本抛错时合成跑照样"成功"，只有到回放才炸。所以生成端必须自己点名。
-  const required = ['extract', 'probe', 'answer', 'verdict', 'suggest'];
+  const required = ['extract', 'jd-extract', 'jd-merge', 'jd-match', 'probe', 'answer', 'verdict', 'suggest'];
   const missing = required.filter((purpose) => !scripted.entries.some((entry) => entry.purpose === purpose));
   if (missing.length > 0) {
     problems.push(

@@ -22,11 +22,22 @@ import { CASSETTE_VERSION, listCassettes, readCassette, writeCassette } from '..
 import type { CassetteEntry } from '../src/llm/cassette.ts';
 import { EMPTY_USAGE } from '../src/llm/types.ts';
 import { createReplayClient } from '../src/llm/replay.ts';
+import type { SessionView } from '../src/pipeline.ts';
 import { closeDatabase, openDatabase } from '../src/store/index.ts';
 
 /** 仓库里已提交的卡带目录（本文件在 packages/server/test 下，往上是仓库根） */
 const FIXTURE_DIR = fileURLToPath(new URL('../../../fixtures/llm', import.meta.url));
-const ALL_PURPOSES = ['extract', 'probe', 'answer', 'verdict', 'suggest'];
+/** 演示要录到的全部阶段：漏一个，离线回放就会在那一阶段掉进「查不到卡带」 */
+const ALL_PURPOSES = [
+  'extract',
+  'jd-extract',
+  'jd-merge',
+  'jd-match',
+  'probe',
+  'answer',
+  'verdict',
+  'suggest',
+];
 
 const tempDirs: string[] = [];
 
@@ -56,8 +67,8 @@ function fakeEntry(digest: string, model: string): CassetteEntry {
   };
 }
 
-/** 走真实 HTTP 接口跑一遍示例简历：创建会话 -> 同步开跑 -> 读摘要 */
-async function runDemoOverHttp(cassetteDir: string): Promise<RunSummary> {
+/** 走真实 HTTP 接口跑一遍示例简历：创建会话 -> 同步开跑 -> 读摘要与落库后的详情 */
+async function runDemoOverHttp(cassetteDir: string): Promise<{ summary: RunSummary; view: SessionView }> {
   const db = openDatabase({ path: ':memory:' });
   try {
     const app = createApp({ db, client: createReplayClient(cassetteDir), cassetteDir });
@@ -71,7 +82,12 @@ async function runDemoOverHttp(cassetteDir: string): Promise<RunSummary> {
 
     const res = await app.request('/api/sessions/' + session.id + '/run?stream=0', { method: 'POST' });
     expect(res.status).toBe(200);
-    return (await res.json()) as RunSummary;
+    const summary = (await res.json()) as RunSummary;
+
+    const detail = await app.request('/api/sessions/' + session.id);
+    expect(detail.status).toBe(200);
+    const view = (await detail.json()) as SessionView;
+    return { summary, view };
   } finally {
     closeDatabase(db);
   }
@@ -79,7 +95,7 @@ async function runDemoOverHttp(cassetteDir: string): Promise<RunSummary> {
 
 describe('离线演示（合成卡带）', () => {
   it('仓库里的卡带能让示例简历在零网络下跑完整场质询', async () => {
-    const summary = await runDemoOverHttp(FIXTURE_DIR);
+    const { summary, view } = await runDemoOverHttp(FIXTURE_DIR);
 
     expect(summary.claims).toBe(5);
     expect(summary.rejectedClaims).toBe(1);
@@ -94,9 +110,18 @@ describe('离线演示（合成卡带）', () => {
     // 第三轮没有新问题就收尾，而不是空转烧调用
     expect(summary.notices.some((notice) => notice.indexOf('没有任何新的追问') >= 0)).toBe(true);
     expect(summary.usage.outputTokens).toBeGreaterThan(0);
+
+    // P8：岗位要求那条链路在离线演示里也必须看得见完整体。
+    // 要是演示脚本不再吐第二处锚，这场回放就只剩「面试官凭经验问」，
+    // 评委看到的 P8 等于没做——所以这里盯的是「双锚点真的落到了业务表里」。
+    expect(view.requirements.length).toBeGreaterThan(0);
+    expect(view.requirementSummary.total).toBe(view.requirements.length);
+    const anchored = view.probes.filter((probe) => probe.requirementId != null && probe.jdAnchor != null);
+    expect(anchored.length).toBeGreaterThan(0);
+    expect((anchored[0]?.jdAnchor?.quote.length ?? 0) > 3).toBe(true);
   });
 
-  it('生成器写出的卡带覆盖五个阶段，且两遍结果一致', async () => {
+  it('生成器写出的卡带覆盖八个阶段，且两遍结果一致', async () => {
     const dir = newTempDir('demo-seed');
     const report = await seedDemoCassettes({ dir });
 
