@@ -20,7 +20,8 @@
     "test": "vitest run",
     "verify": "npm run typecheck && npm run test && npm run smoke && npm run build",
     "smoke": "node tools/smoke/smoke.mjs",
-    "export:prompt": "node tools/dsh-export/bin/dsh-export.mjs"
+    "export:prompt": "node tools/dsh-export/bin/dsh-export.mjs",
+    "seed:demo": "node packages/server/src/bin/seed-demo.ts"
   },
   "devDependencies": {
     "@types/node": "^24.19.2",
