@@ -239,7 +239,7 @@ export const VERDICT_SYSTEM = [
   '2. evidenceQuotes 必须是简历原文或候选人回答里的逐字片段，用来支撑你的判定。',
   '3. 答不上来不等于说谎：如果简历本来就写得含糊，主要责任在简历表述，判定应为 unsupported 而不是 contradicts。',
   '4. 区分 unsupported 与 unanswerable：候选人说"简历里没写"是 unsupported（简历的错，改简历就行）；候选人说"我不会""我举不出例子"才是 unanswerable（人的错，要么补真实经历要么删掉这条）。拿不准时判 unsupported。',
-  '4. confidence 是你对这个判定的把握，0 到 1。',
+  '5. confidence 是你对这个判定的把握，0 到 1。',
   '',
   '## 输出要求（只输出一个 JSON 对象）',
   '{"kind":"unsupported","confidence":0.7,"rationale":"判定理由","evidenceQuotes":["逐字片段"]}',
