@@ -95,7 +95,7 @@
 | P1 内核 | 共享确定性内核（domain/anchor/segment/budget/contract/schemas）✅ · LLM 适配层（live/record/replay + 思考过程流式）✅ · `node:sqlite` 存储（5 表 + 仓储）✅ | ✅ done |
 | P2 智能体 | 五阶段流水线（抽取/组庭/并发追问/判定/反推）✅ · 会话执行器落库 + HTTP/SSE 直播 ✅ · Markdown 报告与一键体验示例 ✅ · 离线演示卡带（seed:demo：29 盘合成卡带 + 自检 + 漂移门禁）✅ | ✅ done |
 | P3 前端 | 三栏质询界面（投料台 / 质询舞台 / 简历原文联动高亮）✅ · 单端口演示：一条命令起完整产品 ✅ · 前端 31 条断言（文案漂移 / 区间切分 / 事件折叠）✅ · **没在真浏览器里点过的界面不算做完**：系统 Edge + CDP 实测，控制台 0 报错，3 轮 10 追问全流程跑通 | ✅ done |
-| P4 打磨 | 播放节奏与阶段高亮 ✅ · 无头截图固化成 `npm run shots` ✅（9 张图随命令重生成，顺带把控制台报错当失败）· **意图契约可见** ✅（六行契约 + 实际 System Prompt + 指纹对账，截图 08/09）· 模型推理过程呈现 ⬜ · 空状态与错误态细节 ⬜ | 🔄 in_progress |
+| P4 打磨 | 播放节奏与阶段高亮 ✅ · 无头截图固化成 `npm run shots` ✅（10 张图随命令重生成，顺带把控制台报错当失败）· **意图契约可见** ✅（六行契约 + 实际 System Prompt + 指纹对账，截图 09/10）· **模型推理过程呈现** ✅（live 也真流式：SSE 无名分片 + 左栏「实时输出」，截图 04；分片与事件日志分离见 ADR-0004）· 空状态与错误态细节 ⬜ | 🔄 in_progress |
 | P5 交付 | **README 10 分钟复现指南** ✅（含干净目录实测耗时 ≈35 s）· **复现预演 `npm run repro`** ✅（干净 clone 走完评委全部步骤并计时）· 技术文档 PDF ⬜ · 演示视频脚本与录制 ⬜ · Prompt 链快照刷新与发布清单 ⬜ | 🔄 in_progress |
 
 ## 5. 遇到的错误（Errors Encountered）
@@ -114,6 +114,9 @@
 | 漂移测试把 PERSONA_PRESETS 当作 {name,blurb} 断言，第一次是红的 | 1 | 打印真实结构（{persona:{...},goal,tactics}）后改正；见 findings F14 |
 | README 让 `cp .env.example .env`，但后端从未载入过 .env，配置静默不生效 | 1 | 新增 env.ts，用 Node 自带 process.loadEnvFile，启动横幅打印实际载入路径，补 3 条测试；见 findings F21 |
 | Windows 上 spawn `npm.cmd` 被 Node 拒绝（20.12+），改 shell:true 又触发 DEP0190 | 1 | 改成「node + 本机 npm-cli.js」，无 shell 也不转义；见 tools/repro/README.md |
+| live 实测 9 条修改建议全报 `claimId: Required`，而离线演示与单测一路全绿 | 1 | schema 的 claimId 改 optional（提示词从没要求模型给，归属由调用方决定）；夹具改照抄提示词输出要求；见 findings F23 |
+| 同进程跑第二场会话必撞 `UNIQUE constraint failed: claim.id` | 1 | claim/probe 改会话内复合主键，SCHEMA_VERSION=2 并带 v1→v2 迁移；补「两场会话各有 C1·P1 互不覆盖」测试 |
+| live 流式实测报「0 分片」，实为 8796 上仍挂着流式落地前的旧服务，脚本打到了旧进程 | 2 | 一次性实测起服务前先自检端口为空，跑完核对写的是自己准备的库；见 findings F22 |
 
 ## 6. 决策记录（Decisions）
 
@@ -136,3 +139,5 @@
 | D15 | `/api/contracts` 对未知角色报 400，`/run?panel=` 继续宽容过滤 | 前者返回值就是全部内容，静默丢弃会把错误伪装成成功；后者的解是「用哪几位面试官」，滤完仍是合法演出；见 findings F20 |
 | D16 | README 里的复现耗时必须是 `npm run repro` 在干净目录跑出来的数字 | 「我这儿很快」不是证据；承诺与被测量的路径必须是同一条，否则写出来的数字只是印象 |
 | D17 | 载入 .env 用 Node 自带的 `process.loadEnvFile`，不引 dotenv | 少一个依赖就少一个复现失败点；Node ≥22.5 已内置，够用；见 findings F21 |
+| D18 | 流式分片只走 SSE 的 `event: stream`，不进事件表、不落库、不参与卡带指纹 | 分片是观感不是结论：写进日志会让回放变慢变吵，拼接文本也不比 done 更可信；不参与指纹让已有 29 盘演示卡带不必重录；见 ADR-0004 |
+| D19 | 实时输出栏只显示「模型正在写的那句人话」，由 readableStreamText 从半截 JSON 里抽 | 观感要人话，但分片只能用于显示：结论一律来自 done 与结构化事件，避免半截 JSON 反噬下游解析 |
