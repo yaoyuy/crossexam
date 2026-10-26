@@ -114,7 +114,7 @@ describe('建表与迁移', function () {
     }
   });
 
-  it('v1 老库升到 v2：数据一条不丢，主键换成会话内编号', function () {
+  it('v1 老库一路升到最新：数据一条不丢，主键换成会话内编号', function () {
     const legacy = openDatabase({ path: ':memory:', skipMigrate: true });
     try {
       legacy.exec(
@@ -158,6 +158,61 @@ describe('建表与迁移', function () {
       expect(probes).toHaveLength(1);
       expect(probes[0]?.answer?.text).toBe('老答案');
       expect(listClaims(legacy, 'sess-old')).toHaveLength(1);
+    } finally {
+      closeDatabase(legacy);
+    }
+  });
+
+  it('v2 老库升到 v3：追问表去掉「一轮一条」约束，老数据照旧读得回', function () {
+    const legacy = openDatabase({ path: ':memory:', skipMigrate: true });
+    try {
+      legacy.exec(
+        'CREATE TABLE session (id TEXT PRIMARY KEY, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,' +
+          ' mode TEXT NOT NULL, job_title TEXT NOT NULL, jd_text TEXT NOT NULL, resume_text TEXT NOT NULL,' +
+          ' resume_hash TEXT NOT NULL, status TEXT NOT NULL, budget_json TEXT NOT NULL,' +
+          " meta_json TEXT NOT NULL DEFAULT '{}')",
+      );
+      legacy.exec(
+        'CREATE TABLE claim (session_id TEXT NOT NULL REFERENCES session(id) ON DELETE CASCADE, id TEXT NOT NULL,' +
+          ' ordinal INTEGER NOT NULL, text TEXT NOT NULL, category TEXT NOT NULL, weight REAL NOT NULL,' +
+          ' quote TEXT NOT NULL, start INTEGER NOT NULL, end INTEGER NOT NULL, exact INTEGER NOT NULL,' +
+          ' status TEXT NOT NULL, verdict TEXT, advice_json TEXT,' +
+          ' PRIMARY KEY (session_id, id), UNIQUE (session_id, ordinal))',
+      );
+      legacy.exec('CREATE INDEX IF NOT EXISTS claim_by_session ON claim(session_id, ordinal)');
+      legacy.exec(
+        'CREATE TABLE probe (session_id TEXT NOT NULL REFERENCES session(id) ON DELETE CASCADE, id TEXT NOT NULL,' +
+          ' claim_id TEXT NOT NULL, interviewer_id TEXT NOT NULL, round INTEGER NOT NULL, question TEXT NOT NULL,' +
+          ' rationale TEXT NOT NULL, parent_probe_id TEXT, quote TEXT NOT NULL, start INTEGER NOT NULL,' +
+          ' end INTEGER NOT NULL, exact INTEGER NOT NULL, answer_text TEXT, answer_mode TEXT, verdict TEXT,' +
+          ' created_at TEXT NOT NULL, PRIMARY KEY (session_id, id),' +
+          ' UNIQUE (session_id, claim_id, round, interviewer_id),' +
+          ' FOREIGN KEY (session_id, claim_id) REFERENCES claim(session_id, id) ON DELETE CASCADE)',
+      );
+      legacy.exec('CREATE INDEX IF NOT EXISTS probe_by_claim ON probe(session_id, claim_id, round)');
+      legacy.exec('CREATE TABLE event (session_id TEXT NOT NULL, seq INTEGER NOT NULL, kind TEXT NOT NULL, payload_json TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY (session_id, seq))');
+      legacy.exec('CREATE TABLE llm_call (id TEXT PRIMARY KEY, session_id TEXT, digest TEXT NOT NULL, purpose TEXT NOT NULL, model TEXT NOT NULL, replayed INTEGER NOT NULL, input_tokens INTEGER NOT NULL, output_tokens INTEGER NOT NULL, cache_read_tokens INTEGER NOT NULL, reasoning_tokens INTEGER NOT NULL, elapsed_ms INTEGER NOT NULL, created_at TEXT NOT NULL)');
+      legacy.exec('PRAGMA user_version = 2');
+      legacy
+        .prepare('INSERT INTO session VALUES (?,?,?,?,?,?,?,?,?,?,?)')
+        .run('sess-v2', '2026-10-20T00:00:00.000Z', '2026-10-20T00:00:00.000Z', 'replay', '老岗位', '老 JD', RESUME, 'v2hash', 'done', '{}', '{}');
+      legacy
+        .prepare('INSERT INTO claim VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
+        .run('sess-v2', 'C1', 0, '老主张', 'achievement', 0.8, '主导重构订单系统', 0, 8, 1, 'open', 'solid', null);
+      legacy
+        .prepare('INSERT INTO probe VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+        .run('sess-v2', 'P1', 'C1', 'tech', 1, '老问题？', '老理由', null, '主导重构订单系统', 0, 8, 1, '老答案', 'simulated', 'solid', '2026-10-20T00:00:00.000Z');
+
+      expect(migrate(legacy)).toBe(SCHEMA_VERSION);
+      const probes = listProbes(legacy, 'sess-v2');
+      expect(probes).toHaveLength(1);
+      expect(probes[0]?.answer?.text).toBe('老答案');
+
+      // 迁移后的表必须接受「同一轮同一面试官对同一主张问两条」——
+      // 这正是 v3 存在的理由，也是老约束会造成整场事务回滚的那个场景。
+      const sameRound = probeOf('P2', 'C1', 1);
+      insertProbe(legacy, 'sess-v2', { ...sameRound, interviewerId: 'tech', question: '那 P75 还是均值？' }, '2026-10-20T00:00:00.000Z');
+      expect(listProbes(legacy, 'sess-v2')).toHaveLength(2);
     } finally {
       closeDatabase(legacy);
     }
@@ -313,6 +368,23 @@ describe('追问', function () {
     expect(rows[0]?.createdAt).toBe('2026-10-26T01:00:00.000Z');
     expect(listProbes(db, 'sess-1', 'claim-1')).toHaveLength(1);
     expect(listProbes(db, 'sess-1', 'claim-2')).toHaveLength(0);
+  });
+
+  it('作答援引的原文锚点也落盘，历史会话里不会变成「援引 0 处」', function () {
+    seedSession();
+    insertClaims(db, 'sess-1', [claimOf('claim-1', '性能优化', '首屏从 2.4s 降到 0.8s')]);
+    insertProbe(db, 'sess-1', probeOf('probe-1', 'claim-1', 1));
+    saveAnswer(db, 'sess-1', 'probe-1', {
+      probeId: 'probe-1',
+      text: '用 Lighthouse 在 Moto G4 上跑的，取值见简历里的那句。',
+      mode: 'live',
+      citedAnchors: [anchor('首屏从 2.4s 降到 0.8s', 10, 26)],
+    });
+
+    const rows = listProbes(db, 'sess-1');
+    expect(rows[0]?.answer?.citedAnchors).toHaveLength(1);
+    expect(rows[0]?.answer?.citedAnchors[0]?.quote).toBe('首屏从 2.4s 降到 0.8s');
+    expect(rows[0]?.answer?.citedAnchors[0]?.start).toBe(10);
   });
 });
 

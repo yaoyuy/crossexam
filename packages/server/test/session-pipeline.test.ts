@@ -187,6 +187,41 @@ describe('会话执行器', () => {
     expect(listClaims(db, sessionId)).toHaveLength(1);
     expect(getSession(db, sessionId)?.status).toBe('done');
   });
+
+  it('一位面试官一轮对同一条主张问两条，也落得进库（v3 唯一约束的回归）', async () => {
+    // 这个场景在产品上是合理的：第一问追口径、第二问追条件。
+    // v2 的 probe 表有 UNIQUE (session_id, claim_id, round, interviewer_id)，
+    // 撞上它时整场事务会在落库那一步回滚、接口直接 500 —— 而合成卡带里
+    // 每条主张每轮恰好只有一问，所以这个缺陷一直没被测试碰到。
+    const twoProbes = JSON.stringify({
+      probes: [
+        { claimId: 'C1', question: '这个 2.4s 是怎么测出来的？', quote: QUOTE, rationale: '口径' },
+        { claimId: 'C1', question: '取的是均值还是 P75？', quote: QUOTE, rationale: '统计口径' },
+      ],
+    });
+    const client = createScriptedClient((req) => {
+      if (req.purpose === 'probe') return twoProbes;
+      return purposeRouter()(req);
+    });
+    const result = await runAndPersist({
+      db,
+      sessionId,
+      client,
+      panel: ['tech'],
+      // 轮数上限必须大于 1：否则第二条会被「轮数闸门」拦下，测的就不是唯一约束了。
+      budgetConfig: { maxRoundsPerClaim: 2, maxProbesPerInterviewerPerClaim: 2, maxTotalProbes: 4, maxConsecutiveUnanswerable: 2 },
+    });
+
+    expect(result.probes).toHaveLength(2);
+    const rows = listProbes(db, sessionId);
+    expect(rows).toHaveLength(2);
+    expect(rows.map((r) => r.question).sort()).toEqual(['取的是均值还是 P75？', '这个 2.4s 是怎么测出来的？']);
+    expect(rows.every((r) => r.round === 1 && r.interviewerId === 'tech')).toBe(true);
+    // 两条追问各自的作答与判定都要落上，不能只有第一条
+    expect(rows.every((r) => r.answer !== null)).toBe(true);
+    expect(rows.every((r) => r.verdict === 'solid')).toBe(true);
+  });
+
   it('失败时会话标记为 failed，并且先留一条错误事件', async () => {
     const client = createScriptedClient((req) => {
       if (req.purpose === 'extract') return new Error('模型连接断了');
