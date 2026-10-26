@@ -105,11 +105,17 @@ export function readUsage(raw: unknown): LlmUsage {
   };
 }
 
+/** 这一条请求最终用哪个模型：请求自带的优先，其次才是默认模型。 */
+export function modelFor(req: LlmRequest, fallback: string): string {
+  const own = typeof req.model === 'string' ? req.model.trim() : '';
+  return own === '' ? fallback : own;
+}
+
 export function buildPayload(req: LlmRequest, model: string, stream: boolean): Record<string, unknown> {
   const messages: { role: string; content: string }[] = [{ role: 'system', content: req.system }];
   for (const m of req.messages) messages.push({ role: m.role, content: m.content });
 
-  const payload: Record<string, unknown> = { model: model, messages: messages, stream: stream };
+  const payload: Record<string, unknown> = { model: modelFor(req, model), messages: messages, stream: stream };
   if (typeof req.temperature === 'number') payload['temperature'] = req.temperature;
   if (typeof req.maxTokens === 'number') payload['max_tokens'] = req.maxTokens;
   if (req.json === true) payload['response_format'] = { type: 'json_object' };
@@ -279,7 +285,7 @@ export function createLiveClient(opts: LiveOptions = {}): LlmClient {
         version: CASSETTE_VERSION,
         digest: digest,
         purpose: req.purpose,
-        model: cfg.model,
+        model: modelFor(req, cfg.model),
         recordedAt: clock().toISOString(),
         request: {
           system: req.system,
@@ -336,7 +342,7 @@ export function createLiveClient(opts: LiveOptions = {}): LlmClient {
         version: CASSETTE_VERSION,
         digest: digest,
         purpose: req.purpose,
-        model: cfg.model,
+        model: modelFor(req, cfg.model),
         recordedAt: clock().toISOString(),
         request: {
           system: req.system,
