@@ -208,6 +208,53 @@ describe('HTTP 层', () => {
     expect(text).toContain('这个 2.4s 是怎么测出来的？');
   });
 
+  it('报告能导出成可打印的 HTML，带 print 参数时自己调起打印', async () => {
+    const t = rig();
+    const id = await newSessionId(t);
+    await t.app.request('/api/sessions/' + id + '/run?stream=0&panel=tech', { method: 'POST' });
+
+    const plain = await t.app.request('/api/sessions/' + id + '/report.html');
+    expect(plain.status).toBe(200);
+    expect(plain.headers.get('content-type')).toContain('text/html');
+    expect(plain.headers.get('content-disposition')).toContain('.html');
+    const html = await plain.text();
+    expect(html).toContain('<!doctype html>');
+    expect(html).toContain('CrossExam 质询报告');
+    expect(html).toContain('站得住');
+    expect(html).toContain('这个 2.4s 是怎么测出来的？');
+    expect(html).toContain(QUOTE);
+    // 不带参数就是普通页面：用户可能只是想先在浏览器里读一遍
+    expect(html).not.toContain('window.print()');
+
+    const printable = await t.app.request('/api/sessions/' + id + '/report.html?print=1');
+    const printableHtml = await printable.text();
+    expect(printableHtml).toContain('window.print()');
+  });
+
+  it('报告能导出成 Word 认识的 .doc，附件名与正文都在', async () => {
+    const t = rig();
+    const id = await newSessionId(t);
+    await t.app.request('/api/sessions/' + id + '/run?stream=0&panel=tech', { method: 'POST' });
+
+    const res = await t.app.request('/api/sessions/' + id + '/report.doc');
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toContain('application/msword');
+    const disposition = res.headers.get('content-disposition') ?? '';
+    expect(disposition).toContain('attachment');
+    expect(disposition).toContain('.doc');
+    expect(await res.text()).toContain('CrossExam 质询报告');
+  });
+
+  it('没有这一场会话时，报告接口如实说会话不存在', async () => {
+    const t = rig();
+    for (const path of ['/report.html', '/report.doc']) {
+      const res = await t.app.request('/api/sessions/s_不存在' + path);
+      expect(res.status).toBe(404);
+      const body = (await res.json()) as { error: string };
+      expect(body.error).toContain('会话不存在');
+    }
+  });
+
   it('同一个会话跑第二次会被挡住，不是悄悄叠一份', async () => {
     const t = rig();
     const id = await newSessionId(t);
