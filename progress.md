@@ -1027,3 +1027,42 @@ e2e 里「没配置联网就明说缺哪个环境变量」先失败后成功：�
 ### 门禁
 
 `npm run verify` 全绿：**43 个测试文件 / 459 条断言 / 4.8 s** + 冒烟 9 项 + vite 35 modules / JS 306.75 kB（gzip 95.63 kB）。
+
+---
+
+## Session 25 · 2026-10-27 · P9：岗位模板库（12 个行业 × 3 个岗位）
+
+### 目标
+
+用户 m07544 第 2 条说「D1 行业模板库还是太少了」。这条要求的场景是：不懂某个行业的人打开这个工具，
+面对空白投料台不知道该喂什么料。模板要解决的就是这十秒钟。范围按 roadmap-v2 第 3 节拍板：**36 条 = 12 个行业 × 3 个岗位**。
+
+### 做了什么
+
+| 层 | 产出 |
+| --- | --- |
+| shared | `templates/types.ts`（`JobTemplate` + `TEMPLATE_LIMITS`）· `templates/part1..part4.ts`（各 9 条）· `templates.ts`（合并 + `TEMPLATE_INDUSTRIES` / `templateById` / `templatesOfIndustry` / `templateDigest` / `templateProblems`）· `test/templates.test.ts` 8 条 |
+| server | `GET /api/templates`（只读，附指纹）· `POST /api/templates/:id/apply`（幂等采用：派生面试官 id、`created` 区分新建与复用）· `test/http.test.ts` 新增 6 条 |
+| web | `templates.ts`（分组 / 默认行业 / 采用提示，纯函数）· `components/TemplatePicker.tsx`（行业 chip + 该行业岗位）· 接进投料台最上方 · `test/templates.test.ts` 8 条 |
+| tools | 点测新增「岗位模板库」场景 9 条（含幂等与清空）· 截图新增 `18-templates.png` |
+
+### 三处真问题（都不是设计阶段发现的）
+
+1. **part1.ts 的 9 条全部低于字数下限**（JD 159 字、示例简历 161 字）。全库自检报 17 条，测试 3 failed。
+   处置：交给原 part3 的 subagent 只改 part1 的 jd/resume 两字段（它有上下文，也是它先报出这个问题的），改到 `templateProblems` 归零；
+   模糊表述（下降明显 / 参与抢救十余次 / 深受学生喜爱…）全部保留未洗白。
+2. **点测脚本崩了就不收浏览器**（F51）：新场景第一次失败（那会儿前端还没重新构建，见 F52）抛异常，收尾那几行没执行，
+   Edge 留在 9344 端口上；下一轮开局直接「调试端口已被占用」，一条断言都没跑——一次失败变成连续失败。
+   处置：整段点测包进 `try { … } finally { 关浏览器; 清理; 查端口; 写 summary }`。
+3. **反面断言被「总数不对」兜住**（F49）：我第一版把**单条模板**喂给 `templateProblems` 做反面测试，结果每条规则都因为「总数不对」通过。
+   处置：拿整份 36 条当底子，只注入一处毛病，再断言报出来的问题里包含对应关键词。
+
+### 门禁与实测
+
+`npm run verify` exit 0：**45 个测试文件 / 481 条断言 / 4.2 s** + 冒烟 9 项 + vite 37 modules / CSS 26.16 kB / JS 309.48 kB（gzip 96.40 kB）。
+`npm run e2e:ui` **76/76**、控制台 0 报错；`npm run shots` **18 张**、控制台 0 报错。
+实测明细：`12 个行业 / 3 个岗位` · 切到财务会计得到 `tpl-fin-general-ledger,tpl-fin-cost,tpl-fin-internal-audit` · 点「三甲医院 药房主管」后 258/183 字与岗位名一起填好 · 契约 3 条、自建面试官 1 → 2 位 · 再点一次提示「这位面试官库里本来就有，直接复用了」且自建数不变。
+
+### 下一步
+
+P8 多 JD 岗位审阅（1–8 份 JD、双锚点、schema v6、卡带重录）。
