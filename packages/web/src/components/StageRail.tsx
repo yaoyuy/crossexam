@@ -1,5 +1,7 @@
+import { useState } from 'react';
 import { PERSONA_BLURB, PERSONA_LABEL, STAGE_HINT, STAGE_LABEL, VERDICT_LABEL } from '../labels.ts';
-import type { HealthInfo, InterviewerRole } from '../api.ts';
+import type { ContractView, HealthInfo, InterviewerRole } from '../api.ts';
+import { consistencyNote, contractLines } from '../contract.ts';
 import type { SandboxState } from '../state.ts';
 import { progressOf, totalProbes, verdictCounts } from '../state.ts';
 import { Chip, Dots, ErrorNotes, Pane, Stat } from './Bits.tsx';
@@ -28,8 +30,15 @@ function probeCountOf(state: SandboxState, interviewerId: string): number {
  * 谁在问、问到哪一步、判定分布如何，以及被机制拦下来的东西。
  * 比赛评分里「思考可视化」是明写的加分项，所以这里不做折叠隐藏。
  */
-export function StageRail(props: { state: SandboxState; panel: InterviewerRole[]; health: HealthInfo | null }) {
+export function StageRail(props: {
+  state: SandboxState;
+  panel: InterviewerRole[];
+  health: HealthInfo | null;
+  contracts: ContractView[] | null;
+}) {
   const state = props.state;
+  const [openContract, setOpenContract] = useState<string | null>(null);
+  const [openPrompt, setOpenPrompt] = useState<string | null>(null);
   const progress = progressOf(state);
   const counts = verdictCounts(state);
   const panel = state.interviewers.length > 0 ? (state.interviewers as InterviewerRole[]) : props.panel;
@@ -69,6 +78,72 @@ export function StageRail(props: { state: SandboxState; panel: InterviewerRole[]
           })}
         </ul>
       </div>
+
+      {props.contracts === null || props.contracts.length === 0 ? null : (
+        <div className="flex flex-col gap-2" data-shot="contracts">
+          <h3 className="text-[11px] font-semibold uppercase tracking-wide text-ink-400">意图契约</h3>
+          <p className="text-[11px] leading-relaxed text-ink-500">
+            每位面试官的目标、手法、禁区、预算都是结构化数据，System Prompt 由它确定性渲染；
+            指纹可与会话里落库的那一份对账——改了契约却忘了重跑，这里会直接报漂移。
+          </p>
+          <ul className="flex flex-col gap-1.5">
+            {props.contracts.map((view) => {
+              const note = consistencyNote(view);
+              const expanded = openContract === view.id;
+              const tone =
+                note.tone === 'ok'
+                  ? 'border-mint-500/40 text-mint-400'
+                  : note.tone === 'drift'
+                    ? 'border-amber-ink/40 text-amber-ink'
+                    : 'border-ink-700 text-ink-400';
+              return (
+                <li key={view.id} className="rounded-lg border border-ink-800 bg-ink-850/50">
+                  <button
+                    type="button"
+                    data-shot="contract-toggle"
+                    title="展开这位面试官的意图契约"
+                    onClick={() => setOpenContract(expanded ? null : view.id)}
+                    className="flex w-full items-center justify-between gap-2 px-2.5 py-1.5 text-left"
+                  >
+                    <span className={'text-[12px] font-semibold ' + (ROLE_ACCENT[view.id] ?? 'text-ink-200')}>
+                      {PERSONA_LABEL[view.id] ?? view.id} · 契约 v{String(view.version)}
+                    </span>
+                    <span className="text-[11px] text-ink-400">{expanded ? '收起' : '展开'}</span>
+                  </button>
+                  {expanded ? (
+                    <div className="flex flex-col gap-2 border-t border-ink-800 px-2.5 py-2">
+                      <span className={'self-start rounded border px-2 py-0.5 text-[11px] ' + tone}>
+                        {note.text}
+                      </span>
+                      <dl className="flex flex-col gap-1">
+                        {contractLines(view).map((line) => (
+                          <div key={line.label} className="flex gap-2 text-[11px] leading-relaxed">
+                            <dt className="w-[62px] shrink-0 text-ink-500">{line.label}</dt>
+                            <dd className="min-w-0 flex-1 text-ink-300">{line.value}</dd>
+                          </div>
+                        ))}
+                      </dl>
+                      <button
+                        type="button"
+                        data-shot="contract-prompt"
+                        onClick={() => setOpenPrompt(openPrompt === view.id ? null : view.id)}
+                        className="self-start text-[11px] text-ember-300 underline decoration-dotted"
+                      >
+                        {openPrompt === view.id ? '收起 System Prompt' : '看这位面试官实际拿到的 System Prompt'}
+                      </button>
+                      {openPrompt === view.id ? (
+                        <pre className="max-h-56 overflow-auto whitespace-pre-wrap rounded-md border border-ink-800 bg-ink-950/80 p-2 text-[11px] leading-relaxed text-ink-300">
+                          {view.systemPrompt}
+                        </pre>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
 
       <div className="flex flex-col gap-2">
         <h3 className="text-[11px] font-semibold uppercase tracking-wide text-ink-400">阶段时间线</h3>
