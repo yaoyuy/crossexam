@@ -5,7 +5,7 @@
  * 好处有两个：一是直播（SSE）和翻看历史（事件表）走同一条代码路径，
  * 界面不会出现「看着一样、其实两套逻辑」的偏差；二是可以直接对着事件序列做单测。
  */
-import { EMPTY_USAGE } from './api.ts';
+import { asStreamChunk, EMPTY_USAGE } from './api.ts';
 import type {
   Anchor,
   AnswerOutcome,
@@ -18,6 +18,7 @@ import type {
   RejectedProbe,
   RunEvent,
   RunSummary,
+  StreamChunk,
   SuggestOutcome,
   Usage,
   VerdictKind,
@@ -46,6 +47,17 @@ export interface StageMark {
 
 export type Phase = 'idle' | 'running' | 'done' | 'failed';
 
+/** 一路调用已经收到的分片。这是观感数据：服务端不落库，翻历史时自然没有。 */
+export interface StreamBuffer {
+  channel: string;
+  stage: string;
+  kind: 'reasoning' | 'text';
+  text: string;
+}
+
+/** 单个 channel 最多留这么多字符；超出只留尾巴，界面本来就是看最新的一段 */
+export const STREAM_CAP = 1200;
+
 export interface SandboxState {
   phase: Phase;
   sessionId: string | null;
@@ -69,6 +81,11 @@ export interface SandboxState {
   interviewers: string[];
   /** 点在引文上时高亮简历原文的哪一段 */
   focus: Anchor | null;
+  /**
+   * 正在流动的模型输出，按 channel 归位（extract / probe:tech / answer:P1 / verdict:C1 / suggest:C1）。
+   * 刻意与事件流分开：分片是过程观感，事件日志才是可回放的真相。
+   */
+  streams: Record<string, StreamBuffer>;
 }
 
 export const initialSandbox: SandboxState = {
@@ -89,6 +106,7 @@ export const initialSandbox: SandboxState = {
   eventCount: 0,
   interviewers: [],
   focus: null,
+  streams: {},
 };
 
 export type SandboxAction =
@@ -120,6 +138,108 @@ export function asRunEvent(name: string, data: unknown): RunEvent | null {
 /** 事件表里存的就是事件本身（带 type），缺了就用 kind 兜底 */
 export function runEventFromRow(row: EventRow): RunEvent | null {
   return asRunEvent(row.kind, row.payload);
+}
+
+/** 把一片流式输出并进它所属的 channel。超出上限只留结尾，界面看的就是最新那段。 */
+export function applyStreamChunk(state: SandboxState, chunk: StreamChunk): SandboxState {
+  const previous = state.streams[chunk.channel];
+  const joined = previous === undefined ? chunk.text : previous.text + chunk.text;
+  const text = joined.length > STREAM_CAP ? '…' + joined.slice(joined.length - STREAM_CAP) : joined;
+  return {
+    ...state,
+    streams: {
+      ...state.streams,
+      [chunk.channel]: { channel: chunk.channel, stage: chunk.stage, kind: chunk.kind, text: text },
+    },
+  };
+}
+
+/**
+ * 某个 channel 正在写的文本。**只在 running 时给值**：
+ * 跑完以后留在屏幕上的应该是结论，而不是半截草稿。
+ */
+export function streamText(state: SandboxState, channel: string): string | null {
+  if (state.phase !== 'running') return null;
+  const buffer = state.streams[channel];
+  return buffer === undefined || buffer.text.length === 0 ? null : buffer.text;
+}
+
+/**
+ * 当前阶段正在写的那几路输出，给过程面板用来做「实况」一栏。
+ * 按加入顺序取最后 limit 个再倒过来（最新的一路排最前），并发时顺序由分片到达决定。
+ */
+/**
+ * 给界面用的实况文本：把正在写的 JSON 还原成人话，还没写到人话字段就返回 null。
+ * ClaimBoard 与过程面板都用它，免得两边各自判断一遍。
+ */
+export function liveText(state: SandboxState, channel: string): string | null {
+  const raw = streamText(state, channel);
+  if (raw === null) return null;
+  const text = readableStreamText(raw);
+  return text === '' ? null : text;
+}
+
+export function liveChannels(state: SandboxState, limit = 4): StreamBuffer[] {
+  if (state.phase !== 'running' || state.activeStage === null) return [];
+  const stage = state.activeStage;
+  const channels = Object.keys(state.streams).filter(
+    (channel) => channel === stage || channel.startsWith(stage + ':'),
+  );
+  return channels
+    .slice(Math.max(0, channels.length - limit))
+    .reverse()
+    .map((channel) => state.streams[channel] as StreamBuffer);
+}
+
+/** 只保留结尾的 max 个字符，用于实况栏那种窄格子 */
+export function tailText(text: string, max: number): string {
+  return text.length <= max ? text : '…' + text.slice(text.length - max);
+}
+
+// 五个阶段吐出来的都是 JSON，直接把原始分片铺在屏幕上等于让用户看日志。
+// 这里做一次**纯展示**的提取：从还没写完的 JSON 里把第一句人话字段捞出来。
+// 它不解析 JSON（分片是半截的，parse 必然失败），只是顺着字符串字面量读下去，
+// 所以恰好能显示「正在写」——写一半也读得出来。
+const READABLE_KEYS = ['text', 'question', 'rationale', 'after', 'why', 'problem'] as const;
+
+const UNESCAPE: Record<string, string> = {
+  n: String.fromCharCode(10),
+  t: String.fromCharCode(9),
+  r: '',
+  '"': '"',
+  '\\': '\\',
+  '/': '/',
+};
+
+/**
+ * 把流式分片里正在写的那句人话取出来；取不到（还没写到、或根本不是在写 JSON）就返回空串。
+ * 空串的含义是「这会儿还没有能给人看的内容」，界面据此决定要不要显示实况行。
+ */
+export function readableStreamText(raw: string): string {
+  const text = raw.startsWith('…') ? raw.slice(1) : raw;
+  if (!text.startsWith('{') && !text.startsWith('[')) return text;
+  for (const key of READABLE_KEYS) {
+    const marker = '"' + key + '":"';
+    const at = text.indexOf(marker);
+    if (at < 0) continue;
+    let out = '';
+    let index = at + marker.length;
+    while (index < text.length) {
+      const char = text[index] as string;
+      if (char === '\\') {
+        const next = text[index + 1];
+        if (next === undefined) break;
+        out += UNESCAPE[next] ?? next;
+        index += 2;
+        continue;
+      }
+      if (char === '"') break;
+      out += char;
+      index += 1;
+    }
+    return out.trim();
+  }
+  return '';
 }
 
 function addProbe(state: SandboxState, probe: Probe): SandboxState {
@@ -263,6 +383,10 @@ export function sandboxReducer(state: SandboxState, action: SandboxAction): Sand
     case 'event':
       return applyEvent(state, action.event);
     case 'sse': {
+      if (action.name === 'stream') {
+        const chunk = asStreamChunk(action.data);
+        return chunk === null ? state : applyStreamChunk(state, chunk);
+      }
       if (action.name === 'result') {
         const summary = action.data as RunSummary;
         return {

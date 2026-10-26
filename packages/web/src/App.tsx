@@ -30,6 +30,10 @@ import { StageRail } from './components/StageRail.tsx';
 
 const EMPTY_DRAFT: IntakeDraft = { resumeText: '', jdText: '', jobTitle: '' };
 const DEFAULT_PANEL: InterviewerRole[] = ['tech', 'hr', 'hiring_manager'];
+// 慢放模式下分片的节拍：40 ms 吐 3 片，约合每秒 75 片。
+// 比阶段事件（220 ms）快得多，所以字是连着出来的，而阶段仍在慢慢推进。
+const STREAM_TICK_MS = 40;
+const STREAM_BATCH = 3;
 
 function modeChip(health: HealthInfo | null): { text: string; className: string } {
   if (health === null) return { text: '连接本地服务中…', className: 'opacity-70' };
@@ -59,6 +63,9 @@ export function App() {
 
   const queueRef = useRef<SseEvent[]>([]);
   const timerRef = useRef<number | null>(null);
+  // 流式分片单独一条队列：它一秒可能来几十片，跟阶段事件同一个节拍会把人看睡
+  const streamQueueRef = useRef<SseEvent[]>([]);
+  const streamTimerRef = useRef<number | null>(null);
   const pollRef = useRef<number | null>(null);
   const streamingRef = useRef(false);
   const paceRef = useRef(pace);
@@ -109,6 +116,7 @@ export function App() {
   useEffect(
     () => () => {
       if (timerRef.current !== null) window.clearInterval(timerRef.current);
+      if (streamTimerRef.current !== null) window.clearInterval(streamTimerRef.current);
       if (pollRef.current !== null) window.clearInterval(pollRef.current);
     },
     [],
@@ -136,8 +144,31 @@ export function App() {
     if (paceRef.current === 0) drain();
   }, [stopTimer]);
 
+  /** 每拍吐一小撮分片再排下一拍；队列空了就停表，不留空转的定时器 */
+  const drainStream = useCallback(() => {
+    const batch = streamQueueRef.current.splice(0, STREAM_BATCH);
+    for (const chunk of batch) dispatch({ type: 'sse', name: chunk.event, data: chunk.data });
+    if (streamQueueRef.current.length === 0 && streamTimerRef.current !== null) {
+      window.clearInterval(streamTimerRef.current);
+      streamTimerRef.current = null;
+    }
+  }, []);
+
   const pushEvent = useCallback(
     (event: SseEvent) => {
+      // 分片走自己那条更快的队列：即时模式下直接上屏，慢放模式下按小批次吐，
+      // 这样离线回放也能看见字一个一个出来（整场回放本来不到一秒，人眼根本跟不上）。
+      if (event.event === 'stream') {
+        if (paceRef.current === 0) {
+          dispatch({ type: 'sse', name: event.event, data: event.data });
+          return;
+        }
+        streamQueueRef.current.push(event);
+        if (streamTimerRef.current === null) {
+          streamTimerRef.current = window.setInterval(drainStream, STREAM_TICK_MS);
+        }
+        return;
+      }
       queueRef.current.push(event);
       if (paceRef.current === 0) {
         drain();

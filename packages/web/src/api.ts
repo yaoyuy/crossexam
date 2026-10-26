@@ -332,6 +332,33 @@ export interface SseEvent {
   data: unknown;
 }
 
+/**
+ * 一路模型调用的流式分片。
+ * channel 是服务端给这一路调用起的名字（extract / probe:tech / answer:P1 / verdict:C1 / suggest:C1），
+ * 界面据此把分片送回它属于的那张卡片；它不占用断线续传的 seq。
+ */
+export interface StreamChunk {
+  channel: string;
+  stage: string;
+  kind: 'reasoning' | 'text';
+  text: string;
+}
+
+/** 分片是锦上添花的数据：形状不认识就丢掉，绝不让它把整场质询带崩 */
+export function asStreamChunk(data: unknown): StreamChunk | null {
+  if (typeof data !== 'object' || data === null) return null;
+  const record = data as Record<string, unknown>;
+  const channel = record['channel'];
+  const stage = record['stage'];
+  const kind = record['kind'];
+  const text = record['text'];
+  if (typeof channel !== 'string' || channel.length === 0) return null;
+  if (typeof stage !== 'string' || stage.length === 0) return null;
+  if (kind !== 'reasoning' && kind !== 'text') return null;
+  if (typeof text !== 'string' || text.length === 0) return null;
+  return { channel: channel, stage: stage, kind: kind, text: text };
+}
+
 /** 解析一个 SSE 块；没有 data 字段的块（心跳、注释）返回 null */
 export function parseSseBlock(raw: string): SseEvent | null {
   const lines = raw.replace(/\r\n/g, '\n').split('\n');

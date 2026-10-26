@@ -1,7 +1,24 @@
 import { CLAIM_CATEGORY_LABEL, PERSONA_LABEL, VERDICT_LABEL } from '../labels.ts';
 import type { Anchor, VerdictOutcome } from '../api.ts';
 import type { ClaimView, SandboxState } from '../state.ts';
+import { liveText } from '../state.ts';
 import { Badge, Chip, Empty, Pane, Quote, VerdictBadge, WeightBar } from './Bits.tsx';
+
+/**
+ * 正在流动的模型输出。它刻意画得比结论轻：
+ * 这是过程观感（还能被中断、也不会落库），不要让人误以为它已经是判定结果。
+ */
+function LiveLine(props: { label: string; text: string }) {
+  return (
+    <div className="rounded-md border border-ember-500/20 bg-ink-950/50 px-2 py-1.5">
+      <p className="text-[10.5px] uppercase tracking-wide text-ember-300/80">{props.label}</p>
+      <p className="mt-0.5 max-h-24 overflow-hidden whitespace-pre-wrap text-[11.5px] leading-relaxed text-ink-400">
+        {props.text}
+        <span className="text-ember-400">▌</span>
+      </p>
+    </div>
+  );
+}
 
 function VerdictBlock(props: { outcome: VerdictOutcome; onFocus: (anchor: Anchor) => void }) {
   const verdict = props.outcome.verdict;
@@ -38,7 +55,7 @@ function VerdictBlock(props: { outcome: VerdictOutcome; onFocus: (anchor: Anchor
   );
 }
 
-function ClaimCard(props: { item: ClaimView; onFocus: (anchor: Anchor) => void }) {
+function ClaimCard(props: { item: ClaimView; state: SandboxState; onFocus: (anchor: Anchor) => void }) {
   const item = props.item;
   const answeredCount = item.probes.filter((pv) => pv.answer !== null && pv.answer.answered).length;
 
@@ -82,7 +99,11 @@ function ClaimCard(props: { item: ClaimView; onFocus: (anchor: Anchor) => void }
               {pv.answerError !== null ? (
                 <p className="text-[11.5px] text-amber-ink">这一问没拿到回答：{pv.answerError}</p>
               ) : pv.answer === null ? (
-                <p className="text-[11.5px] text-ink-500">等待作答…</p>
+                liveText(props.state, 'answer:' + pv.probe.id) === null ? (
+                  <p className="text-[11.5px] text-ink-500">等待作答…</p>
+                ) : (
+                  <LiveLine label="求职者正在作答" text={liveText(props.state, 'answer:' + pv.probe.id) as string} />
+                )
               ) : (
                 <div className="flex flex-col gap-1.5 rounded-lg bg-ink-850/70 p-2.5">
                   <div className="flex flex-wrap items-center gap-2">
@@ -109,7 +130,13 @@ function ClaimCard(props: { item: ClaimView; onFocus: (anchor: Anchor) => void }
         </ol>
       )}
 
-      {item.verdict === null ? null : <VerdictBlock outcome={item.verdict} onFocus={props.onFocus} />}
+      {item.verdict === null ? (
+        liveText(props.state, 'verdict:' + item.claim.id) === null ? null : (
+          <LiveLine label="正在给这条主张定级" text={liveText(props.state, 'verdict:' + item.claim.id) as string} />
+        )
+      ) : (
+        <VerdictBlock outcome={item.verdict} onFocus={props.onFocus} />
+      )}
 
       {item.suggestion === null ? null : item.suggestion.suggestion === null ? (
         <p className="text-[11.5px] text-ink-400">
@@ -179,7 +206,9 @@ export function ClaimBoard(props: { state: SandboxState; onFocus: (anchor: Ancho
           hint="抽取阶段会把简历里值得被追问的话挑出来，并逐条锚定到原文；锚不到原文的一律丢弃，不会出现在这里。"
         />
       ) : (
-        state.claims.map((item) => <ClaimCard key={item.claim.id} item={item} onFocus={props.onFocus} />)
+        state.claims.map((item) => (
+          <ClaimCard key={item.claim.id} item={item} state={state} onFocus={props.onFocus} />
+        ))
       )}
 
       {notices.length === 0 ? null : (
