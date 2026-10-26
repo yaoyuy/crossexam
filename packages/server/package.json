@@ -8,8 +8,14 @@
     ".": "./src/index.ts",
     "./*": "./src/*"
   },
+  "scripts": {
+    "dev": "node --watch src/bin/serve.ts",
+    "start": "node src/bin/serve.ts"
+  },
   "dependencies": {
     "@crossexam/shared": "*",
+    "@hono/node-server": "^2.1.5",
+    "hono": "^4.13.14",
     "zod": "^3.25.76"
   }
 }
