@@ -1,0 +1,133 @@
+/**
+ * 新手教程与模式说明的文案。
+ *
+ * 抽成纯数据是为了能测：文案也是产品的一部分，
+ * 改坏了应该在测试里红，而不是等用户看错。
+ */
+export const HELP_SEEN_KEY = 'crossexam.seen-help';
+
+export interface HelpStep {
+  title: string;
+  body: string;
+}
+
+export interface ModeRow {
+  mode: 'replay' | 'record' | 'live';
+  label: string;
+  needsKey: string;
+  what: string;
+  when: string;
+}
+
+/** 四步上手：从「这是干什么的」到「结论怎么带走」 */
+export const HELP_STEPS: HelpStep[] = [
+  {
+    title: '第一步 · 把简历和目标岗位填进去',
+    body:
+      '左边「投料台」贴上简历正文与目标岗位的 JD（简历可以直接从 PDF / Word 导入）。手边没有简历就点「一键示例」，用内置的合成简历先看一遍效果。',
+  },
+  {
+    title: '第二步 · 挑面试官、定节奏',
+    body:
+      '默认三位：技术面试官、HR 面试官、业务主管。想更狠一点就点开「压力面试官」，想抠术语就加「领域专家」。第一次看建议点「慢放」，否则离线回放整场不到一秒就跑完了。',
+  },
+  {
+    title: '第三步 · 开始质询，看判定',
+    body:
+      '中间一栏实时直播：抽出的主张、每位面试官的追问、求职者 Agent 的回答、逐条判定与改写建议。点任何一条引文，右边的简历原文会高亮到那一句。',
+  },
+  {
+    title: '第四步 · 把结论带走',
+    body:
+      '右上角三个按钮导出同一份报告：Markdown 方便归档、PDF 直接打印、Word 能继续编辑。报告里逐条写明判定理由，以及哪些主张因为锚不到原文而根本没进场。',
+  },
+];
+
+/** 三种模式的对照：这是用户最常问的一个问题 */
+export const MODE_ROWS: ModeRow[] = [
+  {
+    mode: 'replay',
+    label: '离线回放',
+    needsKey: '不需要',
+    what: '读仓库里已经录好的卡带，全程不联网',
+    when: '第一次跑、没有 API Key、断网或内网环境',
+  },
+  {
+    mode: 'record',
+    label: '联网录制',
+    needsKey: '需要',
+    what: '真调模型，并把这一场的提示词与回复存成新卡带',
+    when: '要录一批卡带，或者想用自己的模型重录一遍',
+  },
+  {
+    mode: 'live',
+    label: '联网直连',
+    needsKey: '需要',
+    what: '真调模型，什么都不落盘',
+    when: '自己用，想看真实模型对你这份简历会怎么问',
+  },
+];
+
+/**
+ * 隐私口径写在界面上，而不是只写在 README 里：
+ * 「只落本地 SQLite」与「联网会把简历发给模型服务商」是两件事，不能含糊。
+ */
+export const PRIVACY_NOTE =
+  '简历正文只写进本机的 SQLite 文件（data/crossexam.db），不上传任何第三方存储。离线回放不联网；只有联网录制与联网直连会把简历正文发给你在环境变量里配置的模型服务商，请按自己的隐私要求选择模式。';
+
+export const FAQ: HelpStep[] = [
+  {
+    title: '为什么不需要 API Key 也能跑完整场？',
+    body:
+      '仓库里带着 29 盘「卡带」：每一盘是一次模型调用的提示词指纹与回复。回放模式按指纹去查，查得到就照原样重放；查不到会明确报错，而不是假装成功。所以关键路径可以在完全离线的机器上复现。',
+  },
+  {
+    title: '判定是模型随便给的吗？',
+    body:
+      '判定要过两遍：模型给一版，代码再收敛一遍——需要证据却拿不出证据的降级为「证据缺失」，所有追问都没答上来的强制为「无法回答」。被代码改写过的判定会标出「这条判定不是模型直接给的」。',
+  },
+  {
+    title: '面试官为什么一直问同一个数字？',
+    body:
+      '追问有预算：每条主张最多 3 轮、每位面试官对同一条主张最多 2 次、全场最多 60 次。到顶就停，并且会在过程说明里写明为什么停——不会出现问不完的死循环。',
+  },
+  {
+    title: '我的简历会被存到哪里？',
+    body: PRIVACY_NOTE,
+  },
+  {
+    title: '这一场跑得对不对，怎么核对？',
+    body:
+      '每场会话都把事件按顺序写进本地库，界面上的过程就是这些事件重放出来的；重新打开历史会话走的是同一条代码路径。报告最后还写了复现方式与门禁命令。',
+  },
+];
+
+function storage(): Storage | null {
+  if (typeof localStorage === 'undefined') return null;
+  try {
+    return localStorage;
+  } catch {
+    return null;
+  }
+}
+
+/** 第一次打开就自动弹一次教程；看过一次之后不再打扰 */
+export function shouldAutoOpenHelp(): boolean {
+  const store = storage();
+  if (store === null) return false;
+  try {
+    return store.getItem(HELP_SEEN_KEY) !== '1';
+  } catch {
+    return false;
+  }
+}
+
+export function markHelpSeen(): void {
+  const store = storage();
+  if (store === null) return;
+  try {
+    store.setItem(HELP_SEEN_KEY, '1');
+  } catch {
+    // 无痕模式下写不进去，大不了下次再弹一次
+  }
+}

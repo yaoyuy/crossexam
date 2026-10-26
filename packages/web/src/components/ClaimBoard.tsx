@@ -1,4 +1,4 @@
-import { CLAIM_CATEGORY_LABEL, PERSONA_LABEL, VERDICT_LABEL } from '../labels.ts';
+import { CLAIM_CATEGORY_LABEL, PERSONA_LABEL, VERDICT_CRITERIA, VERDICT_LABEL } from '../labels.ts';
 import type { Anchor, VerdictOutcome } from '../api.ts';
 import type { ClaimView, SandboxState } from '../state.ts';
 import { liveText } from '../state.ts';
@@ -31,6 +31,14 @@ function VerdictBlock(props: { outcome: VerdictOutcome; onFocus: (anchor: Anchor
         </span>
       </div>
       <p className="text-[12.5px] leading-relaxed text-ink-200">{verdict.rationale}</p>
+      <p className="rounded-md border border-ink-800 bg-ink-850/60 px-2 py-1.5 text-[11.5px] leading-relaxed text-ink-400">
+        <span className="text-ink-300">为什么这样判：</span>
+        {VERDICT_CRITERIA[verdict.kind].rule}
+      </p>
+      <details className="text-[11px] text-ink-500">
+        <summary className="cursor-pointer select-none hover:text-ink-300">判据展开</summary>
+        <p className="mt-1 leading-relaxed">{VERDICT_CRITERIA[verdict.kind].basis}</p>
+      </details>
       {props.outcome.adjusted && props.outcome.adjustmentReason !== null ? (
         <p className="text-[11.5px] leading-relaxed text-amber-ink">
           这条判定不是模型直接给的：{props.outcome.adjustmentReason}

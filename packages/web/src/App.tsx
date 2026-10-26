@@ -23,11 +23,13 @@ import type {
   SseEvent,
 } from './api.ts';
 import { nextPanel } from './contract.ts';
+import { markHelpSeen, shouldAutoOpenHelp } from './help.ts';
 import { applyTheme, nextTheme, readStoredTheme, saveTheme, THEME_LABEL } from './theme.ts';
 import type { Theme } from './theme.ts';
 import { allAnchors, initialSandbox, sandboxReducer, stateFromHistory, totalProbes } from './state.ts';
 import { Chip } from './components/Bits.tsx';
 import { ClaimBoard } from './components/ClaimBoard.tsx';
+import { HelpPanel } from './components/HelpPanel.tsx';
 import { IntakePanel } from './components/IntakePanel.tsx';
 import type { IntakeDraft } from './components/IntakePanel.tsx';
 import { ResumePane } from './components/ResumePane.tsx';
@@ -65,6 +67,8 @@ export function App() {
   const [material, setMaterial] = useState<{ resumeText: string; title: string }>({ resumeText: '', title: '' });
   const [contracts, setContracts] = useState<ContractView[] | null>(null);
   const [theme, setTheme] = useState<Theme>(readStoredTheme);
+  // 第一次打开自动弹一次教程；点过「知道了」之后就不再打扰
+  const [helpOpen, setHelpOpen] = useState(() => shouldAutoOpenHelp());
   const [sandbox, dispatch] = useReducer(sandboxReducer, initialSandbox);
 
   const queueRef = useRef<SseEvent[]>([]);
@@ -293,6 +297,10 @@ export function App() {
     setHint(null);
   }, []);
 
+  const handleCloseHelp = useCallback(() => {
+    setHelpOpen(false);
+    markHelpSeen();
+  }, []);
 
   const handleToggleTheme = useCallback(() => {
     // 只改 <html data-theme>，颜色全是 CSS 变量的事；顺手把选择记住
@@ -326,7 +334,15 @@ export function App() {
           </p>
         </div>
         <div className="ml-auto flex flex-wrap items-center gap-2">
-
+          <button
+            type="button"
+            className="chip cursor-pointer transition-colors hover:border-ember-500 hover:text-ink-100"
+            onClick={() => setHelpOpen(true)}
+            title="四步上手、三种模式区别、隐私口径"
+            data-shot="help-open"
+          >
+            新手教程
+          </button>
           <button
             type="button"
             className="chip cursor-pointer transition-colors hover:border-ember-500 hover:text-ink-100"
@@ -407,6 +423,7 @@ export function App() {
         />
       </main>
 
+      <HelpPanel open={helpOpen} onClose={handleCloseHelp} />
     </div>
   );
 }
