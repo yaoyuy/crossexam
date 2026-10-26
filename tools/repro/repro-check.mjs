@@ -20,7 +20,7 @@ const BASE = 'http://127.0.0.1:' + PORT;
 const BUDGET_SECONDS = 600; // 「10 分钟极速复现」这句承诺的量尺
 
 function parseArgs(argv) {
-  const opts = { repo: DEFAULT_REPO, dir: null, keep: false, quiet: false, skipInstall: false, timeoutMs: 900000 };
+  const opts = { repo: DEFAULT_REPO, dir: null, keep: false, quiet: false, skipInstall: false, allowDirty: false, timeoutMs: 900000 };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === '--repo') { opts.repo = resolve(argv[++i]); }
@@ -28,6 +28,8 @@ function parseArgs(argv) {
     else if (arg === '--keep') { opts.keep = true; }
     else if (arg === '--quiet') { opts.quiet = true; }
     else if (arg === '--skip-install') { opts.skipInstall = true; }
+    // 迭代这个脚本本身时会用到：脏工作区跑出来的结论不作数，但足以验证脚本能跑。
+    else if (arg === '--allow-dirty') { opts.allowDirty = true; }
     else if (arg === '--timeout-min') { opts.timeoutMs = Number(argv[++i]) * 60000; }
     else if (arg === '--help' || arg === '-h') {
       console.log([
@@ -65,7 +67,9 @@ function run(label, command, args, options = {}) {
     encoding: 'utf8',
     env: { ...process.env, ...(options.env || {}) },
     timeout: opts.timeoutMs,
-    shell: false,
+    // Windows 上 npm 是 npm.cmd：Node 从 20.12 起不允许直接 spawn .cmd/.bat，
+    // 必须过一次 shell（参数里没有空格，不必担心拼接问题）。
+    shell: options.shell === true,
     maxBuffer: 64 * 1024 * 1024,
   });
   const ms = nowMs() - started;
@@ -80,7 +84,14 @@ function run(label, command, args, options = {}) {
   return { ok, ms, out };
 }
 
-function npmBin() { return process.platform === 'win32' ? 'npm.cmd' : 'npm'; }
+// 优先用「node + npm-cli.js」而不是 npm.cmd：
+// Windows 上 Node 从 20.12 起不允许无 shell 地 spawn .cmd，而带 shell 又会触发 DEP0190（参数不转义）。
+// 直接拿本机 Node 自带的 npm 入口，既没有 shell，也和评委敲 npm 的行为一致。
+function npmCommand(args) {
+  const cli = join(dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js');
+  if (existsSync(cli)) return { command: process.execPath, args: [cli, ...args], shell: false };
+  return { command: process.platform === 'win32' ? 'npm.cmd' : 'npm', args, shell: process.platform === 'win32' };
+}
 
 async function getJson(path) {
   const res = await fetch(BASE + path);
@@ -114,11 +125,13 @@ async function main() {
 
   // 第 0 步：确认上游本身是干净的——脏工作区复现出来的不是评委拿到的东西。
   const dirty = spawnSync('git', ['status', '--porcelain'], { cwd: opts.repo, encoding: 'utf8' }).stdout.trim();
-  if (dirty) {
+  if (dirty && !opts.allowDirty) {
     console.log('✗ 上游仓库有未提交改动，预演的是「不存在的版本」：');
     console.log(dirty);
     process.exit(1);
   }
+
+  if (dirty && opts.allowDirty) console.log('⚠ 上游工作区不干净（--allow-dirty）：这次的耗时与结论都不作数。' + NL);
 
   const totalStarted = nowMs();
   run('git clone（只带上仓库里真正提交过的东西）', 'git', ['clone', '--quiet', opts.repo, cloneDir]);
@@ -126,11 +139,13 @@ async function main() {
   opts.workDirRepo = cloneDir;
 
   if (!opts.skipInstall) {
-    run('npm install（评委的第一步）', npmBin(), ['install', '--no-audit', '--no-fund'], { cwd: cloneDir, tail: 4 });
+    const install = npmCommand(['install', '--no-audit', '--no-fund']);
+    run('npm install（评委的第一步）', install.command, install.args, { cwd: cloneDir, tail: 4, shell: install.shell });
     if (failed) throw new Error('安装失败');
   }
 
-  run('npm run verify（类型检查 + 测试 + 冒烟 + 构建）', npmBin(), ['run', 'verify'], { cwd: cloneDir, tail: 8 });
+  const verify = npmCommand(['run', 'verify']);
+  run('npm run verify（类型检查 + 测试 + 冒烟 + 构建）', verify.command, verify.args, { cwd: cloneDir, tail: 8, shell: verify.shell });
   if (failed) throw new Error('门禁没过');
 
   // 起服，用回放模式——评委没有 API Key 也走这条路径。
@@ -171,11 +186,12 @@ async function main() {
 
     console.log('');
     console.log('跑出来的东西：');
-    console.log('  主张 ' + summary.claims + ' 条 · 追问 ' + summary.probes + ' 次 · 判定 ' + summary.verdicts + ' 条 · 改写建议 ' + summary.suggestions + ' 条');
+    console.log('  主张 ' + summary.claims + ' 条 · 追问 ' + summary.probes + ' 次 · 判定 ' + summary.verdicts.length + ' 条 · 改写建议 ' + summary.suggestions + ' 条');
+    console.log('  判定分布 ' + summary.verdicts.map((v) => v.kind).join(' / '));
     console.log('  轮数 ' + summary.rounds + ' · 被锚定机制拦下的主张 ' + summary.rejectedClaims + ' 条');
     console.log('  模型调用 ' + stats.calls + ' 次（回放 ' + stats.replayedCalls + '）· 输出 token ' + stats.outputTokens);
     console.log('  报告 ' + reportText.length + ' 字符 · 下载响应 ' + report.headers.get('content-type'));
-    if (summary.claims < 3 || summary.probes < 3 || summary.verdicts < 3) throw new Error('跑完了，但产出少得不像一场完整质询');
+    if (summary.claims < 3 || summary.probes < 3 || summary.verdicts.length < 3) throw new Error('跑完了，但产出少得不像一场完整质询');
   } finally {
     server.kill();
     await new Promise((r) => setTimeout(r, 500));
@@ -202,6 +218,7 @@ main().catch((err) => {
   console.log('✗ 复现预演失败：' + (err && err.message ? err.message : String(err)));
   if (failed) {
     console.log('  失败步骤：' + failed.label + '（退出码 ' + failed.status + '）');
+    if (failed.error) console.log('  进程错误：' + failed.error);
     if (failed.tail) console.log(failed.tail.split(NL).map((l) => '    ' + l).join(NL));
   }
   if (opts.keep) console.log('  临时目录保留在 ' + opts.workDir);
