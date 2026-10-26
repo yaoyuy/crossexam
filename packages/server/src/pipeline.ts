@@ -170,12 +170,12 @@ export function persistResult(db: Db, sessionId: string, result: RunSessionResul
 
     for (const [claimId, entries] of Object.entries(result.transcriptByClaim)) {
       for (const entry of entries) {
-        if (entry.answer !== null) saveAnswer(db, entry.probe.id, entry.answer);
+        if (entry.answer !== null) saveAnswer(db, sessionId, entry.probe.id, entry.answer);
       }
       const detail = result.verdictDetails.find((d) => d.verdict.claimId === claimId);
       if (detail === undefined) continue;
-      saveVerdict(db, claimId, detail.verdict, suggestionByClaim.get(claimId) ?? null);
-      for (const probeId of detail.verdict.probeIds) saveProbeVerdict(db, probeId, detail.verdict.kind);
+      saveVerdict(db, sessionId, claimId, detail.verdict, suggestionByClaim.get(claimId) ?? null);
+      for (const probeId of detail.verdict.probeIds) saveProbeVerdict(db, sessionId, probeId, detail.verdict.kind);
     }
 
     saveSessionBudget(db, sessionId, result.budgetState);
