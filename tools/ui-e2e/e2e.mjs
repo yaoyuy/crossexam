@@ -73,6 +73,10 @@ const env = Object.assign({}, process.env, {
   CROSSEXAM_DB: '.tmp/e2e/db/e2e.db',
   CROSSEXAM_FIXTURES: 'D:/CZB/fixtures/llm',
 });
+// 点测不该受本机是否配了模型影响：显式抹掉 LLM_*，让「还没配置联网」这条分支稳定可复现。
+for (const key of Object.keys(env)) {
+  if (key.indexOf('LLM_') === 0) delete env[key];
+}
 serverProc = spawn(process.execPath, ['packages/server/src/bin/serve.ts'], { env, stdio: ['ignore', 'pipe', 'pipe'] });
 let serverLog = '';
 serverProc.stdout.on('data', (b) => { serverLog += b.toString('utf8'); });
@@ -296,6 +300,29 @@ for (let i = 0; i < 25; i += 1) {
 const importNote = await evalJs('(document.querySelector("[data-shot=import-note]") || { textContent: "" }).textContent');
 check('从文件导入简历：解析后直接填进输入框', importState === 'ok' && importedValue === IMPORT_TEXT, String(importState) + ' / ' + String(importedValue.length) + ' 字');
 check('导入结果写明文件类型与字数', importNote.indexOf('解析出') >= 0 && importNote.indexOf('文本') >= 0, importNote.slice(0, 60));
+
+// 运行模式与模型：默认离线回放（不联网），切到联网才出现模型输入框，并向后端要一次清单。
+const modeChips = await evalJs('(() => { const pick = (n) => document.querySelector("[data-shot=" + n + "]") !== null; return [pick("mode-replay"), pick("mode-live"), pick("mode-record")].join(","); })()');
+check('投料台给出三种运行模式', modeChips === 'true,true,true', String(modeChips));
+const replayNote = await evalJs('(document.querySelector("[data-shot=mode-note]") || { textContent: "" }).textContent');
+const modelHidden = await evalJs('document.querySelector("[data-shot=model-input]") === null');
+check('默认离线回放：写明不联网，也不显示模型输入框', replayNote.indexOf('不联网') >= 0 && modelHidden === true, replayNote.slice(0, 40) + ' / ' + String(modelHidden));
+await evalJs('document.querySelector("[data-shot=mode-live]").click()');
+let liveNote = '';
+for (let i = 0; i < 30; i += 1) {
+  liveNote = await evalJs('(document.querySelector("[data-shot=mode-note]") || { textContent: "" }).textContent');
+  const hasInput = await evalJs('document.querySelector("[data-shot=model-input]") !== null');
+  // 中途会先显示「正在向后端要模型清单…」，要等它换成结论再断言，否则断言的是那句过程提示。
+  if (hasInput === true && liveNote.length > 0 && liveNote.indexOf('正在向后端要') < 0) break;
+  await sleep(200);
+}
+check('切到联网后出现模型输入框并给出结论', liveNote.length > 0, liveNote.slice(0, 50));
+check('没配置联网时明说缺哪个环境变量，而不是静默失败', liveNote.indexOf('LLM_') >= 0, liveNote.slice(0, 60));
+await evalJs('document.querySelector("[data-shot=mode-replay]").click()');
+await sleep(300);
+const backNote = await evalJs('(document.querySelector("[data-shot=mode-note]") || { textContent: "" }).textContent');
+const modelHiddenAgain = await evalJs('document.querySelector("[data-shot=model-input]") === null');
+check('切回离线回放后模型输入框收起', backNote.indexOf('不联网') >= 0 && modelHiddenAgain === true, backNote.slice(0, 30));
 
 const typed = await setTextarea(0, CUSTOM_RESUME);
 check('能在浏览器里自己打一份简历', typed === CUSTOM_RESUME.length, String(typed) + ' 字');

@@ -302,6 +302,10 @@ async function main() {
     if (base === null) {
       base = 'http://127.0.0.1:' + String(opts.port);
       const env = { ...process.env, CROSSEXAM_PORT: String(opts.port), CROSSEXAM_DB: dbPath, CROSSEXAM_MODE: 'replay' };
+      // 出图不该受本机配没配模型影响：抹掉 LLM_*，联网模式那一张的提示才稳定。
+      for (const key of Object.keys(env)) {
+        if (key.indexOf('LLM_') === 0) delete env[key];
+      }
       server = spawn(process.execPath, [join(ROOT, 'packages', 'server', 'src', 'bin', 'serve.ts')], { cwd: ROOT, env, stdio: ['ignore', 'pipe', 'pipe'] });
       server.stderr.on('data', (chunk) => { if (!opts.quiet) process.stderr.write('[server] ' + String(chunk)); });
       await waitForHttp(base + '/api/health', 25000);
@@ -351,6 +355,16 @@ async function main() {
 
     log('界面截图输出到：' + opts.out);
     await cdp.shot(opts.out, '01-intake.png', top('claims'));
+
+    // 运行模式三选一：默认离线回放（不联网），切到联网才出现模型输入框。
+    // 这一张是「页面里能自己选回放还是联网、用哪个模型」的直接证据。
+    await cdp.evaluate(click('mode-live'));
+    await cdp.waitFor("document.querySelector('[data-shot=\"model-input\"]') !== null", '模型输入框出现', 15000);
+    await cdp.waitFor("((document.querySelector('[data-shot=\"mode-note\"]') || {}).innerText || '').indexOf('正在向后端要') < 0", '模型清单结论出来', 15000);
+    await sleep(300);
+    await cdp.shot(opts.out, '15-modes.png');
+    await cdp.evaluate(click('mode-replay'));
+    await sleep(250);
     await cdp.evaluate(click('pace-slow'));
     await cdp.evaluate(click('use-demo'));
     await sleep(300);
