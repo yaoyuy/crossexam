@@ -1,6 +1,7 @@
 /**
  * 判定阶段的测试。重点不是模型会不会判，而是**代码收敛规则是否真的拦得住**：
- * 说好话要证据、说坏话也要证据，一次都没答上来就判"无法回答"。
+ * 说好话要证据、说坏话也要证据；一条主张整场都没答上来时，只拦「站得住」这一种
+ * 过于乐观的判定，其余以模型看到的问答为准（它比一个布尔更清楚该算证据缺失还是无法回答）。
  */
 
 import { describe, expect, it } from 'vitest';
@@ -118,17 +119,38 @@ describe('复盘判定', function () {
     expect(outcome.adjustmentReason).toContain('与原文矛盾');
   });
 
-  it('所有追问都没答上来，无论模型怎么判都是无法回答', async function () {
+  it('所有追问都没答上来，「站得住」降级为证据缺失', async function () {
     const result = await verdictClaims(baseInput({
       client: createScriptedClient(handlerFor({ '订单系统性能优化': draft('solid', 0.9, ['首屏从 2.4s 降到 0.8s']) })),
       transcriptByClaim: { C1: [silent(P1)] },
     }));
     const outcome = result.outcomes[0]!;
-    expect(outcome.verdict.kind).toBe('unanswerable');
+    expect(outcome.verdict.kind).toBe('unsupported');
     expect(outcome.adjustmentReason).toBe(ALL_UNANSWERED_REASON);
   });
 
-  it('只要答上过一次，就不触发强制无法回答', async function () {
+  it('所有追问都没答上来，模型判的证据缺失原样保留', async function () {
+    const result = await verdictClaims(baseInput({
+      client: createScriptedClient(handlerFor({ '订单系统性能优化': draft('unsupported', 0.8) })),
+      transcriptByClaim: { C1: [silent(P1)] },
+    }));
+    const outcome = result.outcomes[0]!;
+    expect(outcome.verdict.kind).toBe('unsupported');
+    expect(outcome.adjusted).toBe(false);
+    expect(outcome.adjustmentReason).toBeNull();
+  });
+
+  it('模型判「无法回答」时不会被代码改回去', async function () {
+    const result = await verdictClaims(baseInput({
+      client: createScriptedClient(handlerFor({ '订单系统性能优化': draft('unanswerable', 0.8) })),
+      transcriptByClaim: { C1: [silent(P1)] },
+    }));
+    const outcome = result.outcomes[0]!;
+    expect(outcome.verdict.kind).toBe('unanswerable');
+    expect(outcome.adjusted).toBe(false);
+  });
+
+  it('只要答上过一次，就不触发降级', async function () {
     const result = await verdictClaims(baseInput({
       client: createScriptedClient(handlerFor({ '订单系统性能优化': draft('overstated', 0.6) })),
       transcriptByClaim: { C1: [said(P1, '测过，但没留报告。')] },

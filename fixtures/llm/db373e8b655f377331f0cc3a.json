@@ -17,10 +17,10 @@
     "json": true
   },
   "response": {
-    "text": "{\"answered\":false,\"text\":\"简历里没有写这些业务线的具体情况，每条线的量级我也记不清了。\",\"citedQuotes\":[]}",
+    "text": "{\"answered\":false,\"text\":\"简历里没有写这些业务线的具体情况，也没有写个人贡献的边界。\",\"citedQuotes\":[]}",
     "usage": {
       "inputTokens": 486,
-      "outputTokens": 38,
+      "outputTokens": 37,
       "cacheReadTokens": 0,
       "reasoningTokens": 0
     }

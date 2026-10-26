@@ -17,10 +17,10 @@
     "json": true
   },
   "response": {
-    "text": "{\"answered\":false,\"text\":\"简历里只有这一句自我评价，没有具体事例可以支撑。\",\"citedQuotes\":[]}",
+    "text": "{\"answered\":false,\"text\":\"简历里只有这一句自我评价，我确实举不出具体事例，这块我说不上来。\",\"citedQuotes\":[]}",
     "usage": {
       "inputTokens": 478,
-      "outputTokens": 35,
+      "outputTokens": 39,
       "cacheReadTokens": 0,
       "reasoningTokens": 0
     }

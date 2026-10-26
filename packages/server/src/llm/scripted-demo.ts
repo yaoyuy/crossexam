@@ -136,7 +136,7 @@ export const DEMO_PLANS: readonly DemoClaimPlan[] = [
     probeRationale: '规模数字好看，但个人贡献边界最容易说不清。',
     answer: {
       answered: false,
-      text: '简历里没有写这些业务线的具体情况，每条线的量级我也记不清了。',
+      text: '简历里没有写这些业务线的具体情况，也没有写个人贡献的边界。',
       citedQuotes: [],
     },
     verdict: {
@@ -164,13 +164,13 @@ export const DEMO_PLANS: readonly DemoClaimPlan[] = [
     probeRationale: '纯形容词没有事实支撑，任何面试官都会要求举例。',
     answer: {
       answered: false,
-      text: '简历里只有这一句自我评价，没有具体事例可以支撑。',
+      text: '简历里只有这一句自我评价，我确实举不出具体事例，这块我说不上来。',
       citedQuotes: [],
     },
     verdict: {
-      kind: 'unsupported',
+      kind: 'unanswerable',
       confidence: 0.65,
-      rationale: '自我评价只有形容词，没有任何可核验的事例，追问两次都补不上。',
+      rationale: '自我评价只有形容词，候选人被追问两次都明确承认举不出具体事例——这条在面试现场会直接翻车。',
       evidenceQuotes: [],
     },
     suggestion: {
