@@ -225,6 +225,11 @@ export function createApp(opts: AppOptions): Hono {
           onEvent: async (event, seq) => {
             await stream.writeSSE({ id: String(seq), event: event.type, data: JSON.stringify(event) });
           },
+          // 分片走没有 id 的 stream 事件：它不属于事件日志，刷新页面就没了，
+          // 因此不能占用断线续传的 seq 编号。
+          onStream: async (chunk) => {
+            await stream.writeSSE({ event: 'stream', data: JSON.stringify(chunk) });
+          },
         });
         await stream.writeSSE({ event: 'result', data: JSON.stringify(summaryOf(result)) });
       } catch (err) {

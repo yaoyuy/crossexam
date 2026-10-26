@@ -21,6 +21,8 @@ import type {
 } from '@crossexam/shared';
 import type { LlmClient, LlmRequest, LlmResult, LlmStreamEvent, LlmUsage } from './llm/types.ts';
 import { EMPTY_USAGE } from './llm/types.ts';
+import { withStreaming } from './llm/streaming.ts';
+import type { StreamSink } from './llm/streaming.ts';
 import { DEFAULT_MAX_ROUNDS, DEFAULT_PANEL, runSession } from './orchestrator/run.ts';
 import type { RunEvent, RunSessionResult } from './orchestrator/run.ts';
 import type { VerdictOutcome } from './orchestrator/verdict.ts';
@@ -111,6 +113,12 @@ export interface PersistRunInput {
   maxProbesPerTurn?: number;
   /** seq 是事件日志里的序号：SSE 用它当 id，断线就能按序号续传 */
   onEvent?: (event: RunEvent, seq: number) => void | Promise<void>;
+  /**
+   * 要直播分片就传它。传了以后五个阶段都改走 stream()：
+   * 分片只给界面看（按 channel 路由到对应卡片），最终结果仍取自 done，
+   * 既不进事件表也不落库——否则回放会变慢、日志会变吵，而且分片拼接得到的文本并不比 done 更可信。
+   */
+  onStream?: StreamSink;
 }
 
 /** 一个会话只能跑一次：重跑会让同一批主张在表里出现两份，宁可明确拒绝 */
@@ -138,9 +146,10 @@ export async function runAndPersist(input: PersistRunInput): Promise<RunSessionR
   }
 
   updateSessionStatus(db, sessionId, 'extracting');
+  const base = input.onStream === undefined ? input.client : withStreaming(input.client, input.onStream);
   try {
     const result = await runSession({
-      client: withAccounting(input.client, { db, sessionId, model: input.model }),
+      client: withAccounting(base, { db, sessionId, model: input.model }),
       resumeText: session.resumeText,
       jdText: session.jdText,
       panel: input.panel ?? DEFAULT_PANEL,

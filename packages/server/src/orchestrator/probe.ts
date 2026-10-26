@@ -120,6 +120,7 @@ export async function runProbeRound(input: ProbeRoundInput): Promise<ProbeRoundR
           round: input.round,
           maxProbes: maxPerTurn,
         }),
+        'probe:' + contract.id,
       );
       try {
         const result = await input.client.complete(request);

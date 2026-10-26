@@ -33,10 +33,12 @@ export const STAGE_SETTINGS: Record<StageName, { temperature: number; maxTokens:
   suggest: { temperature: 0.3, maxTokens: 1500 },
 };
 
-export function stageRequest(stage: StageName, system: string, user: string): LlmRequest {
+export function stageRequest(stage: StageName, system: string, user: string, channel?: string): LlmRequest {
   const s = STAGE_SETTINGS[stage];
   return {
     purpose: stage,
+    // 路由标识只给界面用；缺省退回阶段名（extract 阶段天然只有一路）。
+    channel: channel ?? stage,
     system: system,
     messages: [{ role: 'user', content: user }],
     temperature: s.temperature,
