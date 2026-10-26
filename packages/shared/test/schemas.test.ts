@@ -6,6 +6,7 @@ import {
   parseLlmOutput,
   probeListSchema,
   stripCodeFence,
+  suggestionDraftSchema,
   suggestionListSchema,
   verdictListSchema,
 } from '../src/schemas.ts';
@@ -72,13 +73,23 @@ describe('schema 细节', () => {
 
   it('修改建议必须同时给出 before 与 after，防止只提问题不给改法', () => {
     const full = suggestionListSchema.safeParse({
-      suggestions: [{ claimId: 'c1', problem: '表述过度', before: '主导', after: '参与', why: '原文只说参与' }],
+      suggestions: [{ problem: '表述过度', before: '主导', after: '参与', why: '原文只说参与' }],
     });
     expect(full.success).toBe(true);
     const half = suggestionListSchema.safeParse({
-      suggestions: [{ claimId: 'c1', problem: '表述过度', before: '主导' }],
+      suggestions: [{ problem: '表述过度', before: '主导' }],
     });
     expect(half.success).toBe(false);
+  });
+
+  it('模型不自报 claimId 也算合格——提示词从没让它输出这个字段', () => {
+    const parsed = suggestionDraftSchema.parse({
+      problem: '口径缺失',
+      before: '首屏从 2.4s 降到 0.8s',
+      after: '首屏从 2.4s 降到 0.8s（P75，三百万单口径）',
+      why: '面试官会追问这两个数字是怎么测的',
+    });
+    expect(parsed.claimId).toBeUndefined();
   });
 });
 

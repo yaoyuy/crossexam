@@ -86,8 +86,14 @@ export const verdictListSchema = z.object({
   verdicts: z.array(verdictDraftSchema).min(1).max(40),
 });
 
+/**
+ * 模型不需要自报 claimId：修改建议是**一条主张一次调用**，归属由调用方决定。
+ * 早先这里把 claimId 写成必填，而提示词里从来没让模型输出它——真实模型照提示词办事，
+ * 于是线上每一条建议都被 zod 拦下（离线演示反而绿，因为合成卡带顺手写了 claimId）。
+ * 现在改成可选：模型爱回就回，回了也不采信。
+ */
 export const suggestionDraftSchema = z.object({
-  claimId: z.string().min(1),
+  claimId: z.string().min(1).optional(),
   problem: z.string().min(1).max(300),
   /** 现在简历里的原话，必须逐字可回原文 */
   before: z.string().min(1).max(400),

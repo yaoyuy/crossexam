@@ -93,6 +93,7 @@ async function suggestOne(
   const parsed = parseLlmOutput(suggestionDraftSchema, result.text);
   if (!parsed.ok) throw new Error('修改建议返回不符合约定格式：' + parsed.error);
 
+  // 归属由调用方决定：模型自报的 claimId 一律不看（它可能编，也可能干脆不写）。
   const draft = parsed.value;
   const before = draft.before.trim();
   const after = draft.after.trim();
