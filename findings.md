@@ -132,3 +132,37 @@ Node 24 内置的 node:sqlite 在本机实测可用（启动时一行 Experiment
 任何只认一套的适配层，换一个模型就会静默丢掉用量或思考过程（不报错，只是数字少了）。
 因此 readUsage 与 parseSseData 都把两套名字一起认。
 这条也解释了为什么卡带指纹刻意不含模型名：换模型不该让整盘卡带失效。
+## F10. 通用 .gitignore 模板的 bin/ 段会静默挡掉自己的源码（2026-10-26）
+
+这是本仓库第二次被同一类问题咬到（第一次见 F6：模板的 `packages/` 挡了 npm workspaces）。
+这次是模板的 .NET 段里有一行 `bin/`（本意挡编译产物），把
+`packages/server/src/bin/serve.ts` 和 `tools/dsh-export/bin/dsh-export.mjs` 一起忽略了。
+后果特别隐蔽：文件在磁盘上、`node` 直接跑得通、`npm run smoke` 能够把服务起起来；
+只有 `git status` 里看不到它们。P0 那次提交因此漏掉了导出器 CLI ——
+package.json 声明了 bin，但仓库里没有那个文件，克隆下来的人一跑就报找不到。
+
+处置：在 .gitignore 末尾追加两条取回规则 `!tools/*/bin/` 与 `!packages/*/src/bin/`，
+并用 `git check-ignore -v` 逐条确认关键路径可见。
+
+**教训（写进流程）**：厂商模板的忽略规则要**正反各测一遍**——
+既要验证「密钥真的被挡住」，也要验证「源码真的没被挡住」。
+探针只测一个方向，就会得到「19 条加密探针全过」这种让人放心的假结论。
+关键路径清单：`packages/*/src/**`、`tools/*/bin/**`、`tools/*/src/**`。
+
+## F11. 同进程的 app.request 测试全绿，不等于服务能跑（2026-10-26）
+
+HTTP 层有 11 条测试，全部用 Hono 的 `app.request()` 走接口，全部通过。
+可真起一个服务进程（`node packages/server/src/bin/serve.ts`）再打同一个接口时，
+第一次写入就报 `no such table: session`：
+
+- 建表函数 `migrate(db)` 是存在的，也是幂等的；
+- 但 `openDatabase()` 原来只发 PRAGMA，建表要靠调用方记得再调一次；
+- 测试用例里每个 rig 都「顺手」调了 migrate，于是这个假设从来没被验证过。
+
+`app.request()` 不经过端口、不经过进程启动路径，因此看不见这类「启动顺序」问题。
+随后写的 `tools/smoke/smoke.mjs` 真起进程、真打 HTTP、真等 SSE 收尾，
+一次就把这个 bug 钉了出来；同一次冒烟还确认了「SSE 一定会以成功或明确失败收尾」
+这条产品承诺在真实网络栈下成立。
+
+**教训**：单元测试证明的是「函数逻辑对」，冒烟证明的是「产品能跑」。
+这两句话之间隔着一个进程边界，而事故恰好长在边界上。

@@ -93,7 +93,7 @@
 | --- | --- | --- |
 | P0 奠基 | 仓库/约定/.gitignore/**Prompt 链导出器**/规划文件 | ✅ done |
 | P1 内核 | 共享确定性内核（domain/anchor/segment/budget/contract/schemas）✅ · LLM 适配层（live/record/replay + 思考过程流式）✅ · `node:sqlite` 存储（5 表 + 仓储）✅ | ✅ done |
-| P2 智能体 | 主张抽取、组庭、多 Agent 对抗编排、判定、反推 | ⬜ |
+| P2 智能体 | 五阶段流水线（抽取/组庭/并发追问/判定/反推）✅ · 会话执行器落库 + HTTP/SSE 直播 ✅ · Markdown 报告与一键体验示例 ✅ · 离线演示卡带 ⬜ | 🔄 in_progress |
 | P3 前端 | 投料台、质询舞台（流式可视化）、报告页 | ⬜ |
 | P4 打磨 | 视觉/动效/空状态/错误态 | ⬜ |
 | P5 交付 | README 10 分钟复现、技术文档 PDF、演示视频脚本与录制 | ⬜ |
@@ -106,6 +106,8 @@
 | `run_code` 内 `process.env` 为空 | 1 | 需要用绝对路径而非 `$DSH_HOME`；bash 工具里环境变量才可见 |
 | 通用 .gitignore 模板的 .NET 段含 packages/，静默忽略 npm workspaces 源码目录 | 1 | 删掉该行（*.nupkg 保留），git check-ignore 确认恢复；见 findings F6 |
 | run_code 巨型程序体解析失败（Expected ',', got '<lexing error>'） | 3 | 文件内容改用 String.raw 承载，单次程序只写 1–2 个文件；见 findings F7 |
+| 模板 .gitignore 的 `bin/` 段把 `packages/*/src/bin/` 与 `tools/*/bin/` 一并静默忽略 | 1 | 追加取回规则 `!tools/*/bin/`、`!packages/*/src/bin/`；见 findings F10 |
+| 真实服务进程第一次写入报 `no such table: session` | 1 | openDatabase 改为连接即建表（readonly 跳过）；见 findings F11 |
 
 ## 6. 决策记录（Decisions）
 
@@ -118,3 +120,5 @@
 | D5 | 服务端零构建，Node 原生剥离类型直接跑 .ts（ADR-0001） | 开发与生产跑同一份文件，杜绝「产物与源码不同步」；代价是只能用可擦除语法，由 tsconfig 的 erasableSyntaxOnly 守住 |
 | D6 | 追问预算是代码里的强制记账，不是 prompt 里的建议 | prompt 写「最多 N 次」模型可以不听；记账闸门让死循环在设计上不成立 |
 | D7 | 锚点坐标以 quote 回原文重新定位为准，模型给的 start/end 只当提示 | 模型常常把坐标算错却把 quote 抄对，信任哪一边决定了锚定精度的下限 |
+| D8 | 存储连接一建立就自动建表，只读连接除外 | 「忘记 migrate」是一种不会在进程内测试里暴露、只会在真实进程里炸的错；把默认路径设成正确的那条，比在每处调用点记得调用更可靠 |
+| D9 | 提交门禁纳入真进程冒烟（npm run smoke） | 同进程的 app.request 测试全绿不等于服务能跑；进程边界上的坑（表没建、端口没监听、SSE 不结束）只有真起进程才看得见 |
