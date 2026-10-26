@@ -15,13 +15,14 @@
     "dev": "concurrently -n server,web -c cyan,magenta \"npm:dev:server\" \"npm:dev:web\"",
     "dev:server": "npm run dev -w @crossexam/server",
     "dev:web": "npm run dev -w @crossexam/web",
-    "build": "npm run build -w @crossexam/shared && npm run build -w @crossexam/web && npm run build -w @crossexam/server",
-    "typecheck": "tsc -b --pretty",
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "verify": "npm run typecheck && npm run test && npm run build",
     "export:prompt": "node tools/dsh-export/bin/dsh-export.mjs"
   },
   "devDependencies": {
+    "@types/node": "^24.19.2",
     "concurrently": "^9.1.2",
     "typescript": "^5.7.3",
     "vitest": "^3.0.5"
