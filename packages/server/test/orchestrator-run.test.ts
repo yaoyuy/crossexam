@@ -94,8 +94,12 @@ function router(opts: RouterOptions = {}): ScriptedHandler {
     }
 
     if (req.purpose === 'verdict') {
-      const evidence = body.indexOf('TypeScript 熟练度') >= 0 ? [] : ['首屏从 2.4s 降到 0.8s'];
-      return JSON.stringify({ kind: verdictKind, confidence: 0.7, rationale: '模型给的理由', evidenceQuotes: evidence });
+      // C2（TypeScript 那条）故意让模型判「站得住」并给出能定位的证据：这一条整场
+      // 都没答上来，正好用来测「原文这一句在面试现场没撑住」的降级。
+      if (body.indexOf('TypeScript 熟练度') >= 0) {
+        return JSON.stringify({ kind: 'solid', confidence: 0.7, rationale: '模型给的理由', evidenceQuotes: ['熟悉 TypeScript 与 Node.js'] });
+      }
+      return JSON.stringify({ kind: verdictKind, confidence: 0.7, rationale: '模型给的理由', evidenceQuotes: ['首屏从 2.4s 降到 0.8s'] });
     }
 
     if (req.purpose === 'suggest') {
@@ -142,8 +146,11 @@ describe('完整沙盘', function () {
 
     const byClaim = new Map(result.verdicts.map((v) => [v.claimId, v]));
     expect(byClaim.get('C1')?.kind).toBe('overstated');
-    expect(byClaim.get('C2')?.kind).toBe('unanswerable');
-    expect(result.verdictDetails.find((v) => v.verdict.claimId === 'C2')?.adjusted).toBe(true);
+    // C2 整场没答上来：即使模型判「站得住」，也会被降级成证据缺失
+    expect(byClaim.get('C2')?.kind).toBe('unsupported');
+    const c2 = result.verdictDetails.find((v) => v.verdict.claimId === 'C2');
+    expect(c2?.adjusted).toBe(true);
+    expect(c2?.adjustmentReason).toContain('站得住');
 
     expect(result.suggestions).toHaveLength(2);
     expect(result.suggestions[0]?.before).toBe('主导重构订单系统');
@@ -184,7 +191,7 @@ describe('完整沙盘', function () {
     }));
     expect(result.rounds).toBe(1);
     expect(result.budget.claims.find((c) => c.claimId === 'C2')?.closeReason).toContain('答不上来');
-    expect(result.verdicts.find((v) => v.claimId === 'C2')?.kind).toBe('unanswerable');
+    expect(result.verdicts.find((v) => v.claimId === 'C2')?.kind).toBe('unsupported');
   });
 
   it('多轮追问会形成链条，直到没有新问题为止', async function () {

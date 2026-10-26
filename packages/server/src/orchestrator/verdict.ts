@@ -59,7 +59,7 @@ export interface VerdictClaimsResult {
 }
 
 export const NO_EVIDENCE_REASON = '模型拿不出可定位到简历原文的证据，按「证据缺失」处理';
-export const ALL_UNANSWERED_REASON = '候选人对这条主张的所有追问都没有给出有效回答，按「无法回答」处理';
+export const ALL_UNANSWERED_REASON = '候选人对这条主张的追问没能落出口径，原文这一句不足以判为「站得住」，按「证据缺失」处理';
 
 /** 需要证据支撑的判定：说好话和说坏话都得有原文 */
 const NEEDS_EVIDENCE: readonly VerdictKind[] = ['solid', 'contradicts'];
@@ -81,9 +81,14 @@ export function enforceVerdict(input: {
 
   const askedSomething = input.transcript.length > 0;
   const answeredNothing = askedSomething && input.transcript.every((t) => !t.answered);
-  if (answeredNothing && base.kind !== 'unanswerable') {
+  // 全部追问都没答上来时，唯一必须拦的是「站得住」：原文里的这句话在面试现场没能
+  // 落出口径，不能因为简历写了就判它撑得住。其余判定以模型为准——它看得到每一轮
+  // 问答，比一个「全体未答」的布尔更清楚该算证据缺失（简历写得太笼统）还是
+  // 无法回答（候选人自己拿不出东西）。改判「无法回答」曾把模型判的证据缺失全部
+  // 吃掉，界面上就会出现「理由说证据缺失、徽章写无法回答」。
+  if (answeredNothing && base.kind === 'solid') {
     return {
-      verdict: { ...base, kind: 'unanswerable' },
+      verdict: { ...base, kind: 'unsupported' },
       adjusted: true,
       adjustmentReason: ALL_UNANSWERED_REASON,
     };
