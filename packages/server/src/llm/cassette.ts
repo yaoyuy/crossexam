@@ -33,6 +33,8 @@ export interface CassetteEntry {
   request: CassetteRequestShape;
   response: {
     text: string;
+    /** 录制时的思考过程，回放时按同样的方式推给前端。 */
+    reasoning?: string;
     usage: LlmUsage;
     /** 录制流式响应时记下的分片，回放时用它复现同样的节奏。 */
     chunks?: string[];

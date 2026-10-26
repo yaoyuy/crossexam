@@ -64,6 +64,7 @@ export function createReplayClient(dir: string): LlmClient {
       const loaded = load(dir, req);
       return {
         text: loaded.entry.response.text,
+        reasoning: loaded.entry.response.reasoning,
         usage: loaded.entry.response.usage,
         digest: loaded.digest,
         replayed: true,
@@ -73,6 +74,10 @@ export function createReplayClient(dir: string): LlmClient {
 
     async *stream(req: LlmRequest): AsyncGenerator<LlmStreamEvent, void, void> {
       const loaded = load(dir, req);
+      const reasoning = loaded.entry.response.reasoning;
+      if (reasoning !== undefined && reasoning !== '') {
+        for (const piece of chunkText(reasoning)) yield { type: 'reasoning', text: piece };
+      }
       const recorded = loaded.entry.response.chunks;
       const chunks = recorded && recorded.length > 0 ? recorded : chunkText(loaded.entry.response.text);
       for (const chunk of chunks) {
@@ -82,6 +87,7 @@ export function createReplayClient(dir: string): LlmClient {
         type: 'done',
         result: {
           text: loaded.entry.response.text,
+          reasoning: reasoning,
           usage: loaded.entry.response.usage,
           digest: loaded.digest,
           replayed: true,

@@ -41,6 +41,8 @@ export const EMPTY_USAGE: LlmUsage = {
 
 export interface LlmResult {
   text: string;
+  /** 模型的思考过程（若提供方给了）。赛题 UX 维度点名要「思考可视化」，故单独留字段。 */
+  reasoning?: string;
   usage: LlmUsage;
   /** fixture 指纹：同样的提示词必然得到同样的指纹，回放靠它对齐。 */
   digest: string;
@@ -51,6 +53,8 @@ export interface LlmResult {
 }
 
 export type LlmStreamEvent =
+  /** 思考过程增量：与正文分开推，前端可以把它渲染成折叠的「思考中」。 */
+  | { type: 'reasoning'; text: string }
   | { type: 'delta'; text: string }
   | { type: 'done'; result: LlmResult };
 
