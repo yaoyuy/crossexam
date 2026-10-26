@@ -18,11 +18,12 @@
   },
   "response": {
     "text": "{\"kind\":\"overstated\",\"confidence\":0.76,\"rationale\":\"优化本身是真实的，但简历把两个不同口径的数字并列成一次提升，属于表述过度；追问中候选人也承认前后口径不一致。\",\"evidenceQuotes\":[\"QPS 从 800 提升到 5000\"]}",
+    "reasoning": "先看这条主张：引入 Redis 缓存，把接口 QPS 从 800 提升到 5000。追问记录里备了 2 个问题，候选人有作答。数字本身在简历里，但两个口径被混着说，读的人会以为提升幅度更大。所以判「表述过度」，置信度 76%。",
     "usage": {
       "inputTokens": 890,
       "outputTokens": 74,
       "cacheReadTokens": 0,
-      "reasoningTokens": 0
+      "reasoningTokens": 57
     }
   }
 }

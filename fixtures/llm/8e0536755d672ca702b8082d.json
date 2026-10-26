@@ -18,11 +18,12 @@
   },
   "response": {
     "text": "{\"answered\":false,\"text\":\"简历里只有这一句自我评价，我确实举不出具体事例，这块我说不上来。\",\"citedQuotes\":[]}",
+    "reasoning": "问题问的是「「抗压能力强」能不能举一个具体的例子，当时压力来自哪里？」。先扫一遍简历：这句话只写了结论，没有能对上这个问题的原文。答不上来就老实说答不上来——编一个细节出来反而会与简历原文矛盾，那才是真的扣分。",
     "usage": {
       "inputTokens": 478,
       "outputTokens": 39,
       "cacheReadTokens": 0,
-      "reasoningTokens": 0
+      "reasoningTokens": 53
     }
   }
 }
