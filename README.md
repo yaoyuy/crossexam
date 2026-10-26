@@ -95,6 +95,7 @@ CROSSEXAM_MODE=live npm run preview
 | `npm run verify` | **提交门禁**：类型检查 + 测试 + 真进程冒烟 + 构建 |
 | `npm run smoke` | 真起一个服务进程打接口（含 SSE 收尾检查） |
 | `npm run shots` | 真浏览器（Edge/Chrome + CDP）截 10 张图，控制台有报错即失败 |
+| `npm run e2e:ui` | 真浏览器把每个功能点一遍（31 项断言 + 零控制台报错），红了退出码 1 |
 | `npm run seed:demo` | 重新合成 29 盘离线演示卡带（改了提示词就必须重跑） |
 | `npm run repro` | 干净目录复现预演，逐步计时并与 10 分钟上限比对 |
 | `npm run export:prompt` | 导出 AI 协同的 Prompt 链快照到 `docs/prompt-chain/` |
@@ -110,7 +111,7 @@ CROSSEXAM_MODE=live npm run preview
 | 端口被占 | `CROSSEXAM_PORT=8899 npm run preview` |
 | 想换数据库位置 / 清空重来 | `CROSSEXAM_DB=./data/other.db`；删掉 `data/` 就是全新状态 |
 | 想换卡带目录 | `CROSSEXAM_FIXTURES=/path/to/llm` |
-| 没装 Chrome/Edge | 只有 `npm run shots` 需要浏览器，其余命令都不需要 |
+| 没装 Chrome/Edge | 只有 `npm run shots` 与 `npm run e2e:ui` 需要浏览器，其余命令都不需要 |
 | 界面 404 / 空白 | 先跑 `npm run build`：服务端托管的是构建产物，不是源码 |
 | 提示「回放模式找不到这一条记录」 | 说明提示词变了而卡带没更新：跑 `npm run seed:demo` 或用 `CROSSEXAM_MODE=record` 重录 |
 
