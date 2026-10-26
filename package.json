@@ -17,6 +17,7 @@
     "dev:web": "npm run dev -w @crossexam/web",
     "build": "npm run build --workspaces --if-present",
     "start": "node packages/server/src/bin/serve.ts",
+    "launch": "node tools/launcher/launch.mjs",
     "preview": "npm run build && npm run start",
     "typecheck": "tsc --noEmit && npm run typecheck --workspaces --if-present",
     "test": "vitest run",
