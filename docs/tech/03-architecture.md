@@ -278,7 +278,7 @@ SSE 有三个终止事件，任何一个发生都意味着这一场结束了：
 | 顺序 | 命令 | 证明什么 | 当前规模 |
 | --- | --- | --- | --- |
 | 1 | `npm run typecheck` | 类型对（`tsc --noEmit`，含各包） | 全仓库 |
-| 2 | `npm run test` | 逻辑对（vitest） | 31 个文件 / 308 条断言 / 3.5 s |
+| 2 | `npm run test` | 逻辑对（vitest） | 31 个文件 / 313 条断言 / 3.3 s |
 | 3 | `npm run smoke` | **产品能跑**（真起进程、真打 HTTP、真等 SSE） | 9 项 |
 | 4 | `npm run build` | 前端能构建 | vite，27 modules |
 
