@@ -109,7 +109,12 @@ describe('一轮追问', function () {
   });
 
   it('预算用尽时闸门直接拒绝，模型自己看不见也没用', async function () {
-    const zero: BudgetConfig = { maxRoundsPerClaim: 3, maxProbesPerInterviewerPerClaim: 2, maxTotalProbes: 0 };
+    const zero: BudgetConfig = {
+      maxRoundsPerClaim: 3,
+      maxProbesPerInterviewerPerClaim: 2,
+      maxTotalProbes: 0,
+      maxConsecutiveUnanswerable: 2,
+    };
     const result = await runProbeRound(baseInput({ budget: initBudget(CLAIMS.map((c) => c.id), zero) }));
     expect(result.probes).toHaveLength(0);
     expect(result.rejected.length).toBeGreaterThan(0);
