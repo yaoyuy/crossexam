@@ -485,4 +485,23 @@ received '<ul><li>一</li><li>一之一</li><li>二</li></ul>'
 
 **教训**：任何「按内容寻址」的缓存都会在内容改动后留下孤儿，而孤儿是静默的。
 寻址机制的作者有义务提供清理，且清理范围必须由可判别的标记（这里是 model 字段）界定。
+## F33. 思考模型的实测特性：清单里没有的模型名也能调，思考文本是英文（2026-10-26）
+
+为了让界面真的出现「思考」那一行，先做的是把手上这把 Key 能用的模型摸清楚，四条实测结论：
+
+1. `GET /v1/models` 只返回 `deepseek-flash, deepseek-v4-pro`，但 `deepseek-chat` 与 `deepseek-reasoner`
+   两个模型名都能调通（HTTP 200）。→ 供应商的模型清单不是可用性证据；把清单当白名单，
+   会让一个本来能用的模型被判死。本项目因此不校验清单，配了什么就用什么，配错在调用处响亮报错。
+2. `deepseek-reasoner` 支持 `response_format: {type:'json_object'}`，因此它可以替换任何一个
+   本来就要求 JSON 输出的阶段，不需要为它单独设计提示词。
+3. 流式下思考在 `delta.reasoning_content`、正文在 `delta.content`；一次实测 491 字符思考 /
+   64 字符正文 / 2389 ms，usage 里有 `completion_tokens_details.reasoning_tokens` 与 `prompt_cache_hit_tokens`。
+4. `deepseek-chat` 的 reasoning 恒为 0 字符——不接思考模型就真的没有思考，界面那行斜体不会凭空出现。
+
+一条必须如实写进交付物的代价：**思考文本通常是英文**（例如 The user asks: one sentence explaining…）。
+这是模型侧行为，界面上会出现中英混排。我们选择不翻译：翻译会把「模型的思考」变成「我们的复述」，
+而第 2 章刚论证过「不编造」正是这个产品的价值。
+
+**教训**：接第三方模型前，先把「它的名字从哪来、能力边界在哪、输出长什么样」实测一遍。
+模型清单、官方文档、别人的博客都不是证据。
 

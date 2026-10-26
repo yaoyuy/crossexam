@@ -682,7 +682,41 @@ npm run e2e:ui 31/31 通过、控制台 0 报错；工作区干净。
 
 ### 下一步
 
-P1-2 思考可视化（接 deepseek-reasoner，把 reasoning 分片单独显示）、P1-3 报告导出 PDF/Word。
+P1-2 思考可视化（接 deepseek-reasoner，把 reasoning 分片单独显示）✅ 见 Session 15、P1-3 报告导出 PDF/Word。
+## Session 15 · P1-2 思考可视化：让界面真的多出一行斜体（2026-10-26）
+
+赛题 UX 那条明写「流式、思考可视化」。流式在 Session 12 已经做完，思考这一半此前是空的：
+`LlmClient.stream` 一直在解析 `reasoning_content`，但没有任何阶段用思考模型，界面上也就无思考可显示。
+
+### 做了什么
+
+- 装配层新增阶段路由 `withStageModels(inner, routes)`（packages/server/src/llm/routing.ts）：
+  按 `req.purpose` 给请求带一个 `model`；默认只把 **verdict** 交给 `deepseek-reasoner`
+  （`CROSSEXAM_REASONING_MODEL` / `CROSSEXAM_REASONING_STAGES` 可改）。五个阶段的编排代码一行没动。
+- `LlmRequest.model` 与早先的 `channel` 一样**不参与卡带指纹**，所以换模型不必重录任何一盘离线卡带（ADR-0005）。
+- 前端把分片按 `kind` 分成两路：`StreamBuffer` 里 `reasoning` 与 `text` 各自累加，
+  左栏实时输出多一行斜体思考，徽章写「思考 + 输出」。
+- 离线演示也要看得见：合成脚本（scripted-demo.ts）给 answer 与 verdict 写中文合成思考，
+  写进卡带的 `response.reasoning`，回放客户端按 24 字软切吐成 reasoning 分片。
+- 截图器新增 05-thinking.png（等 `[data-shot="live-reasoning"]` 有内容再拍），其余图整体改名到 06–11，共 11 张。
+
+### 验证
+
+- `npm run seed:demo`：29 盘卡带，15 个文件被改写（10 answer + 5 verdict），两遍自检签名一致 `428b82589a88`；
+- 真机 live（`CROSSEXAM_REASONING_MODEL=deepseek-reasoner`，只路由 verdict）：10/10 项通过，
+  **2355 片思考分片、8 路 `verdict:*` 通道、7412 片正文分片、`reasoningTokens`=2355、整场 22.7 s、无 fatal**；
+- `npm run shots`：11 张截图、控制台 0 报错；
+- `npm run verify` exit 0：32 个测试文件 / 323 条断言 + 冒烟 9 项 + build。
+
+### 两条如实记录
+
+- 模型给的思考文本通常是英文，界面上中英混排；**不翻译**（翻译等于我们替模型复述，思考就不再是它的思考）。
+- 默认只路由 verdict 是刻意的：追问一轮要十几次调用，全交给思考模型会把一场从十几秒拉成几分钟。
+
+### 下一步
+
+P1-3 报告导出 PDF/Word；随后是真机可见浏览器逐功能点测（用用户的真实简历）、按方案 A 录演示视频、
+补 LICENSE 与发布清单。
 
 ---
 
