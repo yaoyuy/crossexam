@@ -30,6 +30,7 @@ import type {
   SseEvent,
 } from './api.ts';
 import { nextPanel, PANEL_ORDER } from './contract.ts';
+import { MODEL_NOTE_PENDING, modelNoteOf } from './runmode.ts';
 import { personaBlurbOf, personaLabelOf } from './labels.ts';
 import { markHelpSeen, shouldAutoOpenHelp } from './help.ts';
 import { applyTheme, nextTheme, readStoredTheme, saveTheme, THEME_LABEL } from './theme.ts';
@@ -395,18 +396,13 @@ export function App() {
     setModelOptions([]);
     setModelNote(null);
     if (mode === 'replay') return;
-    setModelNote('正在向后端要模型清单…');
+    setModelNote(MODEL_NOTE_PENDING);
     void fetchModels()
       .then((list) => {
         setModelOptions(list.models);
         setRunModel((current) => (current === '' ? list.defaultModel : current));
-        if (!list.ready) {
-          setModelNote('后端还没配好联网：缺 ' + list.missing.join('、') + '。补上 .env 里的这些变量再刷新页面。');
-        } else if (list.error !== null) {
-          setModelNote(list.error);
-        } else if (list.models.length === 0) {
-          setModelNote('后端没报错，但清单是空的：直接手填模型名即可。');
-        }
+        // 提示文案与「是不是还在路上」都由 runmode.ts 决定：界面与点测看同一处判断。
+        setModelNote(modelNoteOf(list));
       })
       .catch((error: unknown) => {
         setModelNote(error instanceof Error ? error.message : '模型清单没拉下来');
