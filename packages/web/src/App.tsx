@@ -9,6 +9,8 @@ import {
   fetchStats,
   getSession,
   listSessions,
+  reportDocUrl,
+  reportHtmlUrl,
   reportUrl,
   streamRun,
 } from './api.ts';
@@ -289,8 +291,10 @@ export function App() {
   }, []);
 
   const mode = modeChip(health);
-  const reportHref =
-    sandbox.sessionId === null || sandbox.claims.length === 0 ? null : reportUrl(sandbox.sessionId);
+  const hasReport = sandbox.sessionId !== null && sandbox.claims.length > 0;
+  const reportHref = hasReport && sandbox.sessionId !== null ? reportUrl(sandbox.sessionId) : null;
+  const reportPrintHref = hasReport && sandbox.sessionId !== null ? reportHtmlUrl(sandbox.sessionId, true) : null;
+  const reportDocHref = hasReport && sandbox.sessionId !== null ? reportDocUrl(sandbox.sessionId) : null;
   const telemetry = sandbox.telemetry;
 
   return (
@@ -320,9 +324,29 @@ export function App() {
           <Chip title="已呈现的事件条数">事件 {sandbox.eventCount}</Chip>
           <Chip title="实际提出的追问条数">追问 {totalProbes(sandbox)}</Chip>
           {reportHref === null ? null : (
-            <a className="btn px-2.5 py-1 text-[12px]" href={reportHref} download>
-              下载报告
-            </a>
+            <span className="flex items-center gap-1.5">
+              <a className="btn px-2.5 py-1 text-[12px]" href={reportHref} download data-shot="report-md">
+                报告 .md
+              </a>
+              <a
+                className="btn px-2.5 py-1 text-[12px]"
+                href={reportPrintHref ?? reportHref}
+                target="_blank"
+                rel="noreferrer"
+                title="打开可打印的报告页并调起打印对话框，选「另存为 PDF」即可"
+                data-shot="report-pdf"
+              >
+                报告 PDF
+              </a>
+              <a
+                className="btn px-2.5 py-1 text-[12px]"
+                href={reportDocHref ?? reportHref}
+                title="同一份报告，Word 能直接打开"
+                data-shot="report-doc"
+              >
+                报告 Word
+              </a>
+            </span>
           )}
         </div>
       </header>

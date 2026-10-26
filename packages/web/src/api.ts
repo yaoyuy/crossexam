@@ -326,6 +326,19 @@ export function reportUrl(id: string): string {
   return '/api/sessions/' + encodeURIComponent(id) + '/report.md';
 }
 
+/**
+ * 可直接打印的报告页。print 为真时页面加载完自己调起打印对话框，
+ * 「导出 PDF」因此是浏览器自带能力，服务端不需要装无头浏览器。
+ */
+export function reportHtmlUrl(id: string, print = false): string {
+  const base = '/api/sessions/' + encodeURIComponent(id) + '/report.html';
+  return print ? base + '?print=1' : base;
+}
+
+export function reportDocUrl(id: string): string {
+  return '/api/sessions/' + encodeURIComponent(id) + '/report.doc';
+}
+
 export interface SseEvent {
   id: string | null;
   event: string;
