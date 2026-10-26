@@ -12,10 +12,12 @@
  * 不如让 seed 自己在交付前红掉：对不上就返回 ok=false 并给出问题清单。
  */
 
+import { unlinkSync } from 'node:fs';
 import { DEFAULT_BUDGET, shortHash, stableStringify } from '@crossexam/shared';
 import { DEMO_JD, DEMO_RESUME, DEMO_TITLE } from './demo-content.ts';
-import { createDemoScriptedClient } from './llm/scripted-demo.ts';
+import { DEMO_MODEL, createDemoScriptedClient } from './llm/scripted-demo.ts';
 import type { DemoSeedEntry } from './llm/scripted-demo.ts';
+import { cassettePath, listCassettes } from './llm/cassette.ts';
 import { createReplayClient } from './llm/replay.ts';
 import { closeDatabase, insertSession, openDatabase } from './store/index.ts';
 import type { StoredLlmMode } from './store/index.ts';
@@ -44,6 +46,8 @@ export interface DemoSeedReport {
   /** 两次跑的结果是否逐项一致 */
   ok: boolean;
   problems: string[];
+  /** 这一轮不再需要、已被清理掉的旧合成卡带（提示词改动后的孤儿） */
+  pruned: string[];
   /** 逐字节可比的签名：写进日志、测试断言、出问题时 diff 都靠它 */
   signature: string;
 }
@@ -115,6 +119,28 @@ function signatureOf(result: RunSessionResult): string {
   });
 }
 
+/**
+ * 清掉上一轮留下、这一轮不再需要的**合成**卡带。
+ *
+ * 为什么需要：改一句提示词就换一批指纹，旧指纹的卡带不会被覆盖，只会变成孤儿躺在
+ * 目录里——它们谁也读不到，却会让「卡带共 N 盘」这句话变成假话，也让后来的人以为
+ * 某盘卡带被用上了。只删 model 等于 DEMO_MODEL 的那一批：用户用
+ * CROSSEXAM_MODE=record 真录下来的卡带模型名不是它，一根汗毛都不许动。
+ */
+function pruneStaleCassettes(dir: string, keep: ReadonlySet<string>): string[] {
+  const stale = listCassettes(dir).filter((item) => item.model === DEMO_MODEL && !keep.has(item.digest));
+  const removed: string[] = [];
+  for (const item of stale) {
+    try {
+      unlinkSync(cassettePath(dir, item.digest));
+      removed.push(item.digest);
+    } catch {
+      // 删不掉不算致命：孤儿卡带只影响整洁，不影响回放。
+    }
+  }
+  return removed;
+}
+
 export async function seedDemoCassettes(opts: { dir: string }): Promise<DemoSeedReport> {
   const scripted = createDemoScriptedClient(opts.dir);
 
@@ -130,6 +156,10 @@ export async function seedDemoCassettes(opts: { dir: string }): Promise<DemoSeed
   } finally {
     closeDatabase(recordDb);
   }
+
+  // 新卡带已经全部落盘（第一遍边跑边写），此刻清理旧指纹最安全：
+  // 回放要用的那一批已经在了，删掉的都是这一轮谁也读不到的孤儿。
+  const pruned = pruneStaleCassettes(opts.dir, new Set(scripted.entries.map((entry) => entry.digest)));
 
   const replayDb = openDatabase({ path: ':memory:' });
   let replayRun: RunSessionResult;
@@ -173,6 +203,7 @@ export async function seedDemoCassettes(opts: { dir: string }): Promise<DemoSeed
     replay: summarize(replayRun),
     ok: problems.length === 0,
     problems,
+    pruned,
     signature: signatureOf(recordRun),
   };
 }

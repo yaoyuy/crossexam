@@ -18,7 +18,9 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { seedDemoCassettes } from '../src/demo-seed.ts';
 import { createApp } from '../src/http/app.ts';
 import type { RunSummary } from '../src/http/app.ts';
-import { listCassettes, readCassette } from '../src/llm/cassette.ts';
+import { CASSETTE_VERSION, listCassettes, readCassette, writeCassette } from '../src/llm/cassette.ts';
+import type { CassetteEntry } from '../src/llm/cassette.ts';
+import { EMPTY_USAGE } from '../src/llm/types.ts';
 import { createReplayClient } from '../src/llm/replay.ts';
 import { closeDatabase, openDatabase } from '../src/store/index.ts';
 
@@ -40,6 +42,19 @@ afterEach(() => {
     if (dir !== undefined) rmSync(dir, { recursive: true, force: true });
   }
 });
+
+/** 造一盘看起来像真的的卡带：只用于验证清理规则会不会误伤。 */
+function fakeEntry(digest: string, model: string): CassetteEntry {
+  return {
+    version: CASSETTE_VERSION,
+    digest,
+    purpose: 'extract',
+    model,
+    recordedAt: '2026-10-26T00:00:00.000Z',
+    request: { system: 'x', messages: [], temperature: null, maxTokens: null, json: true },
+    response: { text: '{}', usage: EMPTY_USAGE },
+  };
+}
 
 /** 走真实 HTTP 接口跑一遍示例简历：创建会话 -> 同步开跑 -> 读摘要 */
 async function runDemoOverHttp(cassetteDir: string): Promise<RunSummary> {
@@ -72,9 +87,9 @@ describe('离线演示（合成卡带）', () => {
     expect(summary.probes).toBe(10);
     expect(summary.suggestions).toBe(4);
 
-    // 四种判定各有戏：站得住 / 表述过度 / 无法回答 / 证据缺失
+    // 四种判定各有戏：站得住 / 表述过度 / 无法回答 / 证据缺失（两条）
     const kinds = summary.verdicts.map((verdict) => verdict.kind).sort();
-    expect(kinds).toEqual(['overstated', 'solid', 'unanswerable', 'unanswerable', 'unsupported']);
+    expect(kinds).toEqual(['overstated', 'solid', 'unanswerable', 'unsupported', 'unsupported']);
 
     // 第三轮没有新问题就收尾，而不是空转烧调用
     expect(summary.notices.some((notice) => notice.indexOf('没有任何新的追问') >= 0)).toBe(true);
@@ -102,5 +117,26 @@ describe('离线演示（合成卡带）', () => {
     const entry = first === undefined ? null : readCassette(dir, first.digest);
     expect(entry?.recordedAt).toBe('2026-10-26T00:00:00.000Z');
     expect(entry?.version).toBe(1);
+  });
+
+  it('重跑会清掉旧指纹的合成卡带，但不动真人录下来的卡带', async () => {
+    const dir = newTempDir('demo-prune');
+    const first = await seedDemoCassettes({ dir });
+    expect(first.pruned).toEqual([]);
+
+    // 两盘这一轮不再需要的卡带：一盘是旧指纹的合成卡带（改提示词后的孤儿），
+    // 一盘是真人用 CROSSEXAM_MODE=record 录下来的真实卡带——后者一根汗毛都不许动。
+    const staleDigest = 'a'.repeat(24);
+    const realDigest = 'b'.repeat(24);
+    writeCassette(dir, fakeEntry(staleDigest, 'scripted-demo'));
+    writeCassette(dir, fakeEntry(realDigest, 'deepseek-chat'));
+
+    const second = await seedDemoCassettes({ dir });
+
+    expect(second.pruned).toEqual([staleDigest]);
+    const left = listCassettes(dir).map((item) => item.digest);
+    expect(left).not.toContain(staleDigest);
+    expect(left).toContain(realDigest);
+    expect(left).toHaveLength(first.entries.length + 1);
   });
 });
