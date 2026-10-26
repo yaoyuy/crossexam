@@ -1,4 +1,5 @@
 import { useRef } from 'react';
+import type { ReactNode } from 'react';
 import { SESSION_STATUS_LABEL } from '../labels.ts';
 import { IMPORT_ACCEPT } from '../api.ts';
 import type { LlmMode, SessionSummary } from '../api.ts';
@@ -45,6 +46,11 @@ export function IntakePanel(props: {
   /** 面板里躺着但库里已经没有的 id（面试官被删了），要指名道姓地提示 */
   missingInterviewers: string[];
   onOpenStudio: () => void;
+  /**
+   * 投料台最上方的岗位模板选择器。做成一个 ReactNode 而不是七八个 props：
+   * 投料台不需要知道模板从哪来、怎么算，组装的事留给上层。
+   */
+  templatePicker: ReactNode;
   pace: number;
   onPaceChange: (pace: number) => void;
   /** 这一场用什么跑：离线回放 / 联网直连 / 联网录制 */
@@ -91,6 +97,8 @@ export function IntakePanel(props: {
       bodyClassName="flex flex-col gap-3 p-3"
       className="max-h-[60vh] xl:max-h-[46vh]"
     >
+      {props.templatePicker}
+
       <div className="flex flex-col gap-1">
         <span className="flex items-center justify-between gap-2 text-[11px] text-ink-400">
           <span>简历正文</span>

@@ -307,6 +307,62 @@ export function fetchContracts(panel?: string[]): Promise<ContractsResponse> {
   return getJson<ContractsResponse>('/api/contracts' + query);
 }
 
+
+/** 岗位模板：12 个行业 × 3 个岗位的原创 JD 与示例简历（P9） */
+export interface TemplateItem {
+  id: string;
+  industry: string;
+  title: string;
+  jd: string;
+  resume: string;
+  /** 这类简历常见的坑，2–3 条 */
+  hints: string[];
+  /** 推荐的内置面试官（两位） */
+  presets: string[];
+  /** 模板自带的自建面试官草稿，与用户自己配的那位同构 */
+  custom: InterviewerDraft;
+  /** 文案指纹：改一个字就变，界面靠它判断手里的模板是不是旧的 */
+  digest: string;
+}
+
+export interface TemplateLimits {
+  jdMin: number;
+  jdMax: number;
+  resumeMin: number;
+  resumeMax: number;
+  hintsMin: number;
+  hintsMax: number;
+  hintMin: number;
+  hintMax: number;
+  presetsCount: number;
+  industryCount: number;
+  perIndustry: number;
+}
+
+export interface TemplateLibrary {
+  industries: string[];
+  templates: TemplateItem[];
+  limits: TemplateLimits;
+}
+
+/** 一键采用的结果：填什么、换哪几位面试官，都由服务端算好，界面不自己拼 */
+export interface AppliedTemplate {
+  ok: boolean;
+  /** false 表示这位面试官库里本来就有，直接复用了（同一套模板点两次不会多出一位） */
+  created: boolean;
+  template: { id: string; industry: string; title: string; jd: string; resume: string; hints: string[]; digest: string };
+  panel: string[];
+  interviewer: InterviewerEntry;
+}
+
+export function fetchTemplates(): Promise<TemplateLibrary> {
+  return getJson<TemplateLibrary>('/api/templates');
+}
+
+export function applyTemplate(id: string): Promise<AppliedTemplate> {
+  return postJson<AppliedTemplate>('/api/templates/' + encodeURIComponent(id) + '/apply', {});
+}
+
 /**
  * 自定义面试官的一份草稿：**窄字段**是故意的。
  * 契约要能被评审，就不该容忍一段两百字的「人设散文」。
