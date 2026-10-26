@@ -445,6 +445,50 @@ const chips = await evalJs('document.querySelector("header").innerText');
 check('头部遥测显示调用与回放次数', chips.indexOf('调用') >= 0 && chips.indexOf('回放') >= 0 && chips.indexOf('追问') >= 0, chips.replace(/\n/g, ' / ').slice(0, 120));
 await shot('03-done.png');
 
+// 第 8 项：勾选 → 确认采纳 → 简历被真的改掉 → 导出三件套 → 全部撤销退回原文。
+// 这一段必须落在「清空」之前：那时 demo 场次还开着，5 条主张里有 4 条带改写建议。
+// 断言分三层：界面上的勾选与结论、服务端真的改了、导出的文件里真有改动。
+const revBar = await evalJs('(() => { const el = document.querySelector("[data-shot=revisions]"); return el === null ? "" : el.innerText; })()');
+check('右栏有「采纳改写」这一栏', revBar.indexOf('采纳改写') >= 0, revBar.replace(/\n/g, ' / ').slice(0, 60));
+const chooseCount = await evalJs('document.querySelectorAll("[data-shot^=choose-]").length');
+check('每条有建议的主张都能勾选采纳', chooseCount === advised.length, String(chooseCount) + ' 个勾选框 / ' + String(advised.length) + ' 条建议');
+await evalJs('document.querySelector("[data-shot=revision-accept-all]").click()');
+await sleep(250);
+const chosenBar = await evalJs('(() => { const el = document.querySelector("[data-shot=revisions]"); return el === null ? "" : el.innerText; })()');
+check('「全部采纳」把建议一次勾上', chosenBar.indexOf('本次勾选 ' + String(advised.length)) >= 0, chosenBar.replace(/\n/g, ' / ').slice(0, 60));
+await evalJs('document.querySelector("[data-shot=revision-submit]").click()');
+const revisedNote = await waitFor(async () => { const t = await evalJs('(() => { const el = document.querySelector("[data-shot=revision-note]"); return el === null ? "" : el.innerText; })()'); return t.length > 0 ? t : ''; }, '采纳结论', 20000);
+check('确认采纳后给出结论（改成了几处）', revisedNote.indexOf('已按这次勾选改好简历') >= 0, revisedNote.slice(0, 80));
+const revisedResume = (await (await fetch('http://127.0.0.1:' + PORT + '/api/sessions/' + demoSession.id + '/revisions')).json()).revised;
+check('服务端真的把简历改了（不是只在前端画一下）',
+  revisedResume !== null && revisedResume.applied.length > 0 && revisedResume.text !== view.session.resumeText,
+  revisedResume === null ? 'null' : String(revisedResume.applied.length) + ' 处 / ' + String(revisedResume.text.length) + ' 字');
+const paneRevised = await evalJs('document.querySelector("[data-shot=resume]").innerText');
+check('右栏换成改完的版本并标出改动', paneRevised.indexOf('改完的简历') >= 0 && paneRevised.indexOf('改动 ') >= 0, paneRevised.replace(/\n/g, ' / ').slice(0, 70));
+const exportHrefs = await evalJs('(() => { const pick = (n) => { const a = document.querySelector("[data-shot=" + n + "]"); return a === null ? "" : a.getAttribute("href"); }; return { txt: pick("resume-txt"), pdf: pick("resume-pdf"), doc: pick("resume-doc") }; })()');
+const resumeHref = (key) => String((exportHrefs ?? {})[key] ?? '');
+check('改完之后才出现 txt / PDF / Word 三个导出入口',
+  resumeHref('txt').indexOf('/resume.txt') >= 0 && resumeHref('pdf').indexOf('/resume.html?') >= 0 && resumeHref('doc').indexOf('/resume.doc') >= 0,
+  JSON.stringify(exportHrefs));
+const resumeTxt = await fetch('http://127.0.0.1:' + PORT + resumeHref('txt'));
+const resumeTxtText = await resumeTxt.text();
+check('导出的 txt 就是改完的那一版', resumeTxt.status === 200 && resumeTxtText === (revisedResume === null ? '' : revisedResume.text), String(resumeTxtText.length) + ' 字');
+const resumeHtml = await fetch('http://127.0.0.1:' + PORT + resumeHref('pdf'));
+const resumeHtmlText = await resumeHtml.text();
+check('PDF 入口给的是带改动标记与打印脚本的可打印 HTML',
+  resumeHtml.status === 200 && resumeHtmlText.indexOf('mark class') >= 0 && resumeHtmlText.indexOf('本版改了什么') >= 0 && resumeHtmlText.indexOf('window.print()') >= 0,
+  String(resumeHtmlText.length) + ' 字符');
+const resumeDoc = await fetch('http://127.0.0.1:' + PORT + resumeHref('doc'));
+const resumeDocText = await resumeDoc.text();
+check('简历的 Word 入口给的是 application/msword 附件',
+  resumeDoc.status === 200 && String(resumeDoc.headers.get('content-type')).indexOf('msword') >= 0 && String(resumeDoc.headers.get('content-disposition')).indexOf('.doc') >= 0,
+  String(resumeDocText.length) + ' 字符');
+await evalJs('document.querySelector("[data-shot=revision-discard]").click()');
+const discardNote = await waitFor(async () => { const t = await evalJs('(() => { const el = document.querySelector("[data-shot=revision-note]"); return el === null ? "" : el.innerText; })()'); return t.indexOf('已撤销全部采纳') >= 0 ? t : ''; }, '撤销结论', 20000);
+const afterDiscard = (await (await fetch('http://127.0.0.1:' + PORT + '/api/sessions/' + demoSession.id + '/revisions')).json()).revised;
+const paneBack = await evalJs('document.querySelector("[data-shot=resume]").innerText');
+check('「全部撤销」把简历退回原文（界面与服务端同时退）', discardNote.length > 0 && afterDiscard === null && paneBack.indexOf('改完的简历') < 0, String(afterDiscard));
+
 const contractBadge = await evalJs('(() => { const b = document.querySelector(String.fromCharCode(91) + "data-shot=" + String.fromCharCode(34) + "contract-toggle" + String.fromCharCode(34) + String.fromCharCode(93) + ""); b.click(); return b.textContent; })()');
 const badgeText = await waitFor(async () => { const t = await bodyText(); return t.indexOf('与运行时一致') >= 0 ? t : ''; }, '契约对账徽章', 8000);
 check('跑完后契约能与运行时对账', badgeText.indexOf('与运行时一致') >= 0, String(contractBadge).slice(0, 30));
