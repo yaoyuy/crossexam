@@ -267,4 +267,70 @@ describe('HTTP 层', () => {
     const body = (await res.json()) as { error: string };
     expect(body.error).toContain('没有这个接口');
   });
+
+  it('意图契约在开跑之前就能摊开：全文、指纹、System Prompt 都在', async () => {
+    const t = rig();
+    const res = await t.app.request('/api/contracts');
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      panel: string[];
+      budget: { maxRoundsPerClaim: number; maxProbesPerInterviewerPerClaim: number; maxTotalProbes: number };
+      contracts: {
+        id: string;
+        version: number;
+        digest: string;
+        storedDigest: string | null;
+        verified: boolean;
+        contract: { goal: string; tactics: string[]; forbidden: string[] };
+        systemPrompt: string;
+      }[];
+    };
+    expect(body.panel).toEqual(['tech', 'hr', 'hiring_manager']);
+    expect(body.contracts).toHaveLength(3);
+    expect(body.budget.maxRoundsPerClaim).toBe(3);
+    expect(body.budget.maxProbesPerInterviewerPerClaim).toBe(2);
+    expect(body.budget.maxTotalProbes).toBe(60);
+    for (const view of body.contracts) {
+      expect(view.digest).toMatch(/^[0-9a-f]{16}$/);
+      // 还没跑过这场沙盘，就没有可对账的指纹
+      expect(view.storedDigest).toBeNull();
+      expect(view.verified).toBe(false);
+      expect(view.contract.forbidden.length).toBeGreaterThan(0);
+      // System Prompt 是确定性渲染的：目标与预算数字必须逐字出现在里面
+      expect(view.systemPrompt).toContain(view.contract.goal);
+      expect(view.systemPrompt).toContain('全场追问总次数上限 60 次');
+    }
+    // 两张人设的契约必须不同，否则等于只有一个面试官换了名字
+    expect(body.contracts[0]?.digest).not.toBe(body.contracts[1]?.digest);
+  });
+
+  it('可以指定面板；认不出的角色明确报错，而不是静默丢掉', async () => {
+    const t = rig();
+    const ok = await t.app.request('/api/contracts?panel=tech,stress');
+    const picked = (await ok.json()) as { panel: string[]; contracts: { id: string }[] };
+    expect(picked.panel).toEqual(['tech', 'stress']);
+    expect(picked.contracts.map((item) => item.id)).toEqual(['tech', 'stress']);
+
+    const bad = await t.app.request('/api/contracts?panel=tech,cto');
+    expect(bad.status).toBe(400);
+    const body = (await bad.json()) as { error: string };
+    expect(body.error).toContain('cto');
+    expect(body.error).toContain('domain_expert');
+  });
+
+  it('跑完一场之后契约能与运行时对账，指纹一致即未漂移', async () => {
+    const t = rig();
+    const id = await newSessionId(t);
+    await t.app.request('/api/sessions/' + id + '/run?stream=0&panel=tech,hr', { method: 'POST' });
+    const res = await t.app.request('/api/sessions/' + id);
+    const body = (await res.json()) as {
+      contracts: { id: string; digest: string; storedDigest: string | null; verified: boolean; systemPrompt: string }[];
+    };
+    expect(body.contracts.map((item) => item.id)).toEqual(['tech', 'hr']);
+    for (const view of body.contracts) {
+      expect(view.storedDigest).toBe(view.digest);
+      expect(view.verified).toBe(true);
+      expect(view.systemPrompt).toContain('## 追问预算');
+    }
+  });
 });
