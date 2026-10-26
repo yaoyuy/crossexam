@@ -25,7 +25,9 @@
     "shots": "node tools/ui-shots/shots.mjs",
     "repro": "node tools/repro/repro-check.mjs",
     "export:prompt": "node tools/dsh-export/bin/dsh-export.mjs",
-    "seed:demo": "node packages/server/src/bin/seed-demo.ts"
+    "seed:demo": "node packages/server/src/bin/seed-demo.ts",
+    "docs:pdf": "node tools/docs/build-doc.mjs",
+    "docs:html": "node tools/docs/build-doc.mjs --html-only"
   },
   "devDependencies": {
     "@types/node": "^24.19.2",
