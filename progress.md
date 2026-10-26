@@ -892,7 +892,39 @@ e2e 里「没配置联网就明说缺哪个环境变量」先失败后成功：�
 
 ### 下一步
 
-12 项里的其余项：自定义面试官 + 用 API 优化自己的契约（含非计算机专业预设）→ 确认问题后自动改简历并导出 PDF/DOC →
-零门槛安装（含桌面快捷方式，需用户同意）→ 可增加功能清单 → 全部完成后再次全功能测试。录像仍留到最后。
+12 项里的其余项：确认问题后自动改简历并导出 PDF/DOC → 零门槛安装（含桌面快捷方式，需用户同意）→
+可增加功能清单 → 全部完成后再次全功能测试。录像仍留到最后。
+---
+
+## Session 21 · 2026-10-26 · 第 4 项：面试官不写死在代码里
+
+**目标**：用户第 4 条要求「不能只有技术面试官，要能在页面里自己设置面试官，并通过 API 对自己的契约进行优化，
+所有专业的人都能用」。难点不在界面，在于**自建面试官不能是自由文本**——否则它绕开了整个第 2 章的意图控制。
+
+- shared：新增 `interviewer.ts`。`InterviewerDraft` 是窄字段（名称/领域/资历/语气/简介/目标/手法 2–5 条），
+  过 `interviewerDraftSchema`；`buildCustomContract` 把它补成与五位预设同构的 `IntentContract`（`persona.role='custom'`），
+  于是渲染、指纹、约束条款全部复用。另有 `DOMAIN_ALIASES`（18 个行业）、`DRAFT_SEEDS`（6 条非计算机示例）、
+  `TACTIC_RULES`（7 条按措辞触发的中文手法）与 `localDraftFromText`——纯规则、确定性、**不联网**。
+- server：schema v4 加全局 `interviewer` 表；`orchestrator/panel.ts` 统一 `PRESET_ROLES` / `normalizePanelIds` / `resolvePanel`；
+  `orchestrator/optimize.ts` 走模型并 zod 校验，失败退回本地规则且明说没走模型；HTTP 新增
+  `GET /api/interviewers`、`POST /api/interviewers/draft`、`POST /api/interviewers`、`DELETE /api/interviewers/:id`；
+  `POST /api/sessions` 收 `interviewers` 并把解析出的 `panel` 写进 `meta.panel`（契约冻结在会话里）。
+- 前端：`studio.ts`（与 shared 逐字对账的常量 + 前端预检）+ `InterviewerStudio.tsx`（一句话描述、六个非计算机种子、
+  AI 补成契约 / 只用本地规则两键、「AI 改了什么」diff、渲染出的 System Prompt、库里自建面试官的编辑与删除）；
+  阵容从 `InterviewerRole[]` 改成 `string[]`，自定义排在预设之后且顺序稳定（顺序会进提示词指纹）。
+- 门禁：`npm run verify` 全绿（**38 个测试文件 / 404 条断言** + 冒烟 9 项 + vite 32 modules / JS 298.51 kB）；
+  `npm run e2e:ui` 连跑三轮 **56/56**；`npm run shots` **16 张**（新增 `16-studio.png`），控制台 0 报错。
+
+### 三处真缺陷（都是点测 / 测试抓到的）
+
+1. **预算配置多喂一个字段就误报契约漂移**（F42）：`BudgetConfig` 四字段、契约只声明三个，
+   `resolvePanel` 与 `contractViews` 有一处没收窄，同一场在「跑」与「对账」两处算出不同指纹。
+2. **e2e 断言查了按钮标签**（F43）：「医护」是按钮上的字，填进描述框的正文写的是「临床护士」，断言假失败。
+3. **seed 点击竞态**：点完种子按钮立刻读描述框读到空串，改成先点再等 value 非空。
+
+### 下一步
+
+12 项里还剩：确认问题后自动改简历并导出 PDF/DOC（第 8 项）→ 零门槛安装与桌面快捷方式（第 7、10 项，需用户同意）→
+可增加功能清单（第 11 项）→ 全部完成后再次全功能测试（第 12 项）。录像仍留到最后。
 ---
 
