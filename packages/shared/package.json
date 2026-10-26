@@ -1,0 +1,14 @@
+{
+  "name": "@crossexam/shared",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "CrossExam 领域模型与确定性内核（切分 / 锚定 / 预算 / 意图契约）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*"
+  },
+  "dependencies": {
+    "zod": "^3.25.76"
+  }
+}
