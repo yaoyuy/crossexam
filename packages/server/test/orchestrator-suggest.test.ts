@@ -41,9 +41,12 @@ function verdict(kind: Verdict['kind']): Verdict {
   return { claimId: 'C1', kind, confidence: 0.7, rationale: '理由', evidence: [], probeIds: ['P1'] };
 }
 
+/**
+ * 夹具照抄 SUGGEST_SYSTEM 里写的输出要求——**不含 claimId**。
+ * 早先这里手写了 claimId，于是单元测试全绿，而真实模型照提示词不写 claimId，线上 100% 失败。
+ */
 function draft(over: Partial<{ problem: string; before: string; after: string; why: string }> = {}): string {
   return JSON.stringify({
-    claimId: 'C1',
     problem: over.problem ?? '只说主导，没说清范围',
     before: over.before ?? QUOTE,
     after: over.after ?? '参与重构订单系统',
@@ -76,6 +79,32 @@ describe('简历修改建议', function () {
     expect(outcome.suggestion?.before).toBe(QUOTE);
     expect(outcome.suggestion?.after).toBe('参与重构订单系统');
     expect(outcome.suggestion?.claimId).toBe('C1');
+  });
+
+  it('模型不返回 claimId 也能出建议，且归属取主张自己的编号', async function () {
+    const raw = JSON.stringify({
+      problem: '没说清主导的范围',
+      before: QUOTE,
+      after: '参与重构订单系统',
+      why: '面试官会追问你到底主导了什么',
+    });
+    expect(raw).not.toContain('claimId');
+    const result = await suggestClaims(baseInput({ client: createScriptedClient(handler(raw)) }));
+    expect(result.outcomes[0]?.status).toBe('suggested');
+    expect(result.outcomes[0]?.suggestion?.claimId).toBe('C1');
+    expect(result.errors).toEqual([]);
+  });
+
+  it('模型自报了一个错的主张编号，以主张自己的编号为准', async function () {
+    const raw = JSON.stringify({
+      claimId: 'C9',
+      problem: '没说清主导的范围',
+      before: QUOTE,
+      after: '参与重构订单系统',
+      why: '面试官会追问你到底主导了什么',
+    });
+    const result = await suggestClaims(baseInput({ client: createScriptedClient(handler(raw)) }));
+    expect(result.outcomes[0]?.suggestion?.claimId).toBe('C1');
   });
 
   it('改前原文在简历里定位不到 —— 这条建议用户根本没法应用，拦下', async function () {
