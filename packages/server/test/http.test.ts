@@ -228,6 +228,18 @@ describe('HTTP 层', () => {
     expect(text).toContain('id: 2');
     expect(text).not.toContain('event: fatal');
     expect(text).toContain('"kind":"solid"');
+    // 分片走独立的 stream 事件：五种阶段各有自己的 channel，界面据此把字送回对应卡片
+    expect(text).toContain('event: stream');
+    expect(text).toContain('"channel":"extract"');
+    expect(text).toContain('"channel":"probe:tech"');
+    expect(text).toContain('"channel":"answer:P1"');
+    expect(text).toContain('"channel":"verdict:C1"');
+    expect(text).toContain('"kind":"reasoning"');
+
+    // 关键回归：走 SSE（也就是走流式）不改变落库的事件条数——分片不进事件表
+    const events = await t.app.request('/api/sessions/' + id + '/events');
+    const rows = (await events.json()) as { events: unknown[] };
+    expect(rows.events).toHaveLength(16);
   });
 
   it('中途失败也走 SSE，前端能拿到 fatal 而不是转圈到天荒地老', async () => {
