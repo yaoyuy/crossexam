@@ -167,6 +167,17 @@ const base = input.onStream === undefined
 五个阶段的编排代码完全不知道流式的存在（它们照旧 `await client.complete()`）。
 好处是：JSON 路径（`?stream=0`）与 SSE 路径共用同一份编排逻辑，两条路径都被测试覆盖，且不会出现「流式版本和普通版本行为不一致」。
 
+### 3.3.5 阶段路由：换模型是装配层的事
+
+```ts
+withStageModels(inner, { verdict: 'deepseek-reasoner' })
+```
+
+编排层只关心「问什么」，用哪个模型是装配层的事：`withStageModels` 按 `req.purpose` 在请求上带一个 `model` 字段，
+五个阶段的代码一行都不用改。默认只把**判定**交给思考模型（`CROSSEXAM_REASONING_STAGES` 可改），
+理由见 ADR-0005：判定才需要「停下来想」，而追问一轮要十几次调用。
+`LlmRequest.model` 与 `channel` 一样**刻意不参与卡带指纹**，所以换模型不必重录任何一盘离线卡带。
+
 ## 3.4 前端形态：为什么 web 不 import shared
 
 这是一个看起来违反直觉的决策（共享类型不是好事吗？），但有一条硬理由：
@@ -289,7 +300,7 @@ SSE 有三个终止事件，任何一个发生都意味着这一场结束了：
 
 | 命令 | 作用 | 什么时候跑 |
 | --- | --- | --- |
-| `npm run shots` | 无头浏览器点一遍全流程，出 10 张截图，**控制台有报错即失败** | 改了界面之后 |
+| `npm run shots` | 无头浏览器点一遍全流程，出 11 张截图，**控制台有报错即失败** | 改了界面之后 |
 | `npm run repro` | 干净目录 clone → install → verify → 起服跑一场，逐步计时 | 改复现路径之后 |
 | `npm run seed:demo` | 重新生成 29 盘离线卡带并自检 | 改了提示词之后 |
 
@@ -298,10 +309,10 @@ SSE 有三个终止事件，任何一个发生都意味着这一场结束了：
 | 模块 | 源码行 | 测试行 | 说明 |
 | --- | --- | --- | --- |
 | packages/shared/src | 937 | 489 | 纯函数，测试密度最高 |
-| packages/server/src | 4884 | 3107 | 编排 + IO，含脚本化模型夹具 |
-| packages/web/src | 2767 | 719 | 折叠器与文案 |
-| tools/ | 2199 | 490 | 导出器 / 冒烟 / 截图 / 复现 / 文档构建 |
-| **合计** | **10787** | **4805** | 测试/源码 ≈ 0.45 |
+| packages/server/src | 5056 | 3267 | 编排 + IO，含脚本化模型夹具 |
+| packages/web/src | 2827 | 772 | 折叠器与文案（含 index.css） |
+| tools/ | 2498 | 490 | 导出器 / 冒烟 / 截图 / 复现 / 文档构建（只计 .mjs） |
+| **合计** | **11318** | **5018** | 测试/源码 ≈ 0.44 |
 
 仓库里 **0 个 TODO / FIXME / HACK、0 处 `as any`、0 处 `@ts-ignore`**（全仓库 grep 实测）。
 console.log 只出现在两个 CLI 入口（serve.ts 与 seed-demo.ts）。

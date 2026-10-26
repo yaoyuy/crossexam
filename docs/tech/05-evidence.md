@@ -8,9 +8,9 @@
 ```
 npm run verify
   1/4 typecheck   tsc --noEmit（根 + shared + server + web）
-  2/4 test        31 个测试文件 / 313 条断言 / 3.32 s
+  2/4 test        32 个测试文件 / 323 条断言 / 3.3 s
   3/4 smoke       9 项真进程冒烟
-  4/4 build       vite 8.3.5 / 27 modules / CSS 21.75 kB / JS 265.27 kB（gzip 82.78 kB）
+  4/4 build       vite 8.3.5 / 27 modules / CSS 21.86 kB / JS 265.81 kB（gzip 82.93 kB）
   exit 0
 ```
 
@@ -19,7 +19,7 @@ npm run verify
 | 包 | 测试文件 | 覆盖重点 |
 | --- | --- | --- |
 | shared | 5 | 锚定的四种拒绝、归一化映射、预算五道闸门、契约渲染确定性、schema 解析 |
-| server | 15 | 五阶段编排、闸门顺序、SSE 收尾、迁移、卡带、流式、报告 |
+| server | 16 | 五阶段编排、闸门顺序、SSE 收尾、迁移、卡带、流式、阶段路由、报告 |
 | web | 5 | 文案漂移、高亮切分、事件折叠（直播 vs 历史）、流式分片解析 |
 | tools | 6 | 分页、zstd 多帧、脱敏、Markdown 渲染 |
 
@@ -81,7 +81,7 @@ npm run verify
 | 截图 | 10 张，全部由命令生成 |
 | 控制台 | **0 条报错 / 0 条警告**（收 Runtime.exceptionThrown、consoleAPICalled 的 error 与 warning、Log.entryAdded） |
 | 流程 | 点「慢放」→「一键示例」→「开始质询」，跑到判定与建议全部出现 |
-| 界面数字 | 调用 29 次 · 回放 29 · token 23,533 · 事件 18 · 追问 10 |
+| 界面数字 | 调用 29 次 · 回放 29 · token 24,105 · 事件 18 · 追问 10 |
 | 与后端一致性 | 界面判定条数与服务端 `verdicts` 条数一致 |
 
 截图清单（`docs/screenshots/`）：
@@ -92,12 +92,13 @@ npm run verify
 | 02-demo-loaded.png | 载入示例简历 |
 | 03-running.png | 直播中：三位面试官同时追问 |
 | 04-live-output.png | **实时输出栏：模型正在写的人话**（原始输出是 JSON，界面已还原） |
-| 05-done-top.png | 跑完总览 |
-| 06-verdicts.png | 判定卡片，含「这条判定不是模型直接给的」 |
-| 07-resume-focus.png | 点引文后右栏聚焦到「第 81–108 字」 |
-| 08-history.png | 刷新后从历史恢复 |
-| 09-contracts.png | 意图契约摊开 + 徽章「与运行时一致 · 指纹 b2171c82」 |
-| 10-system-prompt.png | 该面试官实际拿到的 System Prompt 原文 |
+| 05-thinking.png | **同一栏的「思考 + 输出」两行**：斜体是思考分片，正下方是正文分片 |
+| 06-done-top.png | 跑完总览 |
+| 07-verdicts.png | 判定卡片，含「这条判定不是模型直接给的」 |
+| 08-resume-focus.png | 点引文后右栏聚焦到「第 81–108 字」 |
+| 09-history.png | 刷新后从历史恢复 |
+| 10-contracts.png | 意图契约摊开 + 徽章「与运行时一致 · 指纹 b2171c82」 |
+| 11-system-prompt.png | 该面试官实际拿到的 System Prompt 原文 |
 
 ## 5.5 真实模型实测（DeepSeek，live 模式）
 
@@ -129,6 +130,9 @@ npm run verify
 ### 5.5.3 真实模型的流式分片
 
 live 模式下的一场实测：**5,814 个分片 / 29 路 channel / 0 片进入事件表 / 21 条阶段事件**。
+接上思考模型（`CROSSEXAM_REASONING_MODEL=deepseek-reasoner`，只路由 verdict）之后再测一场：
+**2,355 片思考分片 / 8 路 `verdict:*` 通道 / 账本 `reasoningTokens` > 0 / 整场 22.7 s**——
+思考与正文分走两个 `kind`，但同样不进事件表。
 这组数字同时证明了三件事：流式真的在流、分片确实被隔离在事件日志之外、阶段事件的规模稳定在二十条左右。
 
 ### 5.5.4 两条诚实的观察（不是结论）

@@ -5,7 +5,7 @@
 
 参加：**全国高校 Vibe Coding 开发挑战赛 · AI创新应用挑战赛**（赛道 id 10039）。
 
-![跑完一场质询](docs/screenshots/05-done-top.png)
+![跑完一场质询](docs/screenshots/06-done-top.png)
 
 ---
 

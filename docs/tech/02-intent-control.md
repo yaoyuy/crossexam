@@ -317,6 +317,21 @@ while (rounds < maxRounds && probeableClaims(budget, panel).length > 0) { ... }
 因为指纹只对请求做哈希（system / messages / temperature / maxTokens / json）。
 这条设计让「加流式」这件事不需要重录任何一盘离线卡带。
 
+### 2.7.1 思考分片：接上会思考的模型，界面上多一行斜体
+
+思考（`reasoning`）与正文（`delta`）是两个独立通道，用分片上的 `kind` 区分；界面渲染成两行——
+斜体那行是它正在「想」的，正下方那行是它要「说」的。要让这一行真的出现，需要三件事：
+
+| 环节 | 做法 | 为什么 |
+| --- | --- | --- |
+| 选谁思考 | 装配层 `withStageModels(inner, routes)`，按 `req.purpose` 换模型 | 判定才需要「停下来想」；追问一轮十几次调用，全交给思考模型会把一场从十几秒拉成几分钟（ADR-0005） |
+| 换模型不发卡带 | `LlmRequest.model` 与 `channel` 一样不参与指纹 | 已录好的 29 盘演示卡带不必重录 |
+| 没有 Key 也看得见 | 合成脚本把 `reasoning` 写进卡带（同一个通道） | 离线演示也要能证明「思考可视化」是产品能力，不是联网才有的彩蛋；卡带 `model` 固定 `scripted-demo`，一眼可辨 |
+
+实测（2026-10-26，示例简历，`CROSSEXAM_REASONING_MODEL=deepseek-reasoner` 只路由 verdict）：
+一场得到 **2,355 片思考分片 / 8 路 `verdict:*` 通道**，账本 `reasoningTokens` 大于 0，同一场正文分片 5,814 片，两条通道都不进事件表。
+一条要如实说明的代价：模型给的思考文本通常是**英文**（如 “The user asks: …”），这是模型侧行为，我们不翻译——硬翻译会让「思考」变成另一种编造。
+
 ## 2.8 本章要点
 
 - 意图控制不是写提示词，是**四层可判定的机制**：声明（契约）→ 校验（锚定）→ 记账（预算）→ 收敛（规则）。
