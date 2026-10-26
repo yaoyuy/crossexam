@@ -27,6 +27,41 @@
   --font-mono: 'Cascadia Mono', 'Cascadia Code', Consolas, 'Courier New', monospace;
 }
 
+/*
+ * 浅色配色：同一套色阶语义取反——950 是页底、100 是正文，
+ * 所以只要覆盖这些变量，所有已经写好的 bg-ink-900 / text-ink-300 都会跟着变，
+ * 不需要在组件里写一个「浅色分支」。
+ * ember-500/400 留给按钮与边框（底色上要显眼），ember-300 是正文配色（底色上要够深）。
+ */
+:root[data-theme='light'] {
+  --color-ink-950: #f6f7f9;
+  --color-ink-900: #ffffff;
+  --color-ink-850: #f1f3f7;
+  --color-ink-800: #e2e6ed;
+  --color-ink-700: #ccd3de;
+  --color-ink-600: #b3bcca;
+  --color-ink-500: #8b95a5;
+  --color-ink-400: #5f6a7a;
+  --color-ink-300: #4a5462;
+  --color-ink-200: #2c333d;
+  --color-ink-100: #131820;
+
+  --color-ember-500: #e0761f;
+  --color-ember-400: #f0903c;
+  --color-ember-300: #8a3f0c;
+
+  --color-mint-500: #0f8f66;
+  --color-mint-400: #0b7350;
+  --color-amber-ink: #8a6100;
+  --color-rose-ink: #b3253a;
+}
+
+:root[data-theme='light'] body {
+  background-image:
+    radial-gradient(1100px 520px at 18% -10%, rgba(224, 118, 31, 0.1), transparent 60%),
+    radial-gradient(900px 480px at 92% 8%, rgba(74, 97, 128, 0.1), transparent 62%);
+}
+
 html,
 body,
 #root {
