@@ -23,6 +23,8 @@ import type {
   SseEvent,
 } from './api.ts';
 import { nextPanel } from './contract.ts';
+import { applyTheme, nextTheme, readStoredTheme, saveTheme, THEME_LABEL } from './theme.ts';
+import type { Theme } from './theme.ts';
 import { allAnchors, initialSandbox, sandboxReducer, stateFromHistory, totalProbes } from './state.ts';
 import { Chip } from './components/Bits.tsx';
 import { ClaimBoard } from './components/ClaimBoard.tsx';
@@ -62,6 +64,7 @@ export function App() {
   const [hint, setHint] = useState<string | null>(null);
   const [material, setMaterial] = useState<{ resumeText: string; title: string }>({ resumeText: '', title: '' });
   const [contracts, setContracts] = useState<ContractView[] | null>(null);
+  const [theme, setTheme] = useState<Theme>(readStoredTheme);
   const [sandbox, dispatch] = useReducer(sandboxReducer, initialSandbox);
 
   const queueRef = useRef<SseEvent[]>([]);
@@ -290,6 +293,17 @@ export function App() {
     setHint(null);
   }, []);
 
+
+  const handleToggleTheme = useCallback(() => {
+    // 只改 <html data-theme>，颜色全是 CSS 变量的事；顺手把选择记住
+    setTheme((current) => {
+      const next = nextTheme(current);
+      applyTheme(next);
+      saveTheme(next);
+      return next;
+    });
+  }, []);
+
   const mode = modeChip(health);
   const hasReport = sandbox.sessionId !== null && sandbox.claims.length > 0;
   const reportHref = hasReport && sandbox.sessionId !== null ? reportUrl(sandbox.sessionId) : null;
@@ -312,6 +326,16 @@ export function App() {
           </p>
         </div>
         <div className="ml-auto flex flex-wrap items-center gap-2">
+
+          <button
+            type="button"
+            className="chip cursor-pointer transition-colors hover:border-ember-500 hover:text-ink-100"
+            onClick={handleToggleTheme}
+            title="切换深色 / 浅色配色，选择会记住"
+            data-shot="theme"
+          >
+            配色 {THEME_LABEL[theme]}
+          </button>
           <Chip className={mode.className} title={health === null ? '' : health.cassetteDir}>
             {mode.text}
           </Chip>
@@ -382,6 +406,7 @@ export function App() {
           hits={allAnchors(sandbox)}
         />
       </main>
+
     </div>
   );
 }

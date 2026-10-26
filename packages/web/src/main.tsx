@@ -1,6 +1,13 @@
 import { createRoot } from 'react-dom/client';
 import { App } from './App.tsx';
+import { applyTheme, readStoredTheme } from './theme.ts';
 import './index.css';
+
+/**
+ * 主题必须在第一次渲染之前写到 <html> 上，
+ * 否则选了浅色的人每次打开都会先看到一帧深色。
+ */
+applyTheme(readStoredTheme());
 
 /**
  * 这里刻意**不包 StrictMode**。
