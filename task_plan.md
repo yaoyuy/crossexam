@@ -97,7 +97,7 @@
 | P3 前端 | 三栏质询界面（投料台 / 质询舞台 / 简历原文联动高亮）✅ · 单端口演示：一条命令起完整产品 ✅ · 前端 31 条断言（文案漂移 / 区间切分 / 事件折叠）✅ · **没在真浏览器里点过的界面不算做完**：系统 Edge + CDP 实测，控制台 0 报错，3 轮 10 追问全流程跑通 | ✅ done |
 | P4 打磨 | 播放节奏与阶段高亮 ✅ · 无头截图固化成 `npm run shots` ✅（10 张图随命令重生成，顺带把控制台报错当失败）· **意图契约可见** ✅（六行契约 + 实际 System Prompt + 指纹对账，截图 10/11）· **模型推理过程呈现** ✅（live 也真流式：SSE 无名分片 + 左栏「实时输出」，截图 04；分片与事件日志分离见 ADR-0004）· 空状态与错误态细节 ⬜ · 核代码修掉两个潜伏缺陷（追问表唯一约束 → schema v3 · PANEL_SIZE 死配置接上）✅ | 🔄 in_progress |
 | P5 交付 | **README 10 分钟复现指南** ✅（含干净目录实测耗时 33.9 s）· **复现预演 `npm run repro`** ✅（干净 clone 走完评委全部步骤并计时）· **技术文档 PDF** ✅（26 页 / `npm run docs:pdf` / 零依赖渲染链，见 D22）· **演示视频脚本** ✅（7 分 20 秒分镜，AI 协同段 2 分 20 秒，`docs/video/script.md`）· **发布清单** ✅（`docs/release-checklist.md`，逐项标出只有本人能决定的事项）· **Prompt 链快照刷新** ✅（11 份，4.9 MB，明文密钥 0 处）· 演示视频录制 ⬜（需本人）· 公开仓库地址与 LICENSE 署名 ⬜（需本人） | 🔄 in_progress |
-| P6 强化 | **判定口径** ✅（责任归属交回模型，代码只防过于乐观；见 F31）· **思考可视化** ✅（装配层按 purpose 路由，默认只把 verdict 交给 deepseek-reasoner；思考与正文分走 SSE 的 reasoning/text 两路，离线用合成思考同样看得见，截图 05；见 ADR-0005、F33）· **报告导出 PDF/Word** ✅（同一份 SessionView 三种形态：.md / 可打印 HTML（浏览器另存为 PDF，真机实测 6 页）/ .doc；服务端不自造 PDF，见 ADR-0006，截图 12）· 界面点测 `npm run e2e:ui` ✅（11 场景 31 项行为断言） | 🔄 in_progress |
+| P6 强化 | **判定口径** ✅（责任归属交回模型，代码只防过于乐观；见 F31）· **思考可视化** ✅（装配层按 purpose 路由，默认只把 verdict 交给 deepseek-reasoner；思考与正文分走 SSE 的 reasoning/text 两路，离线用合成思考同样看得见，截图 05；见 ADR-0005、F33）· **报告导出 PDF/Word** ✅（同一份 SessionView 三种形态：.md / 可打印 HTML（浏览器另存为 PDF，真机实测 6 页）/ .doc；服务端不自造 PDF，见 ADR-0006，截图 12）· 界面点测 `npm run e2e:ui` ✅（11 场景 33 项行为断言，含三种报告导出各真取一遍） | 🔄 in_progress |
 
 ## 5. 遇到的错误（Errors Encountered）
 

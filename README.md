@@ -96,7 +96,7 @@ CROSSEXAM_MODE=live npm run preview
 | `npm run verify` | **提交门禁**：类型检查 + 测试 + 真进程冒烟 + 构建 |
 | `npm run smoke` | 真起一个服务进程打接口（含 SSE 收尾检查） |
 | `npm run shots` | 真浏览器（Edge/Chrome + CDP）截 12 张图，控制台有报错即失败 |
-| `npm run e2e:ui` | 真浏览器把每个功能点一遍（31 项断言 + 零控制台报错），红了退出码 1 |
+| `npm run e2e:ui` | 真浏览器把每个功能点一遍（33 项断言 + 零控制台报错），红了退出码 1 |
 | `npm run seed:demo` | 重新合成 29 盘离线演示卡带（改了提示词就必须重跑） |
 | `npm run repro` | 干净目录复现预演，逐步计时并与 10 分钟上限比对 |
 | `npm run export:prompt` | 导出 AI 协同的 Prompt 链快照到 `docs/prompt-chain/` |
