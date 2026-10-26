@@ -51,7 +51,9 @@ export type Phase = 'idle' | 'running' | 'done' | 'failed';
 export interface StreamBuffer {
   channel: string;
   stage: string;
-  kind: 'reasoning' | 'text';
+  /** 模型「想」的部分（只有思考模型会给），与正文分开存，界面上也分开显示 */
+  reasoning: string;
+  /** 模型「说」的部分 */
   text: string;
 }
 
@@ -140,18 +142,38 @@ export function runEventFromRow(row: EventRow): RunEvent | null {
   return asRunEvent(row.kind, row.payload);
 }
 
-/** 把一片流式输出并进它所属的 channel。超出上限只留结尾，界面看的就是最新那段。 */
+/** 只保留结尾的 max 个字符：界面看的就是最新那段，thinking 想太久也不该把内存撑大。 */
+function capTail(text: string): string {
+  return text.length > STREAM_CAP ? '…' + text.slice(text.length - STREAM_CAP) : text;
+}
+
+/**
+ * 把一片流式输出并进它所属的 channel。
+ * 思考与正文分别累加：思考模型两边都会给，混进一个字符串就再也分不开了。
+ */
 export function applyStreamChunk(state: SandboxState, chunk: StreamChunk): SandboxState {
   const previous = state.streams[chunk.channel];
-  const joined = previous === undefined ? chunk.text : previous.text + chunk.text;
-  const text = joined.length > STREAM_CAP ? '…' + joined.slice(joined.length - STREAM_CAP) : joined;
-  return {
-    ...state,
-    streams: {
-      ...state.streams,
-      [chunk.channel]: { channel: chunk.channel, stage: chunk.stage, kind: chunk.kind, text: text },
-    },
+  const held: StreamBuffer = previous ?? {
+    channel: chunk.channel,
+    stage: chunk.stage,
+    reasoning: '',
+    text: '',
   };
+  const next: StreamBuffer =
+    chunk.kind === 'reasoning'
+      ? {
+          channel: chunk.channel,
+          stage: chunk.stage,
+          reasoning: capTail(held.reasoning + chunk.text),
+          text: held.text,
+        }
+      : {
+          channel: chunk.channel,
+          stage: chunk.stage,
+          reasoning: held.reasoning,
+          text: capTail(held.text + chunk.text),
+        };
+  return { ...state, streams: { ...state.streams, [chunk.channel]: next } };
 }
 
 /**
@@ -162,6 +184,16 @@ export function streamText(state: SandboxState, channel: string): string | null 
   if (state.phase !== 'running') return null;
   const buffer = state.streams[channel];
   return buffer === undefined || buffer.text.length === 0 ? null : buffer.text;
+}
+
+/**
+ * 某个 channel 正在「想」的内容。与 streamText 一样只在 running 时给值：
+ * 跑完以后留在屏幕上的应该是结论，而不是草稿。
+ */
+export function thoughtText(state: SandboxState, channel: string): string | null {
+  if (state.phase !== 'running') return null;
+  const buffer = state.streams[channel];
+  return buffer === undefined || buffer.reasoning.length === 0 ? null : buffer.reasoning;
 }
 
 /**

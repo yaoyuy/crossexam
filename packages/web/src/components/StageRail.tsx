@@ -179,11 +179,12 @@ export function StageRail(props: {
         <div className="flex flex-col gap-2" data-shot="live">
           <h3 className="text-[11px] font-semibold uppercase tracking-wide text-ink-400">实时输出</h3>
           <p className="text-[11px] leading-relaxed text-ink-500">
-            模型正在一个字一个字地写。这里取的是它正在写的那句人话（它原始吐出来的是 JSON）——
+            模型正在一个字一个字地写。斜体那行是它「想」的（只有会思考的模型才给），正下方是它「说」的——
             分片不进事件日志、刷新就没了，能断线续传的只有上面那条阶段时间线。
           </p>
           <ul className="flex flex-col gap-1.5">
             {live.map((buffer) => {
+              const thought = tailText(readableStreamText(buffer.reasoning), 220);
               const text = tailText(readableStreamText(buffer.text), 240);
               return (
                 <li
@@ -195,10 +196,18 @@ export function StageRail(props: {
                       {channelLabel(buffer.channel)}
                     </span>
                     <span className="text-[10px] text-ink-500">
-                      {buffer.kind === 'reasoning' ? '思考' : '输出'}
+                      {buffer.reasoning === '' ? '输出' : '思考 + 输出'}
                     </span>
                   </div>
-                  <p className="mt-1 max-h-24 overflow-hidden whitespace-pre-wrap text-[11px] leading-relaxed text-ink-400">
+                  {thought === '' ? null : (
+                    <p
+                      data-shot="live-reasoning"
+                      className="mt-1 max-h-20 overflow-hidden whitespace-pre-wrap border-l-2 border-ink-700 pl-2 text-[11px] italic leading-relaxed text-ink-500"
+                    >
+                      {thought}
+                    </p>
+                  )}
+                  <p className="mt-1 max-h-24 overflow-hidden whitespace-pre-wrap text-[11px] leading-relaxed text-ink-300">
                     {text === '' ? '…' : text}
                   </p>
                 </li>
