@@ -7,7 +7,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { buildPayload, createLiveClient, endpointOf, parseSseData, readUsage, resolveLiveConfig } from '../src/llm/live.ts';
+import { buildPayload, createLiveClient, endpointOf, listLiveModels, parseSseData, readUsage, resolveLiveConfig } from '../src/llm/live.ts';
 import { digestFor, readCassette } from '../src/llm/cassette.ts';
 import { LlmError } from '../src/llm/types.ts';
 import { baseRequest, classifyLlmError, cleanup, newTempDir } from './llm-helpers.ts';
@@ -257,5 +257,57 @@ describe('录制模式', function () {
     } finally {
       cleanup(dir);
     }
+  });
+});
+
+/**
+ * 模型清单是给界面铺下拉框的，因此它有两条不能破的规矩：
+ *   1. 配置不全时**一个网络包都不发**（默认路径是离线回放，打开页面不该产生联网行为）；
+ *   2. 端点没有 /models 不算致命错误——允许用户手填模型名。
+ */
+describe('模型清单', function () {
+  it('没配好就不发请求，直接说清缺哪个环境变量', async function () {
+    const calls: Call[] = [];
+    // 显式传空串：无论这台机器有没有 LLM_* 环境变量，这条断言都成立。
+    const listed = await listLiveModels({
+      baseUrl: '',
+      apiKey: '',
+      model: '',
+      fetchImpl: fakeFetch(function () { return jsonResponse({ data: [] }); }, calls),
+    });
+    expect(listed.ready).toBe(false);
+    expect(calls).toEqual([]);
+    expect(listed.error).toContain('LLM_BASE_URL');
+    expect(listed.error).toContain('LLM_API_KEY');
+  });
+
+  it('配上就按 /models 拉一次，认 data[].id、去重、去掉空白', async function () {
+    const calls: Call[] = [];
+    const listed = await listLiveModels({
+      ...CONFIG,
+      fetchImpl: fakeFetch(function () {
+        return jsonResponse({
+          data: [{ id: 'deepseek-chat' }, { id: 'deepseek-chat' }, { id: ' deepseek-reasoner ' }, { id: '' }, {}],
+        });
+      }, calls),
+    });
+    expect(listed.ready).toBe(true);
+    expect(listed.models).toEqual(['deepseek-chat', 'deepseek-reasoner']);
+    expect(listed.defaultModel).toBe('demo-model');
+    expect(listed.error).toBeNull();
+    expect(calls.length).toBe(1);
+    expect(calls[0]?.url).toBe('https://example.invalid/v1/models');
+    expect(calls[0]?.authorization).toBe('Bearer test-key');
+  });
+
+  it('端点不认 /models 时不算致命：仍然 ready，但把状态说出来让人手填', async function () {
+    const calls: Call[] = [];
+    const listed = await listLiveModels({
+      ...CONFIG,
+      fetchImpl: fakeFetch(function () { return jsonResponse({ error: 'no such route' }, 404); }, calls),
+    });
+    expect(listed.ready).toBe(true);
+    expect(listed.models).toEqual([]);
+    expect(listed.error).toContain('404');
   });
 });

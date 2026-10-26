@@ -506,3 +506,129 @@ describe('简历导入接口', () => {
     expect(body.chars).toBe(text.length);
   });
 });
+
+/**
+ * 运行模式与模型：这一组测试守的是「界面选的模式真的被用上了」——
+ * 最容易出的错是模式在请求里传了、却没人读，最后所有会话都按进程启动时那一套跑。
+ */
+describe('运行模式与模型', () => {
+  const ENV_KEYS = ['LLM_BASE_URL', 'LLM_API_KEY', 'LLM_MODEL'];
+
+  /** 有些断言必须在「这台机器没配联网」的前提下才成立，跑完原样放回去。 */
+  async function withoutLiveEnv<T>(fn: () => Promise<T>): Promise<T> {
+    const saved = new Map<string, string | undefined>();
+    for (const key of ENV_KEYS) {
+      saved.set(key, process.env[key]);
+      delete process.env[key];
+    }
+    try {
+      return await fn();
+    } finally {
+      for (const [key, value] of saved) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+  }
+
+  it('健康检查把三种模式与「联网就绪了吗」一并说清', async () => {
+    const t = rig();
+    const res = await t.app.request('/api/health');
+    const body = (await res.json()) as {
+      modes: string[];
+      modeLabels: Record<string, string>;
+      live: { ready: boolean; missing: string[] };
+    };
+    expect(body.modes).toEqual(['replay', 'live', 'record']);
+    expect(body.modeLabels['replay']).toContain('离线回放');
+    expect(Array.isArray(body.live.missing)).toBe(true);
+    expect(body.live.ready).toBe(body.live.missing.length === 0);
+  });
+
+  it('模式写错就 400：不猜，也不悄悄退回回放', async () => {
+    const t = rig();
+    const res = await createSession(t, { resumeText: RESUME, mode: 'liv' });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toContain('运行模式只能是');
+  });
+
+  it('没配好联网时当场 400，并点名缺哪个环境变量', async () => {
+    await withoutLiveEnv(async () => {
+      const t = rig();
+      const res = await createSession(t, { resumeText: RESUME, mode: 'live', model: 'deepseek-chat' });
+      expect(res.status).toBe(400);
+      const error = ((await res.json()) as { error: string }).error;
+      expect(error).toContain('LLM_BASE_URL');
+      expect(error).toContain('LLM_API_KEY');
+    });
+  });
+
+  it('回放不需要配置，也不需要模型名——选了回放就把它清掉', async () => {
+    await withoutLiveEnv(async () => {
+      const t = rig();
+      const res = await createSession(t, { resumeText: RESUME, mode: 'replay', model: 'deepseek-chat' });
+      expect(res.status).toBe(201);
+      const created = (await res.json()) as { id: string; mode: string; model: string };
+      expect(created.mode).toBe('replay');
+      expect(created.model).toBe('');
+      const view = (await (await t.app.request('/api/sessions/' + created.id)).json()) as {
+        session: { llmMode: string };
+      };
+      expect(view.session.llmMode).toBe('replay');
+    });
+  });
+
+  it('联网那一场把模式与模型交给客户端工厂：重跑按会话行自己记的来', async () => {
+    const savedBase = process.env['LLM_BASE_URL'];
+    const savedKey = process.env['LLM_API_KEY'];
+    process.env['LLM_BASE_URL'] = 'https://example.invalid/v1';
+    process.env['LLM_API_KEY'] = 'test-key';
+    try {
+      const db = openDatabase({ path: ':memory:' });
+      migrate(db);
+      opened.push(db);
+      const seen: { mode: string; model: string }[] = [];
+      const app = createApp({
+        db,
+        cassetteDir: '.tmp/fixtures',
+        clientFactory: (mode, model) => {
+          seen.push({ mode, model });
+          return scripted();
+        },
+      });
+      const created = (await (await app.request('/api/sessions', {
+        method: 'POST',
+        headers: JSON_HEADERS,
+        body: JSON.stringify({
+          resumeText: RESUME,
+          jobTitle: '后端工程师',
+          mode: 'live',
+          model: 'deepseek-reasoner',
+        }),
+      })).json()) as { id: string; mode: string; model: string };
+      expect(created.mode).toBe('live');
+      expect(created.model).toBe('deepseek-reasoner');
+
+      const run = await app.request('/api/sessions/' + created.id + '/run?stream=0&panel=tech', { method: 'POST' });
+      expect(run.status).toBe(200);
+      expect(seen).toEqual([{ mode: 'live', model: 'deepseek-reasoner' }]);
+    } finally {
+      if (savedBase === undefined) delete process.env['LLM_BASE_URL'];
+      else process.env['LLM_BASE_URL'] = savedBase;
+      if (savedKey === undefined) delete process.env['LLM_API_KEY'];
+      else process.env['LLM_API_KEY'] = savedKey;
+    }
+  });
+
+  it('模型清单：没配好时不发请求也要能回答界面', async () => {
+    await withoutLiveEnv(async () => {
+      const t = rig();
+      const res = await t.app.request('/api/models');
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { ready: boolean; models: string[]; missing: string[] };
+      expect(body.ready).toBe(false);
+      expect(body.models).toEqual([]);
+      expect(body.missing).toContain('LLM_API_KEY');
+    });
+  });
+});
