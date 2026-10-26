@@ -36,9 +36,28 @@ node tools/dsh-export/bin/dsh-export.mjs --list           # 先看看有哪些�
 node tools/dsh-export/bin/dsh-export.mjs                  # 导出当前工作目录的会话
 node tools/dsh-export/bin/dsh-export.mjs --all            # 导出全部
 node tools/dsh-export/bin/dsh-export.mjs --dry-run        # 跑完整流程但不写文件
+node tools/dsh-export/bin/dsh-export.mjs --no-split       # 一个会话只写一个文件（本地翻阅用）
+node tools/dsh-export/bin/dsh-export.mjs --max-chars-per-file 120000   # 改分页上限
 ```
 
 仓库根目录另有快捷键：`npm run export:prompt`。
+
+## 分页
+
+一次开发过程聊下来，快照会长到上百万字符（本仓库 P4 那次是 330 万）。
+网页端对超过 1 MB 的 Markdown **只给下载、不给渲染**，而这份快照的读者是评委，
+所以导出器默认按体积分页（`--max-chars-per-file`，默认 400000 字符，约 470 KB）：
+
+- 切页发生在**条目**边界——用户提问 / AI 回复 / 思考过程 / 一次工具调用，
+  而不是只在轮次边界（单轮就可能超过一百万字符，只在轮次边界切仍然超限）。
+- 每一页自带标题、元信息表与轮次头，单独打开也能读懂；跨页的同一条轮次会标 `（续）`。
+- **内容一个字都没有删**，只多了一行分页说明。
+- 单个条目本身就超过上限时，它独占一页——宁可这一页超标，也不把一条完整证据切成两半。
+- 文件名：单页用原名 `xx.md`，多页是 `xx-1.md`、`xx-2.md`……
+  改了上限或会话变短后，上次留下、这次不再需要的分片会被自动清理，不留孤儿文件。
+- `docs/prompt-chain/README.md` 与 `index.json` 里会标出每个文件是第几部分、覆盖哪些 Turn。
+
+分页逻辑在 `src/paginate.mjs`，测试在 `test/paginate.test.mjs`（含「不分页时输出与旧版逐字节相同」的回归）。
 
 ## 安全
 
@@ -56,3 +75,5 @@ npx vitest run tools/dsh-export
 ```
 
 测试用 `zlib.zstdCompressSync` 造真实的多帧数据，不用手写字节。
+
+分页与渲染层拆分的测试在 `test/paginate.test.mjs`、`test/render.test.mjs`。
