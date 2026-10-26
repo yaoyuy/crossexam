@@ -392,3 +392,37 @@ npm run shots 控制台 0 报错，9 张图全部重新生成（01-intake 变大
 ### 下一步
 
 P4 剩余：模型推理过程的呈现、空状态与错误态细节；然后进 P5（README 10 分钟复现、技术文档 PDF、演示视频脚本）。
+## Session 8（2026-10-26）P5 起步：把「10 分钟复现」从一句话变成一条命令
+
+### 这一段的动机
+
+评分表 25% 是「过程可复现性与演进链路」，而 README 里「10 分钟能跑起来」原先只是**一句承诺**。
+承诺要能被复核才算证据，于是这一段做了三件事：写复现预演、按预演暴露的问题修代码、补齐 README。
+
+### 做了什么
+
+1. **tools/repro/repro-check.mjs**（`npm run repro`）：把仓库当成评委第一次见到它的样子——
+   干净临时目录里 clone → npm install → npm run verify → 起服 → 建档 → 跑完一场 → 取报告，逐步计时，
+   超过 10 分钟就退出码 1。上游工作区脏时直接拒绝（`--allow-dirty` 仅供调试脚本用）。
+2. **干净目录实测**：clone 2.5 s + install 14.0 s + verify 14.9 s + 起服跑完一场 0.8 s = **约 35 秒**，
+   「10 分钟极速复现」这条承诺有据可查；数字写进 README 与 tools/repro/README.md。
+3. **修掉一个复现级 bug**：README 一直让评委 `cp .env.example .env`，但后端从来没有载入过 `.env`——
+   配置静默不生效（`CROSSEXAM_MODE=live` 写了也还是回放）。新增 env.ts 用 Node 自带的 process.loadEnvFile，
+   启动横幅打印实际载入了哪个文件，补 3 条测试。见 F21。
+4. **README 重写**：十分钟复现步骤、为什么不需要 Key、实测耗时表、命令表、复现 FAQ、四个技术支点、架构图、文档索引。
+
+### 两个坑
+
+1. **Windows 上 npm.cmd 不能无 shell 地 spawn**：Node 从 20.12 起直接拒绝，而带 shell 又触发 DEP0190（参数不转义）。
+   最后改成「node + 本机自带的 npm-cli.js」，比 shell 拼接更干净，行为也与评委敲 npm 一致。
+2. **summary.verdicts 是数组不是数字**：第一版预演把判定数打印成了 `[object Object],[object Object]…`，
+   顺手补上判定分布（solid / overstated / unanswerable / unanswerable / unsupported），反而更有说服力。
+
+### 门禁
+
+npm run verify **exit 0**：typecheck + **27 个测试文件 / 244 条断言** + 冒烟 9 项 + build。
+npm run repro **exit 0**：干净目录 34.5 s 跑通全流程。
+
+### 下一步
+
+P5：技术文档 PDF、演示视频脚本（含 ≥2 分钟 AI 协同过程复现）、Prompt 链快照刷新、发布清单（建远端仓库 + 逐项核对提交物）。

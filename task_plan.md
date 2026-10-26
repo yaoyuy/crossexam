@@ -96,7 +96,7 @@
 | P2 智能体 | 五阶段流水线（抽取/组庭/并发追问/判定/反推）✅ · 会话执行器落库 + HTTP/SSE 直播 ✅ · Markdown 报告与一键体验示例 ✅ · 离线演示卡带（seed:demo：29 盘合成卡带 + 自检 + 漂移门禁）✅ | ✅ done |
 | P3 前端 | 三栏质询界面（投料台 / 质询舞台 / 简历原文联动高亮）✅ · 单端口演示：一条命令起完整产品 ✅ · 前端 31 条断言（文案漂移 / 区间切分 / 事件折叠）✅ · **没在真浏览器里点过的界面不算做完**：系统 Edge + CDP 实测，控制台 0 报错，3 轮 10 追问全流程跑通 | ✅ done |
 | P4 打磨 | 播放节奏与阶段高亮 ✅ · 无头截图固化成 `npm run shots` ✅（9 张图随命令重生成，顺带把控制台报错当失败）· **意图契约可见** ✅（六行契约 + 实际 System Prompt + 指纹对账，截图 08/09）· 模型推理过程呈现 ⬜ · 空状态与错误态细节 ⬜ | 🔄 in_progress |
-| P5 交付 | README 10 分钟复现、技术文档 PDF、演示视频脚本与录制 | ⬜ |
+| P5 交付 | **README 10 分钟复现指南** ✅（含干净目录实测耗时 ≈35 s）· **复现预演 `npm run repro`** ✅（干净 clone 走完评委全部步骤并计时）· 技术文档 PDF ⬜ · 演示视频脚本与录制 ⬜ · Prompt 链快照刷新与发布清单 ⬜ | 🔄 in_progress |
 
 ## 5. 遇到的错误（Errors Encountered）
 
@@ -112,6 +112,8 @@
 | insertSession 的 llmMode 需要 StoredLlmMode，传 string 报 TS2322 | 1 | 门禁里的 tsc --noEmit 拦下；import type 后在函数签名上标注 |
 | 前端 highlight.ts 有未使用的 import，报 TS6133 | 1 | 门禁 typecheck 拦下，删掉即可；也说明前端包确实被纳入统一门禁 |
 | 漂移测试把 PERSONA_PRESETS 当作 {name,blurb} 断言，第一次是红的 | 1 | 打印真实结构（{persona:{...},goal,tactics}）后改正；见 findings F14 |
+| README 让 `cp .env.example .env`，但后端从未载入过 .env，配置静默不生效 | 1 | 新增 env.ts，用 Node 自带 process.loadEnvFile，启动横幅打印实际载入路径，补 3 条测试；见 findings F21 |
+| Windows 上 spawn `npm.cmd` 被 Node 拒绝（20.12+），改 shell:true 又触发 DEP0190 | 1 | 改成「node + 本机 npm-cli.js」，无 shell 也不转义；见 tools/repro/README.md |
 
 ## 6. 决策记录（Decisions）
 
@@ -132,3 +134,5 @@
 | D13 | 单端口托管已构建前端，npm run preview = 构建 + 起服 | 评审只会跑一次；两个端口的演示多一步、多一个失败点；见 ADR-0003 |
 | D14 | 契约不落库全文，只落 {id,version,digest}，读侧重算并与指纹对账 | 存副本会让「界面显示的就是真正在跑的那份」变成无法验证的断言；重算 + 对账把一致/漂移变成可判定状态；见 findings F19 |
 | D15 | `/api/contracts` 对未知角色报 400，`/run?panel=` 继续宽容过滤 | 前者返回值就是全部内容，静默丢弃会把错误伪装成成功；后者的解是「用哪几位面试官」，滤完仍是合法演出；见 findings F20 |
+| D16 | README 里的复现耗时必须是 `npm run repro` 在干净目录跑出来的数字 | 「我这儿很快」不是证据；承诺与被测量的路径必须是同一条，否则写出来的数字只是印象 |
+| D17 | 载入 .env 用 Node 自带的 `process.loadEnvFile`，不引 dotenv | 少一个依赖就少一个复现失败点；Node ≥22.5 已内置，够用；见 findings F21 |
