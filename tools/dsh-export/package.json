@@ -1,0 +1,17 @@
+{
+  "name": "@crossexam/dsh-export",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "把 DSH 会话日志导出为可提交的 Prompt 链快照",
+  "bin": {
+    "dsh-export": "./bin/dsh-export.mjs"
+  },
+  "main": "./src/index.mjs",
+  "scripts": {
+    "test": "vitest run"
+  },
+  "engines": {
+    "node": ">=22.15.0"
+  }
+}
