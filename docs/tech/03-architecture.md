@@ -264,6 +264,8 @@ llm_call(id, session_id, digest, purpose, model, replayed, usage_json, elapsedMs
 | `POST /api/interviewers/draft` | 把一句话描述补成契约草稿（**不落库**）：`useModel:false` 走本地规则，模型失败自动退回本地并说明原因 |
 | `POST /api/interviewers` | 保存自建面试官（预设不可改、不可删） |
 | `DELETE /api/interviewers/:id` | 删掉一位自建面试官（预设返回 400，不存在返回 404） |
+| `GET /api/templates` | 岗位模板库：12 个行业 × 3 个岗位，每条含 JD、示例简历、可追问点与推荐的两位面试官（只读，**不写任何表**） |
+| `POST /api/templates/:id/apply` | 一键采用：把 JD 与示例简历填进投料台，并把模板自带的那位面试官装进库里（按模板 id 派生 id，**幂等**；返回 `created` 说明是新建还是复用） |
 | `POST /api/sessions` | 建档（useDemo 或 resumeText，可指定 `mode`、`model`、`interviewers`：三者都随会话落库） |
 | `POST /api/sessions/:id/run` | 跑沙盘：默认 SSE 直播，`?stream=0` 走 JSON |
 | `GET /api/sessions/:id/events?from=` | 事件续传 |
@@ -355,6 +357,20 @@ HTML 报告不引用任何外部资源，保存单文件即可离线打开；页
 
 导出复用报告那条路：服务端出 HTML，PDF 交给浏览器（ADR-0006），Word 是同一份 HTML + `.doc` 后缀。简历导出与报告导出**分两个渲染器**（`resume-export.ts` / `report-html.ts`）：报告是质询结论，简历是要发给 HR 的东西，混在一起会让简历带上满屏判定徽章。`marks=1` 时才把改动段标绿并附「本版改了什么（N 处）」——默认导出的就是干净的一版。改动坐标用的是 `movedSpans(applied)`：采纳会让后文整体平移，标记位置必须按累计位移重算，不能直接套原文坐标（见 `packages/shared/src/revise.ts`）。
 
+### 3.6.8 岗位模板库：12 个行业 × 3 个岗位，点一下把料装好
+
+空白投料台对不懂某个行业的人是死路：不知道该喂什么料，也不知道这个工具能问出什么。模板要解决的就是这十秒钟。
+
+模板是**数据不是代码**：36 条 `JobTemplate`（`{id, industry, title, jd, resume, hints, presets, custom}`）放在 `packages/shared/src/templates/`，
+加一个行业只改数据文件，界面只读、规则不重复实现。三条选法是刻意的：**翻库不落库**（`GET /api/templates` 不写任何表——
+浏览一遍不该往全局面试官库里塞几十位）；**一键采用幂等**（模板自带的那位面试官，id 由 `customInterviewerId(name, template.id)` 派生，
+同一个模板永远同一个 id，点两次是复用，`created` 让界面说清是哪一种，F50）；**每条都必须留可追问的点**——示例简历刻意保留
+「下降明显」「参与抢救十余次」这类说法并带具体数字，否则一场质询全是「站得住」，恰好演示不出这个产品在干什么。
+
+字数上下限与推荐阵容进常量 `TEMPLATE_LIMITS`，`templateProblems(list)` 是全库唯一校验入口：测试既拿它验 36 条全过，
+也拿它验「注入一处毛病会被点名」（F49）。取材合规上不做招聘平台爬虫——BOSS 直聘的 robots.txt 对 `User-agent: *` 写 `Disallow: /*?*`，
+而职位列表页全带查询参数；36 条模板的 JD 与示例简历全部原创。取舍见 ADR-0011、决策 D42。
+
 ## 3.7 工程质量：门禁四道
 
 `npm run verify` 是提交前必须全绿的一道门，它由四件事组成：
@@ -362,9 +378,9 @@ HTML 报告不引用任何外部资源，保存单文件即可离线打开；页
 | 顺序 | 命令 | 证明什么 | 当前规模 |
 | --- | --- | --- | --- |
 | 1 | `npm run typecheck` | 类型对（`tsc --noEmit`，含各包） | 全仓库 |
-| 2 | `npm run test` | 逻辑对（vitest） | 43 个文件 / 459 条断言 / 4.8 s |
+| 2 | `npm run test` | 逻辑对（vitest） | 45 个文件 / 481 条断言 / 4.2 s |
 | 3 | `npm run smoke` | **产品能跑**（真起进程、真打 HTTP、真等 SSE） | 9 项 |
-| 4 | `npm run build` | 前端能构建 | vite，35 modules（JS 306.75 kB / gzip 95.63 kB） |
+| 4 | `npm run build` | 前端能构建 | vite，37 modules（JS 309.48 kB / gzip 96.40 kB） |
 
 第 3 道是`findings.md` F11 的直接产物：同进程的 `app.request()` 测试全绿，真起服务却第一次写入就报没有表。
 **单元测试证明的是「函数逻辑对」，冒烟证明的是「产品能跑」，这两句话之间隔着一个进程边界，而事故恰好长在边界上。**
@@ -373,7 +389,7 @@ HTML 报告不引用任何外部资源，保存单文件即可离线打开；页
 
 | 命令 | 作用 | 什么时候跑 |
 | --- | --- | --- |
-| `npm run shots` | 无头浏览器点一遍全流程，出 17 张截图，**控制台有报错即失败** | 改了界面之后 |
+| `npm run shots` | 无头浏览器点一遍全流程，出 18 张截图，**控制台有报错即失败** | 改了界面之后 |
 | `npm run repro` | 干净目录 clone → install → verify → 起服跑一场，逐步计时 | 改复现路径之后 |
 | `npm run seed:demo` | 重新生成 29 盘离线卡带并自检 | 改了提示词之后 |
 
@@ -381,11 +397,11 @@ HTML 报告不引用任何外部资源，保存单文件即可离线打开；页
 
 | 模块 | 源码行 | 测试行 | 说明 |
 | --- | --- | --- | --- |
-| packages/shared/src | 1432 | 765 | 纯函数，测试密度最高 |
+| packages/shared/src | 2624 | 876 | 纯函数与数据（含 36 条岗位模板），测试密度最高 |
 | packages/server/src | 7309 | 4172 | 编排 + IO + 导入解析 + 面试官库 + 报告三种形态 + 采纳改写，含脚本化模型夹具 |
-| packages/web/src | 4581 | 1255 | 折叠器、文案、工作室与采纳栏（只计 .ts/.tsx，index.css 另 321 行） |
-| tools/ | 3142 | 596 | 导出器 / 冒烟 / 截图 / 界面点测 / 复现 / 文档构建 / 零门槛启动器（只计 .mjs，测试目录另计） |
-| **合计** | **16464** | **6788** | 测试/源码 ≈ 0.41 |
+| packages/web/src | 4850 | 1317 | 折叠器、文案、工作室、模板选择器与采纳栏（只计 .ts/.tsx，index.css 另 321 行） |
+| tools/ | 3201 | 596 | 导出器 / 冒烟 / 截图 / 界面点测 / 复现 / 文档构建 / 零门槛启动器（只计 .mjs，测试目录另计） |
+| **合计** | **18047** | **7063** | 测试/源码 ≈ 0.39 |
 
 ### 3.7.2 零门槛入口：双击就能用，判断逻辑可单测
 
