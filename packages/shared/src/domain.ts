@@ -46,6 +46,17 @@ export const VERDICT_LABEL: Record<VerdictKind, string> = {
   unanswerable: '无法回答',
 };
 
+/** 主张类别的中文标签。和 VERDICT_LABEL 一样放在领域层，前端与报告共用一份，避免两处各写一套 */
+export const CLAIM_CATEGORY_LABEL: Record<ClaimCategory, string> = {
+  skill: '技能掌握',
+  experience: '经历',
+  achievement: '成果',
+  metric: '数字指标',
+  ownership: '主导程度',
+  timeline: '时间线',
+  other: '其他',
+};
+
 export type InterviewerRole = 'tech' | 'hr' | 'hiring_manager' | 'stress' | 'domain_expert';
 
 export type Seniority = 'junior' | 'mid' | 'senior' | 'principal';
