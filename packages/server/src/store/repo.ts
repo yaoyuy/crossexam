@@ -303,6 +303,7 @@ interface ProbeDbRow {
   exact: number;
   answer_text: string | null;
   answer_mode: string | null;
+  answer_cites_json: string | null;
   verdict: string | null;
   created_at: string;
 }
@@ -315,7 +316,7 @@ function mapProbe(row: ProbeDbRow): ProbeRow {
           probeId: row.id,
           text: row.answer_text,
           mode: (row.answer_mode ?? 'simulated') as Answer['mode'],
-          citedAnchors: [],
+          citedAnchors: parseJson<Anchor[]>(row.answer_cites_json, []),
         };
   return {
     id: row.id,
@@ -364,10 +365,15 @@ export function listProbes(db: Db, sessionId: string, claimId?: string): ProbeRo
   return rows.map(mapProbe);
 }
 
+/**
+ * 存一次作答。援引的原文锚点也一并存下来：历史会话重开时，
+ * 「求职者援引了哪几句原文」是判定可读性的一部分，丢了就只剩一段孤零零的话。
+ */
 export function saveAnswer(db: Db, sessionId: string, probeId: string, answer: Answer): void {
-  db.prepare('UPDATE probe SET answer_text = ?, answer_mode = ? WHERE session_id = ? AND id = ?').run(
+  db.prepare('UPDATE probe SET answer_text = ?, answer_mode = ?, answer_cites_json = ? WHERE session_id = ? AND id = ?').run(
     answer.text,
     answer.mode,
+    JSON.stringify(answer.citedAnchors),
     sessionId,
     probeId,
   );
