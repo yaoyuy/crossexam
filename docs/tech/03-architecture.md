@@ -260,7 +260,11 @@ llm_call(id, session_id, digest, purpose, model, replayed, usage_json, elapsedMs
 | `GET /api/demo` | 内置示例简历与 JD |
 | `POST /api/import` | 上传 PDF / Word / 文本，解析成简历正文（字节不存留；413 太大 / 415 格式不支持 / 422 解析不出文字） |
 | `GET /api/contracts?panel=` | 意图契约全文 + 指纹（纯确定性，不调模型、不读库） |
-| `POST /api/sessions` | 建档（useDemo 或 resumeText，可指定 `mode` 与 `model`：模式与模型随会话落库） |
+| `GET /api/interviewers` | 面试官库：五位预设（只读）+ 自建的那些（带 id / version / digest / 渲染出的 System Prompt） |
+| `POST /api/interviewers/draft` | 把一句话描述补成契约草稿（**不落库**）：`useModel:false` 走本地规则，模型失败自动退回本地并说明原因 |
+| `POST /api/interviewers` | 保存自建面试官（预设不可改、不可删） |
+| `DELETE /api/interviewers/:id` | 删掉一位自建面试官（预设返回 400，不存在返回 404） |
+| `POST /api/sessions` | 建档（useDemo 或 resumeText，可指定 `mode`、`model`、`interviewers`：三者都随会话落库） |
 | `POST /api/sessions/:id/run` | 跑沙盘：默认 SSE 直播，`?stream=0` 走 JSON |
 | `GET /api/sessions/:id/events?from=` | 事件续传 |
 | `GET /api/sessions/:id/report.md` | 下载 Markdown 报告 |
@@ -311,6 +315,26 @@ HTML 报告不引用任何外部资源，保存单文件即可离线打开；页
 
 `GET /api/models` 只在显式选择联网后才被前端调用：先 `resolveLiveConfig`，缺 `LLM_BASE_URL` / `LLM_API_KEY` 就**一个网络包都不发**，直接把缺哪个变量告诉界面。拉不到清单不等于不能用——界面是 `input + datalist`，可以手填模型名；`/models` 返回什么也**不是可用性证据**（本机实测它只列出两款模型，而实际能调通四款）。见 D33、D34、F41。
 
+### 3.6.6 自定义面试官：一句话补成契约，没有 Key 也能配
+
+五位预设解决的是「计算机岗位」。可这个产品要能给任何行业用，就不能把面试官写死在代码里。
+于是自建面试官的产物**不是一段自由文本，而是同一份 `IntentContract`**——它和预设共用渲染、共用指纹、共用约束条款，
+所以第 2 章讲的「意图可解释、可版本化、可 diff」对自建面试官一样成立。
+
+链路是三段，每段都留了不联网的出口：
+
+1. **描述 → 草稿**（`POST /api/interviewers/draft`，不落库）。模型返回的 JSON 必须过 `interviewerDraftSchema`（名称 1–24 字、目标 8–200 字、手法 2–5 条…），
+   过不了就不收。用户勾「只用本地规则」时走 `localDraftFromText`：纯规则、确定性、不联网，靠一张措辞表把话翻成手法
+   （说了数字就追口径、说了「参与」就问边界、说了「好评」就问评选范围）。模型这条路失败时**自动退回本地并明说没走模型**，见 D36。
+2. **草稿 → 库**（`POST /api/interviewers`）。落 `interviewer` 表（id + version + digest + 契约 JSON），是**全局库**而不是会话表。
+3. **库 → 阵容 → 会话**。`POST /api/sessions` 的 `interviewers` 收 id 列表，解析出的 `panel` 写进 `meta.panel`。
+   **契约一旦被某场会话引用就冻结在会话里**：后来在库里改了、删了，旧会话的复现与对账仍然成立。
+
+有个坑值得记下来：`resolvePanel` 只能把预算的**三个**字段交给契约。`maxConsecutiveUnanswerable` 是编排层的关停策略，
+不属于面试官契约；多给一个字段，同一场沙盘就会在「运行」与「对账」两处算出不同指纹，界面把没漂移的沙盘报成「契约漂移」（F42）。
+预设不可改也不可删——它们的人设写在代码里，改预设等于悄悄改历史。上限 40 位，够用且防止界面被自己的库拖垮。
+为什么不干脆让用户填一段 System Prompt 自由文本？因为那样就丢掉了可解释、可版本化、可对账、可约束这四件事。取舍详见 ADR-0008。
+
 ## 3.7 工程质量：门禁四道
 
 `npm run verify` 是提交前必须全绿的一道门，它由四件事组成：
@@ -318,9 +342,9 @@ HTML 报告不引用任何外部资源，保存单文件即可离线打开；页
 | 顺序 | 命令 | 证明什么 | 当前规模 |
 | --- | --- | --- | --- |
 | 1 | `npm run typecheck` | 类型对（`tsc --noEmit`，含各包） | 全仓库 |
-| 2 | `npm run test` | 逻辑对（vitest） | 36 个文件 / 369 条断言 / 3.4 s |
+| 2 | `npm run test` | 逻辑对（vitest） | 38 个文件 / 404 条断言 / 3.8 s |
 | 3 | `npm run smoke` | **产品能跑**（真起进程、真打 HTTP、真等 SSE） | 9 项 |
-| 4 | `npm run build` | 前端能构建 | vite，30 modules |
+| 4 | `npm run build` | 前端能构建 | vite，32 modules（JS 298.51 kB / gzip 93.28 kB） |
 
 第 3 道是`findings.md` F11 的直接产物：同进程的 `app.request()` 测试全绿，真起服务却第一次写入就报没有表。
 **单元测试证明的是「函数逻辑对」，冒烟证明的是「产品能跑」，这两句话之间隔着一个进程边界，而事故恰好长在边界上。**
@@ -329,7 +353,7 @@ HTML 报告不引用任何外部资源，保存单文件即可离线打开；页
 
 | 命令 | 作用 | 什么时候跑 |
 | --- | --- | --- |
-| `npm run shots` | 无头浏览器点一遍全流程，出 15 张截图，**控制台有报错即失败** | 改了界面之后 |
+| `npm run shots` | 无头浏览器点一遍全流程，出 16 张截图，**控制台有报错即失败** | 改了界面之后 |
 | `npm run repro` | 干净目录 clone → install → verify → 起服跑一场，逐步计时 | 改复现路径之后 |
 | `npm run seed:demo` | 重新生成 29 盘离线卡带并自检 | 改了提示词之后 |
 
@@ -337,11 +361,11 @@ HTML 报告不引用任何外部资源，保存单文件即可离线打开；页
 
 | 模块 | 源码行 | 测试行 | 说明 |
 | --- | --- | --- | --- |
-| packages/shared/src | 937 | 489 | 纯函数，测试密度最高 |
-| packages/server/src | 5967 | 3699 | 编排 + IO + 导入解析 + 报告三种形态，含脚本化模型夹具 |
-| packages/web/src | 3199 | 979 | 折叠器、文案与主题变量（只计 .ts/.tsx，index.css 另 311 行） |
-| tools/ | 2772 | 490 | 导出器 / 冒烟 / 截图 / 界面点测 / 复现 / 文档构建（只计 .mjs，测试目录另计） |
-| **合计** | **12875** | **5657** | 测试/源码 ≈ 0.44 |
+| packages/shared/src | 1264 | 638 | 纯函数，测试密度最高 |
+| packages/server/src | 6741 | 3905 | 编排 + IO + 导入解析 + 面试官库 + 报告三种形态，含脚本化模型夹具 |
+| packages/web/src | 4046 | 1094 | 折叠器、文案与主题变量（只计 .ts/.tsx，index.css 另 311 行） |
+| tools/ | 2832 | 490 | 导出器 / 冒烟 / 截图 / 界面点测 / 复现 / 文档构建（只计 .mjs，测试目录另计） |
+| **合计** | **14883** | **6127** | 测试/源码 ≈ 0.41 |
 
 仓库里 **0 个 TODO / FIXME / HACK、0 处 `as any`、0 处 `@ts-ignore`**（全仓库 grep 实测）。
 console.log 只出现在两个 CLI 入口（serve.ts 与 seed-demo.ts）。

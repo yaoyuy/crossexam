@@ -28,9 +28,9 @@ npm run preview
 
 | 步骤 | 耗时 | 说明 |
 | --- | --- | --- |
-| git clone | 4.0 s | 含 29 盘卡带与 15 张截图 |
+| git clone | 4.0 s | 含 29 盘卡带与 16 张截图 |
 | npm install | 14.4 s | 116 个包，来自 npmmirror |
-| npm run verify | 13.1 s | 类型检查 + 369 条断言 + 冒烟 + 构建 |
+| npm run verify | 13.1 s | 类型检查 + 404 条断言 + 冒烟 + 构建 |
 | 起服 + 跑完一场 + 下载报告 | 0.4 s | 回放模式，21 ms 跑完整场 |
 | **合计** | **33.9 s** | 距 10 分钟上限有 17 倍余量 |
 
@@ -189,7 +189,7 @@ c8a6e90 fix(shared): 修改建议不再要求模型自报主张编号
 | 脱敏 | 自动识别 6 类密钥格式（OpenAI / Anthropic / GitHub / AWS / Bearer / KEY=value 赋值），命中即替换 |
 | 过滤 | 只把 `source.kind === 'user'` 的消息当真人提问，系统注入（runtime-context / skill-catalog / plugin:hindsight / time-context / agent-instructions）全部丢弃 |
 | 分页 | 超过 40 万字符自动按**条目**边界切分（不是按轮次，因为单轮可能 144 万字符），每份都能在网页上直接渲染 |
-| 产物 | `docs/prompt-chain/` 下 11 份分片，共约 4.9 MB，覆盖整个开发过程 |
+| 产物 | `docs/prompt-chain/` 下 12 份分片，共约 4.9 MB，覆盖整个开发过程 |
 
 这条链带来三个别的方式给不了的性质：
 
