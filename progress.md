@@ -523,6 +523,8 @@ schema v2 给 probe 表加了 `UNIQUE (session_id, claim_id, round, interviewer_
 
 npm run verify **exit 0**：typecheck + **30 个测试文件 / 292 条断言** + 冒烟 9 项 + build。
 真进程复核：PANEL_SIZE=2 起服，横幅打「面板上限 2 位（PANEL_SIZE）」，/api/contracts 默认面板被压成 tech,hr。
+复现预演复测（本机同一天第二次）：clone 7.6 s + install 15.5 s + verify 13.8 s + 起服跑完 0.5 s = **40.1 s**，
+与 README 原写的 35 s 差在 clone 冷热缓存；两份 README 已按新实测更新，并注明「量级才是重点」。
 
 ### 教训
 
