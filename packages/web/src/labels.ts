@@ -26,6 +26,39 @@ export const VERDICT_GLOSS: Record<VerdictKind, string> = {
 };
 
 /**
+ * 判定口径：这一条为什么会被判成这样。
+ * 「证据缺失」最容易被误读成「模型乱判」，所以把判据摆到界面上：
+ * 模型的解释只是措辞，判据必须是固定的、可以说给人听的一套。
+ */
+export const VERDICT_CRITERIA: Record<VerdictKind, { rule: string; basis: string }> = {
+  solid: {
+    rule: '追问下来能给出对得上简历原文的具体细节。',
+    basis:
+      '面试官追问口径、范围、时间或数字来源之后，回答能被简历原文或追加的事实对上，所以这条主张可以留着。',
+  },
+  overstated: {
+    rule: '事情可能做过，但简历的写法超出了它能支撑的范围。',
+    basis:
+      '追问暴露出数字口径不一致、范围被夸大或时间对不上；把它改小到能自圆其说的说法即可，不必删掉成绩。',
+  },
+  unsupported: {
+    rule: '只有结论，拿不出任何可核对的证据。',
+    basis:
+      '不是说这件事没发生，而是简历里只写了结果，答不出可核对的细节（口径、范围、数字怎么来的），审阅的人无处求证。',
+  },
+  contradicts: {
+    rule: '回答与简历原文对不上。',
+    basis: '追问中给出的说法和简历原话相互矛盾，审阅的人会按对自己不利的那一方去理解。',
+  },
+  unanswerable: {
+    rule: '连续追问都答不上来。',
+    basis:
+      '候选人对这条主张的追问一律没有有效回答，或者直接承认简历里没写这些细节——面试里这是最危险的信号。',
+  },
+};
+
+
+/**
  * 人设文案与 D:\\CZB\\packages\\shared\\src\\contract.ts 的 PERSONA_PRESETS 一一对应。
  * 之所以抄一份，是因为 contract.ts 经由 util.ts 依赖 node:crypto，进不了浏览器包；
  * 抄写由 packages/web/test/labels.test.ts 的漂移测试看守。

@@ -13,6 +13,7 @@ import {
   SESSION_STATUS_LABEL,
   STAGE_HINT,
   STAGE_LABEL,
+  VERDICT_CRITERIA,
   VERDICT_GLOSS,
   VERDICT_LABEL,
   VERDICT_TONE,
@@ -53,6 +54,18 @@ describe('界面文案不漂移', () => {
       expect(PERSONA_LABEL[role]).toBe(preset?.persona.name);
       expect(PERSONA_BLURB[role]).toBe(preset?.persona.blurb);
     }
+  });
+
+  it('五个判定都有判据：一句规则 + 一句为什么', () => {
+    for (const kind of VERDICT_KINDS) {
+      const criteria = VERDICT_CRITERIA[kind];
+      expect(criteria).toBeDefined();
+      expect(criteria.rule.length).toBeGreaterThan(6);
+      expect(criteria.basis.length).toBeGreaterThan(12);
+    }
+    // 「证据缺失」必须说清「不是没做过，是没有可核对的细节」，这是最容易被误读的一条
+    expect(VERDICT_CRITERIA.unsupported.basis).toContain('可核对');
+    expect(VERDICT_CRITERIA.unsupported.rule).toContain('证据');
   });
 
   it('五个阶段与会话状态都有中文名', () => {
