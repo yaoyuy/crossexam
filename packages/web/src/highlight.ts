@@ -9,7 +9,7 @@ export interface Range {
   end: number;
 }
 
-export type SegmentKind = 'plain' | 'hit' | 'focus';
+export type SegmentKind = 'plain' | 'hit' | 'focus' | 'revised';
 
 export interface Segment {
   text: string;
@@ -47,16 +47,30 @@ function anchorsToRanges(anchors: Range[], length: number): Range[] {
 }
 
 /**
- * 切成 普通 / 被引用过 / 当前聚焦 三种片段。聚焦优先于被引用过，
- * 这样「点了一条引文」时那一段一定是亮的，不会淹没在满屏高亮里。
+ * 切成 普通 / 被引用过 / 当前聚焦 / 已改写 四种片段。
+ * 优先级：聚焦 > 已改写 > 被引用过。
+ * 聚焦最高，因为「点了一条引文」时那一段必须是亮的，不能淹没在满屏高亮里；
+ * 已改写其次，因为它回答的是「这版简历动过哪里」，比「谁引用过它」更该被看见。
+ *
+ * revised 是**新文本**坐标（服务端已经算好平移量），所以只在展示改完的简历时传。
  */
-export function buildSegments(text: string, focus: Range | null, hits: Range[]): Segment[] {
+export function buildSegments(
+  text: string,
+  focus: Range | null,
+  hits: Range[],
+  revised: Range[] = [],
+): Segment[] {
   if (text.length === 0) return [];
   const focusRange = focus === null ? null : clampRange(focus, text.length);
   const hitRanges = anchorsToRanges(hits, text.length);
+  const revisedRanges = anchorsToRanges(revised, text.length);
 
   const cuts = new Set<number>([0, text.length]);
   for (const range of hitRanges) {
+    cuts.add(range.start);
+    cuts.add(range.end);
+  }
+  for (const range of revisedRanges) {
     cuts.add(range.start);
     cuts.add(range.end);
   }
@@ -74,7 +88,8 @@ export function buildSegments(text: string, focus: Range | null, hits: Range[]):
     if (end <= start) continue;
     const inFocus = focusRange !== null && focusRange.start <= start && end <= focusRange.end;
     const inHit = hitRanges.some((range) => range.start <= start && end <= range.end);
-    const kind: SegmentKind = inFocus ? 'focus' : inHit ? 'hit' : 'plain';
+    const inRevised = revisedRanges.some((range) => range.start <= start && end <= range.end);
+    const kind: SegmentKind = inFocus ? 'focus' : inRevised ? 'revised' : inHit ? 'hit' : 'plain';
     const previous = segments[segments.length - 1];
     if (previous !== undefined && previous.kind === kind) previous.text += text.slice(start, end);
     else segments.push({ text: text.slice(start, end), kind });

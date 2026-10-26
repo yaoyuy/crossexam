@@ -68,6 +68,11 @@ function ClaimCard(props: {
   state: SandboxState;
   onFocus: (anchor: Anchor) => void;
   interviewerName?: (id: string) => string | undefined;
+  /** 这条建议这一批勾上了没有；没有改写建议的主张一律 false */
+  chosen?: boolean;
+  onToggleChoose?: (claimId: string) => void;
+  /** 勾过却改不动时的理由，由上层从「改完的简历」那份清单里查 */
+  skippedReason?: string | null;
 }) {
   const item = props.item;
   const answeredCount = item.probes.filter((pv) => pv.answer !== null && pv.answer.answered).length;
@@ -160,7 +165,25 @@ function ClaimCard(props: {
           <div className="flex items-center gap-2">
             <Badge tone="ember">改写建议</Badge>
             <span className="text-[11px] text-ink-400">{item.suggestion.suggestion.problem}</span>
+            {props.onToggleChoose === undefined ? null : (
+              <label
+                className="ml-auto flex cursor-pointer select-none items-center gap-1.5 text-[11.5px] text-ink-300"
+                title="勾上之后点「确认采纳」，简历会被真的改掉"
+              >
+                <input
+                  type="checkbox"
+                  className="h-3.5 w-3.5 cursor-pointer accent-[var(--color-ember-500)]"
+                  checked={props.chosen === true}
+                  onChange={() => props.onToggleChoose?.(item.claim.id)}
+                  data-shot={'choose-' + item.claim.id}
+                />
+                采纳
+              </label>
+            )}
           </div>
+          {props.skippedReason === undefined || props.skippedReason === null ? null : (
+            <p className="text-[11.5px] leading-relaxed text-rose-ink">勾了但没改成：{props.skippedReason}</p>
+          )}
           <div className="flex flex-col gap-1">
             <p className="text-[12px] leading-relaxed text-ink-300 line-through decoration-rose-ink/60">{item.suggestion.suggestion.before}</p>
             <p className="text-[12.5px] leading-relaxed text-mint-400">{item.suggestion.suggestion.after}</p>
@@ -177,6 +200,10 @@ export function ClaimBoard(props: {
   onFocus: (anchor: Anchor) => void;
   /** 自定义面试官的中文名不在前端枚举里，得由上层从契约里查出来给过来 */
   interviewerName?: (id: string) => string | undefined;
+  /** 这一批勾上的改写建议 */
+  chosen?: readonly string[];
+  onToggleChoose?: (claimId: string) => void;
+  skippedReason?: (claimId: string) => string | null;
 }) {
   const state = props.state;
   const notices = state.rejectedProbes;
@@ -231,6 +258,9 @@ export function ClaimBoard(props: {
             state={state}
             onFocus={props.onFocus}
             interviewerName={props.interviewerName}
+            chosen={(props.chosen ?? []).indexOf(item.claim.id) >= 0}
+            onToggleChoose={props.onToggleChoose}
+            skippedReason={props.skippedReason?.(item.claim.id) ?? null}
           />
         ))
       )}

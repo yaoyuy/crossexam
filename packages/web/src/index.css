@@ -199,6 +199,16 @@ mark.anchor-soft {
   border-radius: 2px;
 }
 
+/* 改完的简历里被采纳改写的段落。刻意用与「被引用」不同的色系：
+   橙色说的是「这里被追问过」，绿色说的是「这里已经改过」。 */
+mark.anchor-revised {
+  background: rgba(52, 211, 153, 0.22);
+  color: var(--color-ink-100);
+  border-radius: 3px;
+  padding: 1px 1px;
+  box-shadow: 0 0 0 1px rgba(52, 211, 153, 0.38);
+}
+
 .btn {
   display: inline-flex;
   align-items: center;
