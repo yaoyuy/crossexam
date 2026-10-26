@@ -15,10 +15,16 @@ import type { Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import {
   DEFAULT_BUDGET,
+  JOB_TEMPLATES,
+  TEMPLATE_INDUSTRIES,
+  TEMPLATE_LIMITS,
   contractDigest,
+  customInterviewerId,
   interviewerDraftSchema,
   renderSystemPrompt,
   shortHash,
+  templateById,
+  templateDigest,
 } from '@crossexam/shared';
 import type { IntentContract, InterviewerDraft } from '@crossexam/shared';
 import { DEMO_JD, DEMO_RESUME, DEMO_TITLE } from '../demo-content.ts';
@@ -327,6 +333,63 @@ export function createApp(opts: AppOptions): Hono {
       }),
       limit: MAX_INTERVIEWERS,
       budget: DEFAULT_BUDGET,
+    });
+  });
+
+  /**
+   * 岗位模板库：12 个行业 × 3 个岗位的原创 JD 与示例简历，只读。
+   *
+   * 模板里那位自建面试官**不在这里落库**：翻一遍模板库不该往库里塞几十位面试官。
+   * 真要用哪一套，走下面的 apply —— 那条路按模板 id 幂等。
+   */
+  app.get('/api/templates', (c) =>
+    c.json({
+      industries: TEMPLATE_INDUSTRIES,
+      templates: JOB_TEMPLATES.map((item) => ({ ...item, digest: templateDigest(item) })),
+      limits: TEMPLATE_LIMITS,
+    }),
+  );
+
+  /**
+   * 一键采用一套模板：返回 JD、示例简历与推荐阵容，并把那位自建面试官存进库。
+   *
+   * 面试官 id 由**模板 id** 决定（customInterviewerId 的 salt），不是随机数：
+   * 同一套模板点十次也只会有一位面试官，也不会把 40 位上限撞爆。
+   * source 记 local —— 这个字段的意思是「不是模型现编的」，模板自带正属于此。
+   */
+  app.post('/api/templates/:id/apply', (c) => {
+    const wanted = c.req.param('id');
+    const template = templateById(wanted);
+    if (template === null) return c.json({ error: '没有这套模板：' + wanted }, 404);
+    const budget = budgetView(DEFAULT_BUDGET);
+    const interviewerId = customInterviewerId(template.custom.name, template.id);
+    const existed = getInterviewer(db, interviewerId) !== null;
+    if (!existed && listInterviewers(db).length >= MAX_INTERVIEWERS) {
+      return c.json({ error: '自定义面试官最多 ' + String(MAX_INTERVIEWERS) + ' 位，先删掉几位再换模板。' }, 400);
+    }
+    const bundle = bundleOf(template.custom, { id: interviewerId, budget });
+    saveInterviewer(db, {
+      id: bundle.id,
+      version: bundle.version,
+      digest: bundle.digest,
+      source: 'local',
+      domain: template.custom.domain,
+      contract: bundle.contract,
+    });
+    return c.json({
+      ok: true,
+      created: !existed,
+      template: {
+        id: template.id,
+        industry: template.industry,
+        title: template.title,
+        jd: template.jd,
+        resume: template.resume,
+        hints: template.hints,
+        digest: templateDigest(template),
+      },
+      panel: [...template.presets, bundle.id],
+      interviewer: viewOfRow(getInterviewer(db, bundle.id)),
     });
   });
 
