@@ -41,6 +41,9 @@ CDP 是纯 JSON 协议，Node 22 自带全局 WebSocket，于是「真浏览器�
    另外改完界面记得先 `npm run build`：截图取的是 `packages/web/dist`，不是开发服务器。
 6. **第一次打开会自动弹一次新手教程**：脚本开头先把它关掉再拍正片，`12-help.png` 是快结束时回头补拍的——
    否则 01 起每一张都会盖着一层教程。同理，任何新写的浏览器脚本都要先处理这个弹层。
+7. **收尾必须发 CDP 的 `Browser.close`**：Windows 上 `proc.kill()` 只结束启动器，浏览器进程树还活着并继续占着调试端口；
+   下一轮脚本会连上这个旧浏览器（profile 里已经写着「教程看过了」），拍出来的图与断言全是假的。现在收尾顺序是 
+   `await closeBrowser(port)` → `killTree(browser)` → `killTree(server)` → 仍占用就告警；起浏览器前还会先预检端口、只认 `about:blank` 的 page target（见 findings F40）。
 
 ## 它顺便是一道界面门禁
 
