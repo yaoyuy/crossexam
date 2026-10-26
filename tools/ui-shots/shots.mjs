@@ -12,7 +12,7 @@
 //   node tools/ui-shots/shots.mjs --keep          # 保留临时目录与浏览器窗口，便于排查
 //   node tools/ui-shots/shots.mjs --allow-console # 控制台有报错也照样出图（默认报错即失败）
 
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -51,6 +51,53 @@ function parseArgs(argv) {
 
 function sleep(ms) {
   return new Promise((done) => setTimeout(done, ms));
+}
+
+// Windows 上 proc.kill() 只结束启动器，Edge 的进程树还活着。残留浏览器会继续占着 CDP
+// 端口，下一轮就悄悄连到它——它的 profile 里可能已经有 localStorage（例如「教程看过
+// 了」），于是截图与断言都不再来自这一次运行。所以按进程树杀。
+function killTree(proc) {
+  if (proc === null || proc.pid === undefined) return;
+  try {
+    if (process.platform === 'win32') spawnSync('taskkill', ['/pid', String(proc.pid), '/T', '/F'], { stdio: 'ignore' });
+    else proc.kill('SIGKILL');
+  } catch { /* 已经退出了 */ }
+}
+
+// 收尾要真的把浏览器关掉：proc.kill() 在 Windows 上只结束启动器，Edge 的浏览器进程会
+// 活下来并继续占着调试端口，下一轮就可能连到它（它的 profile 里已经有 localStorage，
+// 教程状态、历史会话都不是这一次运行的了）。CDP 的 Browser.close 才是「关掉这个浏览器」
+// 的正解，taskkill /T /F 只当兜底。
+async function closeBrowser(port) {
+  try {
+    const response = await fetch('http://127.0.0.1:' + String(port) + '/json/version');
+    if (!response.ok) return false;
+    const info = await response.json();
+    if (typeof info.webSocketDebuggerUrl !== 'string') return false;
+    const socket = new WebSocket(info.webSocketDebuggerUrl);
+    await new Promise((done) => {
+      const timer = setTimeout(done, 5000);
+      socket.addEventListener('open', () => { clearTimeout(timer); done(); });
+      socket.addEventListener('error', () => { clearTimeout(timer); done(); });
+    });
+    socket.send(JSON.stringify({ id: 1, method: 'Browser.close' }));
+    await sleep(800);
+    try { socket.close(); } catch (error) { /* 已经关了 */ }
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
+// 关完再确认一次：端口还占着就明确说出来，绝不让下一轮静默连到别人。
+async function warnIfPortBusy(port) {
+  try {
+    const response = await fetch('http://127.0.0.1:' + String(port) + '/json/version');
+    if (response.ok) {
+      log('警告：调试端口 ' + String(port) + ' 仍被占用，残留的浏览器会干扰下一轮。');
+      log('  找占用者：Get-NetTCPConnection -LocalPort ' + String(port) + ' -State Listen');
+    }
+  } catch (error) { /* 端口是空的，正常 */ }
 }
 
 // 浏览器进程退出时会短暂占着 user-data-dir（Windows 上表现为 EPERM），删不掉不是错误，
@@ -119,9 +166,11 @@ async function waitForDevtools(port, timeoutMs) {
   while (Date.now() < deadline) {
     try {
       const list = await (await fetch('http://127.0.0.1:' + String(port) + '/json/list')).json();
-      const page = list.find((target) => target.type === 'page');
+      // 只认「刚启动的空窗口」：端口上若已有别的页面，说明连到的是别人留下的浏览器。
+      const page = list.find((target) => target.type === 'page' && target.url === 'about:blank');
       if (page !== undefined && typeof page.webSocketDebuggerUrl === 'string') return page.webSocketDebuggerUrl;
-      lastError = '还没有 page target';
+      const stranger = list.find((target) => target.type === 'page');
+      lastError = stranger === undefined ? '还没有 page target' : '端口上的页面是 ' + String(stranger.url) + '，不是刚启动的空窗口';
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error);
     }
@@ -262,6 +311,12 @@ async function main() {
       log('驱动已在跑的服务：' + base);
     }
 
+    // 起浏览器之前必须确认调试端口是空的：占用它的大概率是上一轮没杀干净的浏览器。
+    let cdpBusy = false;
+    try { const busy = await fetch('http://127.0.0.1:' + String(debugPort) + '/json/version'); cdpBusy = busy.ok; } catch { /* 期望是空的 */ }
+    if (cdpBusy) {
+      throw new Error('调试端口 ' + String(debugPort) + ' 已被占用：多半是上一轮留下的浏览器进程。先关掉它（taskkill /F /IM msedge.exe）再重跑。');
+    }
     browser = spawn(browserPath, [
       '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
       '--hide-scrollbars', '--remote-debugging-port=' + String(debugPort),
@@ -362,8 +417,10 @@ async function main() {
     log(NL + '完成。演示视频封面、README 配图、技术文档插图都可以直接用这批图。');
   } finally {
     try { if (cdp !== null) cdp.ws.close(); } catch { /* 忽略 */ }
-    if (browser !== null) browser.kill();
-    if (server !== null) server.kill();
+    await closeBrowser(debugPort);
+    killTree(browser);
+    killTree(server);
+    await warnIfPortBusy(debugPort);
     await sleep(600);
     if (opts.keep) {
       log('临时目录保留在：' + workDir);

@@ -5,7 +5,7 @@
  * 与 tools/ui-shots 的分工：那个负责出图给人看，这个负责断言，红了就退出码 1。
  *
  * 零依赖：只用 Node 自带的 fetch / WebSocket 与系统里的 Edge（或 Chrome）。
- */import { spawn } from 'node:child_process';
+ */import { spawn, spawnSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -33,12 +33,21 @@ if (argv.indexOf('--help') >= 0) {
 let serverProc = null;
 let edgeProc = null;
 let cleaned = false;
+// Windows 上 proc.kill() 只结束启动器，Edge 的进程树还活着。残留的浏览器会继续占着 CDP
+// 端口，下一轮就悄悄连到它——而它的 profile 里「教程看过了」之类的状态会让断言假失败
+// （真的踩过：9344 端口上挂着两个旧浏览器，于是「首次打开自动弹教程」必然失败）。
+function killTree(proc) {
+  if (proc === null || proc.pid === undefined) return;
+  try {
+    if (process.platform === 'win32') spawnSync('taskkill', ['/pid', String(proc.pid), '/T', '/F'], { stdio: 'ignore' });
+    else proc.kill('SIGKILL');
+  } catch (error) { /* 已经退出了 */ }
+}
 function cleanup() {
   if (cleaned) return;
   cleaned = true;
-  for (const proc of [edgeProc, serverProc]) {
-    try { if (proc !== null) proc.kill(); } catch (error) { /* 已经退出了 */ }
-  }
+  killTree(edgeProc);
+  killTree(serverProc);
 }
 process.on('exit', cleanup);
 process.on('SIGINT', () => { cleanup(); process.exit(130); });
@@ -77,6 +86,15 @@ for (let i = 0; i < 60; i += 1) {
 check('服务以回放模式起来', health !== null && health.mode === 'replay', health === null ? serverLog.slice(-400) : JSON.stringify(health));
 
 mkdirSync(OUT, { recursive: true });
+// 起浏览器之前必须确认调试端口是空的：占用它的大概率是上一轮没杀干净的浏览器，
+// 连上去就等于拿别人的 profile 做断言（教程状态、历史会话都不是这一轮的）。
+let cdpBusy = false;
+try { const busy = await fetch('http://127.0.0.1:' + String(CDP_PORT) + '/json/version'); cdpBusy = busy.ok; } catch (e) { /* 期望是空的 */ }
+if (cdpBusy) {
+  console.log('调试端口 ' + String(CDP_PORT) + ' 已被占用：多半是上一轮留下的浏览器进程。');
+  console.log('先清掉再重跑：taskkill /F /IM msedge.exe');
+  process.exit(1);
+}
 edgeProc = spawn(EDGE, ['--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check', '--remote-debugging-port=' + String(CDP_PORT), '--user-data-dir=' + PROFILE, 'about:blank'], { stdio: 'ignore' });
 let version = null;
 for (let i = 0; i < 80; i += 1) {
@@ -85,7 +103,12 @@ for (let i = 0; i < 80; i += 1) {
 }
 check('无头浏览器开出调试端口', version !== null, version ? version['Browser'] : '超时');
 const list = await (await fetch('http://127.0.0.1:' + String(CDP_PORT) + '/json/list')).json();
-const pageTarget = list.find((t) => t.type === 'page');
+const pageTarget = list.find((t) => t.type === 'page' && t.url === 'about:blank');
+if (pageTarget === undefined) {
+  const stranger = list.find((t) => t.type === 'page');
+  console.log('调试端口上没有刚启动的空窗口' + (stranger === undefined ? '' : '（当前页面：' + String(stranger.url) + '）') + '。');
+  process.exit(1);
+}
 const ws = new WebSocket(pageTarget.webSocketDebuggerUrl);
 await new Promise((res, rej) => { ws.addEventListener('open', res); ws.addEventListener('error', rej); });
 let nextId = 0;
@@ -115,6 +138,41 @@ const send = (method, params, timeoutMs) => new Promise((resolve, reject) => {
   });
   ws.send(JSON.stringify({ id: myId, method, params: params || {} }));
 });
+// 收尾要真的把浏览器关掉：proc.kill() 在 Windows 上只结束启动器，Edge 的浏览器进程会
+// 活下来并继续占着调试端口，下一轮就可能连到它（它的 profile 里已经有 localStorage，
+// 教程状态、历史会话都不是这一次运行的了）。CDP 的 Browser.close 才是「关掉这个浏览器」
+// 的正解，taskkill /T /F 只当兜底。
+async function closeBrowser(port) {
+  try {
+    const response = await fetch('http://127.0.0.1:' + String(port) + '/json/version');
+    if (!response.ok) return false;
+    const info = await response.json();
+    if (typeof info.webSocketDebuggerUrl !== 'string') return false;
+    const socket = new WebSocket(info.webSocketDebuggerUrl);
+    await new Promise((done) => {
+      const timer = setTimeout(done, 5000);
+      socket.addEventListener('open', () => { clearTimeout(timer); done(); });
+      socket.addEventListener('error', () => { clearTimeout(timer); done(); });
+    });
+    socket.send(JSON.stringify({ id: 1, method: 'Browser.close' }));
+    await sleep(800);
+    try { socket.close(); } catch (error) { /* 已经关了 */ }
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
+// 关完再确认一次：端口还占着就明确说出来，绝不让下一轮静默连到别人。
+async function warnIfPortBusy(port) {
+  try {
+    const response = await fetch('http://127.0.0.1:' + String(port) + '/json/version');
+    if (response.ok) {
+      console.log('警告：调试端口 ' + String(port) + ' 仍被占用，残留的浏览器会干扰下一轮。');
+      console.log('  找占用者：Get-NetTCPConnection -LocalPort ' + String(port) + ' -State Listen');
+    }
+  } catch (error) { /* 端口是空的，正常 */ }
+}
 async function evalJs(expression) {
   const r = await send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true });
   if (r.exceptionDetails) throw new Error('页面抛错：' + JSON.stringify((r.exceptionDetails.exception && r.exceptionDetails.exception.description) || r.exceptionDetails.text));
@@ -213,6 +271,31 @@ await evalJs("document.querySelector('[data-shot=\"theme\"]').click()");
 await sleep(200);
 const themeBack = await evalJs('document.documentElement.dataset.theme');
 check('再点一下切回深色', themeBack === 'dark', String(themeBack));
+
+// 简历导入：在页面里现造一个文本文件塞进 input，把「上传 → 解析 → 填进输入框」整条链路点一遍。
+// 用页面内的 DataTransfer 造文件，避免为了一次点测去依赖 CDP 的 DOM.setFileInputFiles。
+const IMPORT_TEXT = '导入的自建简历\n数据工程师 · 成都\n- 负责过 12 个业务线的报表。';
+const importScript = [
+  '(function () {',
+  '  var input = document.querySelector("[data-shot=import-file]");',
+  '  if (input === null) return "no-input";',
+  '  var dt = new DataTransfer();',
+  '  dt.items.add(new File([' + JSON.stringify(IMPORT_TEXT) + '], "resume-import.txt", { type: "text/plain" }));',
+  '  input.files = dt.files;',
+  '  input.dispatchEvent(new Event("change", { bubbles: true }));',
+  '  return "ok";',
+  '})()',
+].join('\n');
+const importState = await evalJs(importScript);
+let importedValue = '';
+for (let i = 0; i < 25; i += 1) {
+  importedValue = await evalJs('document.querySelectorAll("textarea")[0].value');
+  if (importedValue.length > 0) break;
+  await sleep(200);
+}
+const importNote = await evalJs('(document.querySelector("[data-shot=import-note]") || { textContent: "" }).textContent');
+check('从文件导入简历：解析后直接填进输入框', importState === 'ok' && importedValue === IMPORT_TEXT, String(importState) + ' / ' + String(importedValue.length) + ' 字');
+check('导入结果写明文件类型与字数', importNote.indexOf('解析出') >= 0 && importNote.indexOf('文本') >= 0, importNote.slice(0, 60));
 
 const typed = await setTextarea(0, CUSTOM_RESUME);
 check('能在浏览器里自己打一份简历', typed === CUSTOM_RESUME.length, String(typed) + ' 字');
@@ -336,8 +419,10 @@ for (const e of events) {
 }
 check('整轮下来浏览器控制台没有报错或警告', problems.length === 0, problems.slice(0, 4).join(' | '));
 
+await closeBrowser(CDP_PORT);
 cleanup();
-await sleep(600);
+await warnIfPortBusy(CDP_PORT);
+await sleep(400);
 writeFileSync(join(OUT, 'summary.json'), JSON.stringify({ results, serverLog: serverLog.slice(-1500) }, null, 2));
 const failed = results.filter((r) => !r.ok);
 console.log('--- ' + String(results.length - failed.length) + '/' + String(results.length) + ' 项通过 ---');
