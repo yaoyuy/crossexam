@@ -407,6 +407,12 @@ async function main() {
     await cdp.shot(opts.out, '08-resume-focus.png', "(" + pane('claims') + ".querySelector('button.quote') ?? { click: () => undefined }).click(), " + pane('claims') + '.scrollTop = ' + pane('claims') + '.scrollHeight * 0.55');
     await cdp.shot(opts.out, '09-history.png', bottom('intake'));
 
+    // P8：岗位要求对照 + 右栏并排的 JD 原文。点一条要求的引文，右栏 JD 原文会滚到那一段并高亮。
+    // 「证据锚定」这一版多出来的那一半必须看得见——只截一张「有这一栏」的图不够，要截「点得动、跳得过去」的图。
+    await cdp.evaluate("(document.querySelector('[data-shot^=\"req-quote-\"]') ?? { click: () => undefined }).click()");
+    await sleep(450);
+    await cdp.shot(opts.out, '19-requirements.png', "document.querySelector('[data-shot=\"requirements\"]').scrollIntoView({ block: 'start' })");
+
     // 采纳改写：这是「提了问题就自动改简历，还能导出 PDF/Word」那条要求最直接的证据。
     // 拍之前真的点「全部采纳 → 确认采纳」，右栏换成改完的版本并把改动段标绿；
     // 拍在契约那两张之前，这样 10-contracts 不受影响。

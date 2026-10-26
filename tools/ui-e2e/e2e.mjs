@@ -6,7 +6,7 @@
  *
  * 零依赖：只用 Node 自带的 fetch / WebSocket 与系统里的 Edge（或 Chrome）。
  */import { spawn, spawnSync } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -77,6 +77,9 @@ const env = Object.assign({}, process.env, {
 for (const key of Object.keys(env)) {
   if (key.indexOf('LLM_') === 0) delete env[key];
 }
+// 测试库必须每轮清空。自定义面试官存在一张**全局**表里，跨轮残留会让「这一轮多了一位」
+// 这类断言失真：第一轮 76/76，第二轮就变成 74/76，而代码一行没改。
+rmSync('.tmp/e2e/db', { recursive: true, force: true });
 serverProc = spawn(process.execPath, ['packages/server/src/bin/serve.ts'], { env, stdio: ['ignore', 'pipe', 'pipe'] });
 let serverLog = '';
 serverProc.stdout.on('data', (b) => { serverLog += b.toString('utf8'); });
@@ -218,6 +221,11 @@ async function clickIncludes(label) {
 }
 async function setTextarea(index, text) {
   const expr = '(() => { const el = document.querySelectorAll("textarea")[' + String(index) + ']; if (!el) return -1; const proto = el.tagName === "TEXTAREA" ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype; const setter = Object.getOwnPropertyDescriptor(proto, "value").set; setter.call(el, ' + JSON.stringify(text) + '); el.dispatchEvent(new Event("input", { bubbles: true })); return el.value.length; })()';
+  return evalJs(expr);
+}
+/** 按 data-shot 填一个输入框：JD 列表里的行会增删，靠下标找 textarea 不稳 */
+async function setShot(name, text) {
+  const expr = '(() => { const el = document.querySelector(\'[data-shot="\' + ' + JSON.stringify(name) + ' + \'"]\'); if (el === null) return -1; const proto = el.tagName === "TEXTAREA" ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype; const setter = Object.getOwnPropertyDescriptor(proto, "value").set; setter.call(el, ' + JSON.stringify(text) + '); el.dispatchEvent(new Event("input", { bubbles: true })); return el.value.length; })()';
   return evalJs(expr);
 }
 const countCards = () => evalJs('document.querySelectorAll(String.fromCharCode(91) + "data-shot=" + String.fromCharCode(34) + "claims" + String.fromCharCode(34) + String.fromCharCode(93) + " article").length');
@@ -449,6 +457,32 @@ const chips = await evalJs('document.querySelector("header").innerText');
 check('头部遥测显示调用与回放次数', chips.indexOf('调用') >= 0 && chips.indexOf('回放') >= 0 && chips.indexOf('追问') >= 0, chips.replace(/\n/g, ' / ').slice(0, 120));
 await shot('03-done.png');
 
+// P8：多 JD 驱动之后，一条追问可能同时挂两处锚（简历原文 + 岗位要求原文）。
+// 这一段必须落在「清空」之前：那时 demo 场次还开着，要求与对照都还在。
+const reqPaneText = await evalJs('(() => { const el = document.querySelector("[data-shot=requirements]"); return el === null ? "" : el.innerText; })()');
+check('中栏多出「岗位要求对照」这一栏', reqPaneText.indexOf('岗位要求对照') >= 0 && view.requirements.length > 0, String(view.requirements.length) + ' 条要求');
+const reqCards = await evalJs('Array.from(document.querySelectorAll("[data-shot]")).filter((e) => /^req-[A-Z][0-9]+$/.test(String(e.getAttribute("data-shot")))).length');
+const reqReasons = await evalJs('(document.body.innerText.match(/为什么这么判：/g) || []).length');
+check('每条要求一张卡，且都写了为什么这么判', reqCards === view.requirements.length && reqReasons === view.requirements.length, String(reqCards) + ' 张 / ' + String(reqReasons) + ' 条理由');
+const reqGroups = await evalJs('document.querySelectorAll("[data-shot^=req-group-]").length');
+check('对照结果按「答得上 / 答得含糊 / 简历里没写」分组', reqGroups >= 1 && reqGroups <= 3, String(reqGroups) + ' 组');
+const anchoredProbes = view.probes.filter((probe) => probe.requirementId != null && probe.jdAnchor != null);
+const jdAnchorTags = await evalJs('document.querySelectorAll("[data-shot^=jd-anchor-]").length');
+check('照着岗位要求追问的那几条，在卡片上标出了要求原文', anchoredProbes.length > 0 && jdAnchorTags === anchoredProbes.length, String(jdAnchorTags) + ' 处 / 服务端 ' + String(anchoredProbes.length) + ' 处');
+const jdPaneBrief = await evalJs('(() => { const el = document.querySelector("[data-shot=jd]"); return el === null ? "" : el.innerText; })()');
+check('右栏并排画出岗位要求原文与抽出的要求条数', jdPaneBrief.indexOf('岗位要求原文') >= 0 && jdPaneBrief.indexOf('条要求') >= 0, jdPaneBrief.split('\n').join(' / ').slice(0, 70));
+const firstReq = view.requirements[0];
+// 表达式要在 Node 这侧拼好再送进页面：firstReq 是 Node 的变量，页面里没有它
+const quoteBtn = 'req-quote-' + firstReq.id;
+const quoteClicked = await evalJs('(() => { const b = document.querySelector("[data-shot=" + ' + JSON.stringify(quoteBtn) + ' + "]"); if (b === null) return "no-button"; b.click(); return "ok"; })()');
+const jdFocused = await waitFor(async () => { const t = await evalJs('(() => { const el = document.querySelector("[data-shot=jd]"); return el === null ? "" : el.innerText; })()'); return t.indexOf('聚焦') >= 0 ? t : ''; }, '岗位要求原文聚焦', 8000);
+const jdMarkText = await evalJs('(() => { const m = document.querySelector("[data-shot=jd] mark.anchor-hit"); return m === null ? "" : m.innerText; })()');
+const wantRange = '第 ' + String(firstReq.anchor.start + 1) + '\u2013' + String(firstReq.anchor.end) + ' 字';
+check('点要求能跳到 JD 原文那一段并把它标出来',
+  quoteClicked === 'ok' && jdFocused.indexOf(wantRange) >= 0 && String(jdMarkText).split(/\s+/).join('') === String(firstReq.anchor.quote).split(/\s+/).join(''),
+  wantRange + ' / ' + String(jdMarkText).length + ' 字');
+
+
 // 第 8 项：勾选 → 确认采纳 → 简历被真的改掉 → 导出三件套 → 全部撤销退回原文。
 // 这一段必须落在「清空」之前：那时 demo 场次还开着，5 条主张里有 4 条带改写建议。
 // 断言分三层：界面上的勾选与结论、服务端真的改了、导出的文件里真有改动。
@@ -550,6 +584,35 @@ await clickText('清空');
 await sleep(400);
 const tplCleared = await evalJs('(function () { var ta = document.querySelectorAll("textarea"); return ta[0] ? ta[0].value.length : -1; })()');
 check('清空能把模板装进来的料一起收回', tplCleared === 0, String(tplCleared) + ' 字');
+
+// P8：目标岗位从单个输入框变成 1–8 份的列表。「多贴一份」这条路必须自己走得通，
+// 否则「同一份简历投不同岗位」只是一句宣传语。
+const jdRowsEmpty = await evalJs('document.querySelectorAll("[data-shot^=jd-row-]").length');
+check('清空之后目标岗位回到一份空行', jdRowsEmpty === 1, String(jdRowsEmpty) + ' 行');
+const jdAddClicked = await evalJs('(() => { const b = document.querySelector("[data-shot=jd-add]"); if (b === null) return "no-button"; if (b.disabled) return "disabled"; b.click(); return "ok"; })()');
+const jdRowsTwo = await waitFor(async () => { const n = await evalJs('document.querySelectorAll("[data-shot^=jd-row-]").length'); return n === 2 ? '2' : ''; }, '第二份 JD 行', 8000);
+check('「+ 再加一份」能加出第二份 JD', jdAddClicked === 'ok' && jdRowsTwo === '2', String(jdAddClicked) + ' / ' + jdRowsTwo + ' 行');
+// 两个输入框都要填：空行不算一份 JD（filledJds），只填一份的话右栏还是单栏视图。
+await setShot('jd-text-1', '负责后端服务的设计与开发；三年以上 Node.js 经验；熟悉 PostgreSQL 与 Redis，能独立排查线上问题。');
+// 先把简历填够字数：只检验「JD 太短挡住开始」，不检验「简历太短挡住开始」（后者在别处已经点过）。
+await setTextarea(0, '示例简历：负责订单系统的重构，首屏加载从 2.4 秒降到 0.8 秒，参与的三个项目都按期上线。');
+await setShot('jd-text-2', '太短了');
+const jdProblem = await waitFor(async () => { const t = await evalJs('(document.querySelector("[data-shot=jd-problem]") || { textContent: "" }).textContent'); return t.length > 0 ? t : ''; }, 'JD 太短的提示', 8000);
+const runBlocked = await evalJs('document.querySelector("[data-shot=run]").disabled');
+check('一份 JD 太短就点名是哪一份，并把开始按钮压灰', jdProblem.indexOf('第 2 份') >= 0 && jdProblem.indexOf('40') >= 0 && runBlocked === true, jdProblem);
+await setShot('jd-text-2', '负责处方审核与用药交代；五年以上医院药房工作经验；熟悉药事管理法规与抗菌药物分级管理制度。');
+const jdRecovered = await waitFor(async () => { const t = await evalJs('(document.querySelector("[data-shot=jd-problem]") || { textContent: "" }).textContent'); const d = await evalJs('document.querySelector("[data-shot=run]").disabled'); return t.length === 0 && d === false ? 'ok' : ''; }, '补够字数后重新可跑', 8000);
+check('补够字数之后提示自己消失、按钮自己变回来', jdRecovered === 'ok', String(jdRecovered));
+const jdPickChips = await evalJs('document.querySelectorAll("[data-shot^=jd-pick-]").length');
+check('两份 JD 在右栏给出切换按钮', jdPickChips === 2, String(jdPickChips) + ' 个');
+const jdRemoved = await evalJs('(() => { const b = document.querySelector("[data-shot=jd-remove-2]"); if (b === null) return "no-button"; b.click(); return "ok"; })()');
+await sleep(300);
+const jdRowsBack = await evalJs('document.querySelectorAll("[data-shot^=jd-row-]").length');
+check('删掉第二份之后回到一份', jdRemoved === 'ok' && jdRowsBack === 1, String(jdRowsBack) + ' 行');
+// 收尾：把这一轮填进去的简历一起清掉，后面的历史与删除不该带着一版半成品。
+await clickText('清空');
+await sleep(400);
+
 
 const historyText = await evalJs('document.querySelector(String.fromCharCode(91) + "data-shot=" + String.fromCharCode(34) + "intake" + String.fromCharCode(34) + String.fromCharCode(93) + "").innerText');
 check('历史会话列出刚才两场', historyText.indexOf('高级后端工程师（Node.js） · 演示简历') >= 0 && historyText.indexOf('已完成') >= 0 && historyText.indexOf('失败') >= 0, historyText.replace(/\n/g, ' / ').slice(-160));
