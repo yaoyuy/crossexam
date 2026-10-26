@@ -22,6 +22,9 @@ export const MODE_LABEL: Record<LlmMode, string> = {
   live: '真实调用（不留痕）',
 };
 
+/** 界面上可选的运行模式，顺序即展示顺序。 */
+export const LLM_MODES: readonly LlmMode[] = ['replay', 'live', 'record'];
+
 /**
  * 思考可视化：把需要权衡的阶段交给会吐思考过程的模型。
  *
@@ -90,11 +93,11 @@ export function describeClient(client: LlmClient, dir: string, routes: Record<st
 }
 
 export { CASSETTE_VERSION, cassettePath, defaultCassetteDir, digestFor, listCassettes, readCassette, writeCassette } from './cassette.ts';
-export { buildPayload, createLiveClient, endpointOf, parseSseData, readUsage, resolveLiveConfig } from './live.ts';
+export { buildPayload, createLiveClient, endpointOf, listLiveModels, parseSseData, readUsage, resolveLiveConfig } from './live.ts';
 export { chunkText, createReplayClient, REPLAY_CHUNK_SIZE } from './replay.ts';
 export { withStageModels } from './routing.ts';
 export { EMPTY_USAGE, LlmError } from './types.ts';
 
 export type { CassetteEntry, CassetteSummary } from './cassette.ts';
-export type { LiveConfig, SseChunk } from './live.ts';
+export type { LiveConfig, LiveModelList, SseChunk } from './live.ts';
 export type { LlmClient, LlmMessage, LlmMode, LlmRequest, LlmResult, LlmStreamEvent, LlmUsage } from './types.ts';

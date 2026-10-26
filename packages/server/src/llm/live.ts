@@ -15,6 +15,8 @@ import type { CassetteEntry } from './cassette.ts';
 import type { LlmClient, LlmMode, LlmRequest, LlmResult, LlmStreamEvent, LlmUsage } from './types.ts';
 
 export const DEFAULT_TIMEOUT_MS = 120000;
+/** 拉模型清单的独立超时：它只是给界面铺选项，慢一点就该放弃。 */
+export const LIST_TIMEOUT_MS = 15000;
 
 export interface LiveOptions {
   baseUrl?: string;
@@ -69,6 +71,66 @@ export function endpointOf(baseUrl: string): string {
   const trimmed = baseUrl.replace(/\/+$/, '');
   if (trimmed.endsWith('/chat/completions')) return trimmed;
   return trimmed + '/chat/completions';
+}
+
+/**
+ * 模型清单：给界面做下拉框用。
+ *
+ * 两条刻意的设计：
+ *   1. ready=false 表示"配置不全"，这时**一个网络包都不发**——默认路径是离线回放，
+ *      不能让"打开页面"本身变成一次联网行为；
+ *   2. 端点不支持 /models（很多自建网关没有）不算错误，models 为空、error 有值即可，
+ *      界面允许手填模型名。
+ */
+export interface LiveModelList {
+  ready: boolean;
+  models: string[];
+  defaultModel: string;
+  error: string | null;
+}
+
+export async function listLiveModels(opts: LiveOptions = {}): Promise<LiveModelList> {
+  let config: LiveConfig;
+  try {
+    config = resolveLiveConfig(opts);
+  } catch (err) {
+    return { ready: false, models: [], defaultModel: '', error: err instanceof Error ? err.message : String(err) };
+  }
+
+  const doFetch = opts.fetchImpl ?? fetch;
+  const url = config.baseUrl.replace(/\/+$/, '') + '/models';
+  try {
+    const res = await doFetch(url, {
+      method: 'GET',
+      headers: { authorization: 'Bearer ' + config.apiKey, accept: 'application/json' },
+      signal: AbortSignal.timeout(LIST_TIMEOUT_MS),
+    });
+    if (!res.ok) {
+      return {
+        ready: true,
+        models: [],
+        defaultModel: config.model,
+        error: '模型清单接口返回 ' + String(res.status) + '，可以直接手填模型名。',
+      };
+    }
+    const body = (await res.json()) as unknown;
+    const rows = recordOf(body)?.['data'];
+    const models: string[] = [];
+    if (Array.isArray(rows)) {
+      for (const row of rows) {
+        const id = recordOf(row)?.['id'];
+        if (typeof id === 'string' && id.trim() !== '' && !models.includes(id.trim())) models.push(id.trim());
+      }
+    }
+    return { ready: true, models: models, defaultModel: config.model, error: null };
+  } catch (err) {
+    return {
+      ready: true,
+      models: [],
+      defaultModel: config.model,
+      error: '拉取模型清单失败：' + (err instanceof Error ? err.message : String(err)),
+    };
+  }
 }
 
 function num(value: unknown): number {

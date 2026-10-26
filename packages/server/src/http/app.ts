@@ -16,8 +16,8 @@ import { streamSSE } from 'hono/streaming';
 import { DEFAULT_BUDGET, shortHash } from '@crossexam/shared';
 import type { InterviewerRole } from '@crossexam/shared';
 import { DEMO_JD, DEMO_RESUME, DEMO_TITLE } from '../demo-content.ts';
-import { createLlmClient, defaultCassetteDir, describeClient } from '../llm/index.ts';
-import type { LlmClient } from '../llm/types.ts';
+import { createLlmClient, defaultCassetteDir, describeClient, listLiveModels, LLM_MODES, MODE_LABEL, resolveLiveConfig } from '../llm/index.ts';
+import type { LlmClient, LlmMode } from '../llm/types.ts';
 import { assembleSession, contractViews, runAndPersist } from '../pipeline.ts';
 import type { SessionView } from '../pipeline.ts';
 import { extractResumeFromFile, ImportError, IMPORT_ACCEPT } from '../import/index.ts';
@@ -54,10 +54,36 @@ export interface AppOptions {
    * 面板组成仍由请求的 ?panel= 或 DEFAULT_PANEL 决定。不传则不设上限。
    */
   panelSize?: number;
+  /**
+   * 按「这一场选的模式与模型」现造客户端。会话行是单一事实来源：
+   * 同一份库里可以既有回放跑过的老会话、又有联网跑的新会话，重跑谁的都按它自己记的模式来。
+   */
+  clientFactory?: (mode: LlmMode, model: string) => LlmClient;
 }
 
 function textField(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
+}
+
+/**
+ * 请求里带的运行模式。写错的值明确拒绝（返回 null），不做「猜一个最接近的」——
+ * 猜错的代价是用户以为在联网，实际跑的是回放。
+ */
+function modeField(value: unknown): LlmMode | null | undefined {
+  const text = textField(value).toLowerCase();
+  if (text === '') return undefined;
+  return text === 'replay' || text === 'live' || text === 'record' ? (text as LlmMode) : null;
+}
+
+/**
+ * 联网是否就绪：只查两个真正必需的环境变量。
+ * 模型名可以来自界面输入，所以 LLM_MODEL 缺失不算「没配好」，界面会提示可以直接手填。
+ */
+function liveReadiness(): { ready: boolean; missing: string[] } {
+  const missing: string[] = [];
+  if ((process.env['LLM_BASE_URL'] ?? '').trim() === '') missing.push('LLM_BASE_URL');
+  if ((process.env['LLM_API_KEY'] ?? '').trim() === '') missing.push('LLM_API_KEY');
+  return { ready: missing.length === 0, missing };
 }
 
 function numberField(value: unknown): number | undefined {
@@ -130,6 +156,16 @@ export function createApp(opts: AppOptions): Hono {
   const model = opts.model ?? process.env['LLM_MODEL'] ?? '';
   const reasoning = opts.reasoning ?? {};
   const panelLimit = opts.panelSize;
+  const clientFor = (mode: LlmMode, wanted: string): LlmClient =>
+    opts.clientFactory !== undefined
+      ? opts.clientFactory(mode, wanted)
+      : opts.client ??
+        createLlmClient({
+          cassetteDir,
+          mode,
+          model: wanted === '' ? undefined : wanted,
+          stageModels: reasoning,
+        });
   const resolvePanel = (raw: string | undefined): readonly InterviewerRole[] =>
     limitPanel(panelOf(raw) ?? DEFAULT_PANEL, panelLimit);
   const app = new Hono();
@@ -142,8 +178,26 @@ export function createApp(opts: AppOptions): Hono {
       model,
       reasoning,
       cassetteDir,
+      modes: LLM_MODES,
+      modeLabels: MODE_LABEL,
+      live: liveReadiness(),
     }),
   );
+
+  /**
+   * 真实端点上有哪些模型。**只在用户选了联网时前端才会调它**：
+   * 默认的离线路径一个网络包都不发（没配好就直接返回 ready=false）。
+   */
+  app.get('/api/models', async (c) => {
+    const listed = await listLiveModels();
+    return c.json({
+      ready: listed.ready,
+      models: listed.models,
+      defaultModel: listed.defaultModel === '' ? model : listed.defaultModel,
+      error: listed.error,
+      missing: liveReadiness().missing,
+    });
+  });
 
   app.get('/api/demo', (c) => c.json({ title: DEMO_TITLE, resume: DEMO_RESUME, jd: DEMO_JD }));
   /**
@@ -212,16 +266,36 @@ export function createApp(opts: AppOptions): Hono {
     }
     const jdText = textField(body['jdText']) || (useDemo ? DEMO_JD : '');
     const jobTitle = textField(body['jobTitle']) || (useDemo ? DEMO_TITLE : '未填写岗位');
+
+    // 这一场用什么跑：默认沿用进程启动时的模式，页面上可以逐场改。
+    const wantedMode = modeField(body['mode']);
+    if (wantedMode === null) {
+      return c.json({
+        error: '运行模式只能是 ' + LLM_MODES.join(' / ') + '，收到「' + textField(body['mode']) + '」。',
+      }, 400);
+    }
+    const mode = wantedMode ?? client.mode;
+    const wantedModel = mode === 'replay' ? '' : textField(body['model']);
+    if (wantedMode !== undefined && wantedMode !== 'replay') {
+      // 用户显式选了联网，就先查配置：缺哪个环境变量当场说，而不是跑了一半才发现。
+      // 没写 mode 时沿用进程启动时的客户端，那是部署者自己的配置，不在这里拦。
+      try {
+        resolveLiveConfig({ model: wantedModel === '' ? undefined : wantedModel });
+      } catch (err) {
+        return c.json({ error: messageOf(err) }, 400);
+      }
+    }
+
     const id = insertSession(db, {
       jobTitle,
       jdText,
       resumeText,
       resumeHash: shortHash(resumeText, 24),
-      llmMode: client.mode,
+      llmMode: mode,
       budget: { config: DEFAULT_BUDGET, totalProbes: 0, claims: {} },
-      meta: { source: useDemo ? 'demo' : 'user' },
+      meta: { source: useDemo ? 'demo' : 'user', model: wantedModel },
     });
-    return c.json({ id, mode: client.mode, jobTitle }, 201);
+    return c.json({ id, mode, model: wantedModel, jobTitle }, 201);
   });
 
   app.get('/api/sessions/:id', (c) => {
@@ -290,7 +364,12 @@ export function createApp(opts: AppOptions): Hono {
     if (session === null) return c.json({ error: '会话不存在：' + id }, 404);
     const panel = resolvePanel(c.req.query('panel'));
     const maxClaims = numberField(c.req.query('maxClaims'));
-    const runInput = { db, sessionId: id, client, model, panel, maxClaims };
+    // 用会话行里记的模式与模型，而不是进程启动时的那一套：
+    // 同一场会话重跑，必须和它当初跑的是同一种东西。
+    const sessionModel = textField(session.meta['model']);
+    const runModel = sessionModel === '' ? model : sessionModel;
+    const runClient = clientFor(session.llmMode, runModel);
+    const runInput = { db, sessionId: id, client: runClient, model: runModel, panel, maxClaims };
 
     if (c.req.query('stream') === '0') {
       try {
