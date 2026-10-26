@@ -1,0 +1,15 @@
+{
+  "name": "@crossexam/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "CrossExam 服务端：LLM 适配层（流式 / 回放）、SQLite 存储与多 Agent 编排",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*"
+  },
+  "dependencies": {
+    "@crossexam/shared": "*",
+    "zod": "^3.25.76"
+  }
+}
