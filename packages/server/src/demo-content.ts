@@ -51,4 +51,6 @@ const JD_LINES = [
 
 export const DEMO_RESUME = RESUME_LINES.join(String.fromCharCode(10));
 export const DEMO_JD = JD_LINES.join(String.fromCharCode(10));
+/** JD 正文的第一行就是岗位名，直接拿它当这一份 JD 的标题 */
+export const DEMO_JD_TITLE = JD_LINES[0] ?? '';
 export const DEMO_TITLE = '高级后端工程师（Node.js） · 演示简历';

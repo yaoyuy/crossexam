@@ -24,8 +24,8 @@
  *   另有第 6 条草稿故意锚不到原文 -> 被锚定闸门丢弃，前端展示「AI 没有乱问」的正面证据
  */
 
-import { VERDICT_LABEL } from '@crossexam/shared';
-import type { ClaimCategory, VerdictKind } from '@crossexam/shared';
+import { REQUIREMENT_KIND_LABEL, VERDICT_LABEL } from '@crossexam/shared';
+import type { ClaimCategory, MatchStatus, RequirementKind, VerdictKind } from '@crossexam/shared';
 import { CASSETTE_VERSION, digestFor, writeCassette } from './cassette.ts';
 import type { CassetteEntry } from './cassette.ts';
 import { chunkText } from './replay.ts';
@@ -219,6 +219,108 @@ export const DEMO_UNANCHORED_DRAFT: DemoClaimDraft = {
   weight: 0.99,
 };
 
+/** 演示 JD 里的一条要求：引文逐字取自 DEMO_JD，对照结果预先定好 */
+export interface DemoRequirementDraft {
+  text: string;
+  quote: string;
+  kind: RequirementKind;
+  keywords: string[];
+}
+
+export interface DemoRequirementPlan extends DemoRequirementDraft {
+  match: { status: MatchStatus; claimId: string | null; reason: string };
+}
+
+/**
+ * 演示 JD（DEMO_JD）里能拿去检验简历的要求。
+ *
+ * 两条纪律：
+ * 1. quote 逐字抄自 demo-content.ts 的 JD_LINES。抽取阶段的硬约束是「引文必须逐字存在于 JD」，
+ *    演示脚本自己也不例外——写错一个字，groundExtracted 就把它当锚不到丢掉，
+ *    演示场次的要求清单会莫名少一条。
+ * 2. 对照结果刻意做成 7 条里只有 1 条 hit。岗位要求对照的价值在缺口：
+ *    3 条答得含糊、3 条简历里完全没写，这才是评委该看见的东西。
+ */
+export const DEMO_REQUIREMENT_PLANS: readonly DemoRequirementPlan[] = [
+  {
+    text: '本科及以上学历，5 年以上后端研发经验',
+    quote: '本科及以上学历，5 年以上后端研发经验',
+    kind: 'must',
+    keywords: ['学历', '5 年后端经验'],
+    match: {
+      status: 'missing',
+      claimId: null,
+      reason: '简历里既没有学历，也没有总年限——两段经历的起止时间只够推出四年左右。',
+    },
+  },
+  {
+    text: '精通 Node.js / TypeScript，熟悉 PostgreSQL、Redis',
+    quote: '精通 Node.js / TypeScript，熟悉 PostgreSQL、Redis',
+    kind: 'must',
+    keywords: ['Node.js', 'TypeScript', 'PostgreSQL', 'Redis'],
+    match: {
+      status: 'weak',
+      claimId: 'C2',
+      reason: '简历写了用 Redis 做缓存，但没有 PostgreSQL 的任何痕迹，Node.js 与 TypeScript 也只有「熟悉」两个字。',
+    },
+  },
+  {
+    text: '有日订单百万级系统的性能优化经验，能给出量化的优化结论',
+    quote: '有日订单百万级系统的性能优化经验，能给出量化的优化结论',
+    kind: 'must',
+    keywords: ['百万级订单', '量化结论'],
+    match: {
+      status: 'weak',
+      claimId: 'C1',
+      reason: '有 2.4s 降到 0.8s 这样的量化结论，但没写日订单量级，也没说首屏耗时是怎么测出来的。',
+    },
+  },
+  {
+    text: '具备良好的沟通能力与主人翁意识',
+    quote: '具备良好的沟通能力与主人翁意识',
+    kind: 'must',
+    keywords: ['沟通能力', '主人翁意识'],
+    match: {
+      status: 'missing',
+      claimId: null,
+      reason: '简历通篇没有协作类的事实，自我评价里也没有这两项。',
+    },
+  },
+  {
+    text: '负责交易与订单核心链路的架构设计与性能优化',
+    quote: '负责交易与订单核心链路的架构设计与性能优化',
+    kind: 'duty',
+    keywords: ['订单链路', '架构设计', '性能优化'],
+    match: {
+      status: 'hit',
+      claimId: 'C1',
+      reason: '订单系统重构这条主张正好压在这条职责上，有明确的技术动作与前后对比。',
+    },
+  },
+  {
+    text: '主导高并发场景下的稳定性治理，输出可复用的技术方案',
+    quote: '主导高并发场景下的稳定性治理，输出可复用的技术方案',
+    kind: 'duty',
+    keywords: ['高并发', '稳定性治理', '可复用方案'],
+    match: {
+      status: 'weak',
+      claimId: 'C2',
+      reason: '只有 QPS 提升这一个数字，没写稳定性治理做了什么，也没有可复用方案的产出。',
+    },
+  },
+  {
+    text: '与产品、前端紧密协作，推动需求高质量交付',
+    quote: '与产品、前端紧密协作，推动需求高质量交付',
+    kind: 'duty',
+    keywords: ['跨团队协作', '需求交付'],
+    match: {
+      status: 'missing',
+      claimId: null,
+      reason: '简历里没有跨团队协作与需求交付的任何描述。',
+    },
+  },
+];
+
 interface ScriptState {
   /** 已经问出去的问题，跨面试官共享：一场面试里同一个问题不重复问 */
   asked: Set<string>;
@@ -274,19 +376,60 @@ function claimBlocks(prompt: string): { claimId: string; quote: string }[] {
   return out;
 }
 
+/**
+ * 从追问提示词里读出「岗位要求里对得上的几条」。
+ *
+ * 为什么要让演示也会用上双锚点：不这么做，离线回放跑出来的追问**全都没有第二处锚**，
+ * 评委会以为「照着岗位要求追问」只存在于联网模式。而这一条恰恰是 P8 的重点。
+ * 格式见 orchestrator/prompts.ts 的 renderRequirementNotes。
+ */
+function requirementNotesIn(prompt: string): { id: string; claimId: string; quote: string }[] {
+  const out: { id: string; claimId: string; quote: string }[] = [];
+  const re = /^- \[(R[0-9]+)\] [^\n（]*（对应主张 (C[0-9]+)，来自《[^》]*》）：[^\n]*\n\s+要求原文：([^\n]*)$/gm;
+  let hit = re.exec(prompt);
+  while (hit !== null) {
+    out.push({ id: hit[1] ?? '', claimId: hit[2] ?? '', quote: hit[3] ?? '' });
+    hit = re.exec(prompt);
+  }
+  return out;
+}
+
 /** 只挑"还有没用过的问题"的主张；问题用完了就交白卷（空数组是被允许的） */
 function probeText(prompt: string, state: ScriptState): string {
   const capMatch = MAX_PROBES_LINE.exec(prompt);
   const cap = capMatch ? Number(capMatch[1] ?? '2') : 2;
-  const probes: { claimId: string; question: string; quote: string; rationale: string }[] = [];
+  const notes = requirementNotesIn(prompt);
+  const usedNote = new Set<string>();
+  const probes: {
+    claimId: string;
+    question: string;
+    quote: string;
+    rationale: string;
+    requirementId?: string;
+    jdQuote?: string;
+  }[] = [];
   for (const block of claimBlocks(prompt)) {
     if (probes.length >= cap) break;
     const plan = planForClaimId(block.claimId);
     if (plan === null) continue;
+    // 一条主张只挂一次要求：同一条要求反复出现在每条追问上，看着像刷屏，也不像人在问。
+    const note = usedNote.has(block.claimId) ? undefined : notes.find((item) => item.claimId === block.claimId);
     for (const question of plan.questions) {
       if (state.asked.has(question)) continue;
       state.asked.add(question);
-      probes.push({ claimId: block.claimId, question, quote: block.quote, rationale: plan.probeRationale });
+      if (note === undefined) {
+        probes.push({ claimId: block.claimId, question, quote: block.quote, rationale: plan.probeRationale });
+      } else {
+        usedNote.add(block.claimId);
+        probes.push({
+          claimId: block.claimId,
+          question,
+          quote: block.quote,
+          rationale: plan.probeRationale,
+          requirementId: note.id,
+          jdQuote: note.quote,
+        });
+      }
       break;
     }
   }
@@ -396,6 +539,87 @@ function verdictReasoning(prompt: string): string {
   return parts.join('');
 }
 
+/** 提示词里每条已抽要求的渲染形状：'- [J1#3] 硬性要求：<text>'，换行后跟 '  原文：<quote>' */
+const MERGE_LINE = /^- \[(J[0-9]+#[0-9]+)\] ([^：]*)：(.+)$/;
+/** 提示词里每条要求的渲染形状：'- [R1] 硬性要求：<text>' */
+const MATCH_LINE = /^- \[(R[0-9]+)\] ([^：]*)：(.+)$/;
+
+function requirementPlanByText(text: string): DemoRequirementPlan | null {
+  for (const plan of DEMO_REQUIREMENT_PLANS) if (plan.text === text) return plan;
+  return null;
+}
+
+function kindOfLabel(label: string): RequirementKind {
+  const keys = Object.keys(REQUIREMENT_KIND_LABEL) as RequirementKind[];
+  for (const key of keys) if (REQUIREMENT_KIND_LABEL[key] === label) return key;
+  return 'must';
+}
+
+/** jd-extract：只吐引文真出现在这份 JD 里的要求，不假装抽到了 JD 里没有的东西 */
+function jdExtractText(prompt: string): string {
+  const requirements: DemoRequirementDraft[] = [];
+  for (const plan of DEMO_REQUIREMENT_PLANS) {
+    if (prompt.indexOf(plan.quote) < 0) continue;
+    requirements.push({ text: plan.text, quote: plan.quote, kind: plan.kind, keywords: plan.keywords });
+  }
+  return JSON.stringify({ requirements });
+}
+
+/**
+ * jd-merge：演示只有一份 JD，没有可并的——如实一条一组。
+ * 硬凑成一组确实更好看，但那是在伪造「跨份归并」这个动作。
+ */
+function jdMergeText(prompt: string): string {
+  const groups: { text: string; kind: RequirementKind; members: string[]; keywords: string[] }[] = [];
+  for (const raw of prompt.split(NL)) {
+    const hit = MERGE_LINE.exec(raw.trim());
+    if (hit === null) continue;
+    const text = (hit[3] ?? '').trim();
+    const plan = requirementPlanByText(text);
+    groups.push({
+      text,
+      kind: kindOfLabel(hit[2] ?? ''),
+      members: [hit[1] ?? ''],
+      keywords: plan === null ? [] : plan.keywords,
+    });
+  }
+  return JSON.stringify({ groups });
+}
+
+/** jd-match：逐条要求对照，结果写死在 DEMO_REQUIREMENT_PLANS 里，不临场编 */
+function jdMatchText(prompt: string): string {
+  const claimIds = new Set<string>();
+  const claimHit = /\[(C[0-9]+)\]/g;
+  let found = claimHit.exec(prompt);
+  while (found !== null) {
+    claimIds.add(found[1] ?? '');
+    found = claimHit.exec(prompt);
+  }
+  const matches: { requirementId: string; claimId: string | null; status: MatchStatus; reason: string }[] = [];
+  for (const raw of prompt.split(NL)) {
+    const hit = MATCH_LINE.exec(raw.trim());
+    if (hit === null) continue;
+    const requirementId = hit[1] ?? '';
+    const plan = requirementPlanByText((hit[3] ?? '').trim());
+    if (plan === null) {
+      matches.push({
+        requirementId,
+        claimId: null,
+        status: 'missing',
+        reason: '演示脚本没有为这条要求准备对照结果，按简历里没写处理。',
+      });
+      continue;
+    }
+    const wanted = plan.match.claimId;
+    if (wanted === null || !claimIds.has(wanted)) {
+      matches.push({ requirementId, claimId: null, status: 'missing', reason: plan.match.reason });
+      continue;
+    }
+    matches.push({ requirementId, claimId: wanted, status: plan.match.status, reason: plan.match.reason });
+  }
+  return JSON.stringify({ matches });
+}
+
 function reasoningFor(req: LlmRequest): string {
   const prompt = req.messages[0]?.content ?? '';
   if (req.purpose === 'answer') return answerReasoning(prompt);
@@ -410,6 +634,9 @@ function respond(req: LlmRequest, state: ScriptState): string {
   if (req.purpose === 'answer') return answerText(user);
   if (req.purpose === 'verdict') return verdictText(user);
   if (req.purpose === 'suggest') return suggestText(user);
+  if (req.purpose === 'jd-extract') return jdExtractText(user);
+  if (req.purpose === 'jd-merge') return jdMergeText(user);
+  if (req.purpose === 'jd-match') return jdMatchText(user);
   throw new Error('演示脚本没有覆盖这个阶段：' + req.purpose);
 }
 
