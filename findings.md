@@ -76,3 +76,31 @@
 
 `hindsight_search_knowledge_pages` 返回 `connect ECONNREFUSED 127.0.0.1:9077`。
 本仓库为新仓库、尚无知识页，不影响主线。已记录，不再重试。
+
+## F6. 通用 .gitignore 模板会误挡 npm workspaces 目录（2026-10-26）
+
+gitignore-before-git 技能给的通用安全模板（6668 B，19 条 block 探针 + 8 条 allow 探针全过）
+在「.NET / C#」段含有一条 packages/，本意是挡 NuGet 的包缓存目录。
+本仓库用 npm workspaces，源码就放在 packages/shared/，同名 →
+整个包被静默忽略，git add packages/... 报
+"The following paths are ignored by one of your .gitignore files"。
+
+处置：删掉该行（同一段的 *.nupkg 保留，NuGet 包本体照挡），
+用 git check-ignore -v 确认 packages/shared/src/index.ts 恢复可见。
+
+**教训（值得写进技术文档的「可复现性」一节）**：模板自带的探针只验证
+「密钥有没有被挡住」，不会验证「源码有没有被挡住」——这两件事方向相反，
+必须各测一遍。本项目的关键路径是 packages/*/src/** 与 tools/*/bin/**。
+
+## F7. run_code 写大文件的可靠姿势（2026-10-26）
+
+现象：同一个 run_code 程序里写 3 个较大的 TS 源文件（合计 > 20 KB）时，
+程序体解析失败：Error: code run failed (exception): Expected ',', got '<lexing error>'。
+换成把约 12 KB 的 summary 文本拼在一起也会复现（错误变成 Expected ',', got 'ident'）。
+
+已排除（各自做过最小复现，均正常）：含 glob 注释符的路径字符串、含美元花括号的普通字符串。
+
+**结论（已验证）**：文件内容改用 String.raw 模板字面量承载，
+内容中不得出现反引号与美元花括号；一次程序写 1–2 个文件即可稳定通过。
+这是工具链约束，不是本项目的代码问题，记录以免重复踩坑。
+
