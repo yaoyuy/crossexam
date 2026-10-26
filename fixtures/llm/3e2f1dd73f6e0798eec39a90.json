@@ -18,11 +18,12 @@
   },
   "response": {
     "text": "{\"answered\":true,\"text\":\"是首屏可交互时间，取的是公司性能监控平台上的 P75，测的时候订单量是日均三百万单，Redis 命中率大概九成。\",\"citedQuotes\":[\"首屏加载从 2.4s 降到 0.8s\"]}",
+    "reasoning": "问题问的是「压测和生产的数据量、缓存命中率分别是多少，取的是均值还是分位数？」。简历里有一句能对上的原话，我就按原文答，只补简历里写过的信息（口径、环境、量级），不添新的事实。",
     "usage": {
       "inputTokens": 489,
       "outputTokens": 60,
       "cacheReadTokens": 0,
-      "reasoningTokens": 0
+      "reasoningTokens": 44
     }
   }
 }

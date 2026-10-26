@@ -18,11 +18,12 @@
   },
   "response": {
     "text": "{\"answered\":false,\"text\":\"简历里没有写这些业务线的具体情况，也没有写个人贡献的边界。\",\"citedQuotes\":[]}",
+    "reasoning": "问题问的是「这 12 个业务线具体是哪几条，各自的用户量级大概是多少？」。先扫一遍简历：这句话只写了结论，没有能对上这个问题的原文。答不上来就老实说答不上来——编一个细节出来反而会与简历原文矛盾，那才是真的扣分。",
     "usage": {
       "inputTokens": 486,
       "outputTokens": 37,
       "cacheReadTokens": 0,
-      "reasoningTokens": 0
+      "reasoningTokens": 53
     }
   }
 }

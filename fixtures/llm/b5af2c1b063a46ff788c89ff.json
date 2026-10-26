@@ -18,11 +18,12 @@
   },
   "response": {
     "text": "{\"kind\":\"solid\",\"confidence\":0.82,\"rationale\":\"简历原文给出了优化前后的数字，追问补上了指标口径（首屏可交互时间、P75）与测量环境，回答与原文一致，没有发现矛盾。\",\"evidenceQuotes\":[\"首屏加载从 2.4s 降到 0.8s\"]}",
+    "reasoning": "先看这条主张：主导订单系统重构，把首屏加载从 2.4s 优化到 0.8s。追问记录里备了 2 个问题，候选人有作答。简历原文有这句话，追问也补上了口径与环境，两边对得上，不像是编的。所以判「站得住」，置信度 82%。",
     "usage": {
       "inputTokens": 876,
       "outputTokens": 74,
       "cacheReadTokens": 0,
-      "reasoningTokens": 0
+      "reasoningTokens": 54
     }
   }
 }

@@ -18,11 +18,12 @@
   },
   "response": {
     "text": "{\"kind\":\"solid\",\"confidence\":0.68,\"rationale\":\"获奖这个事实没问题，但简历只有结论、没有评选范围与个人贡献，撑不起「技术突破」这个说法。\",\"evidenceQuotes\":[]}",
+    "reasoning": "先看这条主张：参与的项目获得公司年度技术突破奖。追问记录里备了 2 个问题，候选人有作答。简历原文有这句话，追问也补上了口径与环境，两边对得上，不像是编的。所以判「站得住」，置信度 68%。",
     "usage": {
       "inputTokens": 859,
       "outputTokens": 57,
       "cacheReadTokens": 0,
-      "reasoningTokens": 0
+      "reasoningTokens": 48
     }
   }
 }

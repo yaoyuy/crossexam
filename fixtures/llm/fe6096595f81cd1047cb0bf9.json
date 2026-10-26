@@ -18,11 +18,12 @@
   },
   "response": {
     "text": "{\"kind\":\"unanswerable\",\"confidence\":0.65,\"rationale\":\"自我评价只有形容词，候选人被追问两次都明确承认举不出具体事例——这条在面试现场会直接翻车。\",\"evidenceQuotes\":[]}",
+    "reasoning": "先看这条主张：学习能力强、抗压能力强。追问记录里备了 2 个问题，候选人没有答上来。连续几次追问都答不上来，说明这句话背后的细节他自己也说不清。所以判「无法回答」，置信度 65%。",
     "usage": {
       "inputTokens": 814,
       "outputTokens": 61,
       "cacheReadTokens": 0,
-      "reasoningTokens": 0
+      "reasoningTokens": 45
     }
   }
 }

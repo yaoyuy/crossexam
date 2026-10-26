@@ -18,11 +18,12 @@
   },
   "response": {
     "text": "{\"answered\":true,\"text\":\"奖是公司年度评选的，部门推荐、公司评审；具体贡献是我负责的权限模块支撑了多条业务线接入，量化结果简历里没写。\",\"citedQuotes\":[\"参与的项目获得公司年度技术突破奖\"]}",
+    "reasoning": "问题问的是「这个年度技术突破奖是公司级还是部门级，评选范围有多大？」。简历里有一句能对上的原话，我就按原文答，只补简历里写过的信息（口径、环境、量级），不添新的事实。",
     "usage": {
       "inputTokens": 625,
       "outputTokens": 58,
       "cacheReadTokens": 0,
-      "reasoningTokens": 0
+      "reasoningTokens": 42
     }
   }
 }

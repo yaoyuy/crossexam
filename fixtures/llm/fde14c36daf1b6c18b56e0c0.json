@@ -18,11 +18,12 @@
   },
   "response": {
     "text": "{\"answered\":true,\"text\":\"压测用 wrk，在预发环境单机压的。严格说提升前的 800 是旧接口的日常统计值，提升后的 5000 是新接口的压测峰值，口径确实不一样。\",\"citedQuotes\":[\"QPS 从 800 提升到 5000\"]}",
+    "reasoning": "问题问的是「提升前后的两个数字是同一个接口、同一套压测口径吗？」。简历里有一句能对上的原话，我就按原文答，只补简历里写过的信息（口径、环境、量级），不添新的事实。",
     "usage": {
       "inputTokens": 488,
       "outputTokens": 67,
       "cacheReadTokens": 0,
-      "reasoningTokens": 0
+      "reasoningTokens": 41
     }
   }
 }

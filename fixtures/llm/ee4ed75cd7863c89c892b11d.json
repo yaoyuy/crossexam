@@ -18,11 +18,12 @@
   },
   "response": {
     "text": "{\"kind\":\"unsupported\",\"confidence\":0.7,\"rationale\":\"简历只写了覆盖规模，没有个人贡献边界与业务线明细，追问后仍无法补充。\",\"evidenceQuotes\":[]}",
+    "reasoning": "先看这条主张：独立完成 RBAC 权限模块，覆盖 12 个业务线。追问记录里备了 2 个问题，候选人没有答上来。这件事无法证伪，可简历只有结论、没有范围和贡献，撑不起这个说法。所以判「证据缺失」，置信度 70%。",
     "usage": {
       "inputTokens": 822,
       "outputTokens": 54,
       "cacheReadTokens": 0,
-      "reasoningTokens": 0
+      "reasoningTokens": 53
     }
   }
 }

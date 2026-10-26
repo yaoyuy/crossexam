@@ -24,11 +24,12 @@
  *   另有第 6 条草稿故意锚不到原文 -> 被锚定闸门丢弃，前端展示「AI 没有乱问」的正面证据
  */
 
+import { VERDICT_LABEL } from '@crossexam/shared';
 import type { ClaimCategory, VerdictKind } from '@crossexam/shared';
 import { CASSETTE_VERSION, digestFor, writeCassette } from './cassette.ts';
 import type { CassetteEntry } from './cassette.ts';
 import { chunkText } from './replay.ts';
-import type { LlmClient, LlmRequest, LlmResult, LlmUsage } from './types.ts';
+import type { LlmClient, LlmRequest, LlmResult, LlmStreamEvent, LlmUsage } from './types.ts';
 
 /** 卡带里记的模型名：一眼看出这是脚本合成的演示数据 */
 export const DEMO_MODEL = 'scripted-demo';
@@ -238,14 +239,14 @@ function planForQuestion(question: string): DemoClaimPlan | null {
 }
 
 /** 用量是**估算值**（按字符数折半），不是真实计费数据；演示卡带不假装自己是账单 */
-function estimateUsage(req: LlmRequest, text: string): LlmUsage {
+function estimateUsage(req: LlmRequest, text: string, reasoning: string): LlmUsage {
   let promptChars = req.system.length;
   for (const message of req.messages) promptChars += message.content.length;
   return {
     inputTokens: Math.max(1, Math.round(promptChars / 2)),
     outputTokens: Math.max(1, Math.round(text.length / 2)),
     cacheReadTokens: 0,
-    reasoningTokens: 0,
+    reasoningTokens: Math.round(reasoning.length / 2),
   };
 }
 
@@ -356,6 +357,52 @@ function suggestText(prompt: string): string {
   });
 }
 
+/**
+ * 合成思考：离线演示也要看得见「思考可视化」。
+ *
+ * 真实联网时这一栏由思考模型（如 deepseek-reasoner）的 reasoning 分片填充；
+ * 离线演示没有模型，就按同一套判据写一段自问自答。它同样是**合成内容**，「
+ * 与卡带里的答案一样由 model 字段标注（scripted-demo）。
+ * 只给 verdict 与 answer 两个阶段：一个演示「判定时怎么权衡」，一个演示「求职者怎么答」。
+ */
+function answerReasoning(prompt: string): string {
+  const question = lineAfter(prompt, '## 面试官的问题');
+  const plan = planForQuestion(question);
+  if (plan === null) return '';
+  if (!plan.answer.answered) {
+    return '问题问的是「' + question + '」。先扫一遍简历：这句话只写了结论，没有能对上这个问题的原文。答不上来就老实说答不上来——编一个细节出来反而会与简历原文矛盾，那才是真的扣分。';
+  }
+  return '问题问的是「' + question + '」。简历里有一句能对上的原话，我就按原文答，只补简历里写过的信息（口径、环境、量级），不添新的事实。';
+}
+
+const VERDICT_THOUGHT: Record<VerdictKind, string> = {
+  solid: '简历原文有这句话，追问也补上了口径与环境，两边对得上，不像是编的。',
+  overstated: '数字本身在简历里，但两个口径被混着说，读的人会以为提升幅度更大。',
+  unsupported: '这件事无法证伪，可简历只有结论、没有范围和贡献，撑不起这个说法。',
+  contradicts: '回答与简历原文对不上，按原文为准。',
+  unanswerable: '连续几次追问都答不上来，说明这句话背后的细节他自己也说不清。',
+};
+
+function verdictReasoning(prompt: string): string {
+  const claimId = firstClaimId(prompt);
+  const plan = planForClaimId(claimId);
+  if (plan === null) return '';
+  const kind = plan.verdict.kind;
+  const parts: string[] = [];
+  parts.push('先看这条主张：' + plan.text + '。');
+  parts.push('追问记录里备了 ' + String(plan.questions.length) + ' 个问题，' + (plan.answer.answered ? '候选人有作答。' : '候选人没有答上来。'));
+  parts.push(VERDICT_THOUGHT[kind]);
+  parts.push('所以判「' + VERDICT_LABEL[kind] + '」，置信度 ' + String(Math.round(plan.verdict.confidence * 100)) + '%。');
+  return parts.join('');
+}
+
+function reasoningFor(req: LlmRequest): string {
+  const prompt = req.messages[0]?.content ?? '';
+  if (req.purpose === 'answer') return answerReasoning(prompt);
+  if (req.purpose === 'verdict') return verdictReasoning(prompt);
+  return '';
+}
+
 function respond(req: LlmRequest, state: ScriptState): string {
   const user = req.messages[0]?.content ?? '';
   if (req.purpose === 'extract') return extractText();
@@ -389,8 +436,9 @@ export function createDemoScriptedClient(dir: string): DemoScriptedClient {
 
   function produce(req: LlmRequest): LlmResult {
     const text = respond(req, state);
+    const reasoning = reasoningFor(req);
     const digest = digestFor(req);
-    const usage = estimateUsage(req, text);
+    const usage = estimateUsage(req, text, reasoning);
     const entry: CassetteEntry = {
       version: CASSETTE_VERSION,
       digest,
@@ -404,11 +452,12 @@ export function createDemoScriptedClient(dir: string): DemoScriptedClient {
         maxTokens: req.maxTokens ?? null,
         json: req.json ?? false,
       },
-      response: { text, usage },
+      response: reasoning === '' ? { text, usage } : { text, reasoning, usage },
     };
     const file = writeCassette(dir, entry);
     entries.push({ digest, purpose: req.purpose, file });
-    return { text, usage, digest, replayed: false, elapsedMs: 0 };
+    if (reasoning === '') return { text, usage, digest, replayed: false, elapsedMs: 0 };
+    return { text, reasoning, usage, digest, replayed: false, elapsedMs: 0 };
   }
 
   const client: LlmClient = {
@@ -416,8 +465,12 @@ export function createDemoScriptedClient(dir: string): DemoScriptedClient {
     async complete(req: LlmRequest): Promise<LlmResult> {
       return produce(req);
     },
-    async *stream(req: LlmRequest): AsyncGenerator<{ type: 'delta'; text: string } | { type: 'done'; result: LlmResult }, void, void> {
+    async *stream(req: LlmRequest): AsyncGenerator<LlmStreamEvent, void, void> {
       const result = produce(req);
+      const thinking = result.reasoning ?? '';
+      if (thinking !== '') {
+        for (const piece of chunkText(thinking)) yield { type: 'reasoning', text: piece };
+      }
       for (const piece of chunkText(result.text)) yield { type: 'delta', text: piece };
       yield { type: 'done', result };
     },
