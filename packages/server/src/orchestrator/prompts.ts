@@ -160,24 +160,27 @@ export function probeSystem(contract: IntentContract): string {
 }
 
 export function buildProbePrompt(input: {
-  claim: Claim;
+  claims: readonly Claim[];
+  notes: Record<string, string>;
   resumeText: string;
   outline: ResumeOutline;
   asked: readonly Probe[];
   round: number;
-  remainingRounds: number;
-  quotaLeft: number;
+  maxProbes: number;
 }): string {
   const lines: string[] = [];
   lines.push('## 本轮是第 ' + input.round + ' 轮追问');
-  lines.push('## 你要问的主张');
-  lines.push(renderClaim(input.claim, '你还可以问 ' + input.quotaLeft + ' 次；这条主张全场还剩 ' + input.remainingRounds + ' 轮。'));
+  lines.push('## 你可以追问的主张（只从这些里选，不要新造主张）');
+  lines.push(renderClaims(input.claims, input.notes));
   lines.push('');
   lines.push('## 你此前问过的问题（不要重复，也不要换句话问同一个点）');
   lines.push(renderProbes(input.asked));
   lines.push('');
   lines.push('## 简历原文（quote 必须从这里逐字复制，不要带 # 开头的编号行）');
   lines.push(renderResume(input.outline));
+  lines.push('');
+  lines.push('## 本轮最多问 ' + String(input.maxProbes) + ' 条');
+  lines.push('挑你最想问的去问。如果确实没有值得问的，返回空数组——凑数的提问比空手而归更糟。');
   return lines.join(NL);
 }
 

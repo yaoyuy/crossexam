@@ -10,7 +10,6 @@
 import { describe, expect, it } from 'vitest';
 import { segmentResume, resolveAnchor } from '@crossexam/shared';
 import {
-  EXTRACT_SYSTEM,
   buildExtractPrompt,
   buildProbePrompt,
   probeSystem,
@@ -70,10 +69,12 @@ describe('提示词渲染', function () {
       anchor: { quote: '主导重构订单系统', start: 0, end: 8, exact: true },
     };
     const prompt = buildProbePrompt({
-      claim, resumeText: RESUME, outline, asked: [], round: 2, remainingRounds: 1, quotaLeft: 1,
+      claims: [claim], notes: { C1: '你还能问 1 次；这条主张全场还剩 1 轮。' },
+      resumeText: RESUME, outline, asked: [], round: 2, maxProbes: 2,
     });
     expect(prompt).toContain('第 2 轮追问');
-    expect(prompt).toContain('你还可以问 1 次');
+    expect(prompt).toContain('你还能问 1 次');
+    expect(prompt).toContain('本轮最多问 2 条');
   });
 });
 
