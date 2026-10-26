@@ -118,8 +118,14 @@ await new Promise((res, rej) => { ws.addEventListener('open', res); ws.addEventL
 let nextId = 0;
 const pending = new Map();
 const events = [];
+// 记一下每个请求的方法：光看 404 的 URL 分不清是 GET 还是 DELETE，
+// 排查「谁在请求一个已经不存在的会话」时这一条信息就是全部差别。
+const requestMethods = new Map();
 ws.addEventListener('message', (ev) => {
   const msg = JSON.parse(ev.data);
+  if (msg.method === 'Network.requestWillBeSent' && msg.params !== undefined) {
+    requestMethods.set(msg.params.requestId, msg.params.request.method);
+  }
   if (msg.id && pending.has(msg.id)) {
     const p = pending.get(msg.id);
     pending.delete(msg.id);
@@ -358,6 +364,46 @@ await clickIncludes('HR 面试官');
 await sleep(400);
 check('面试官面板可以增减', true, '三位 → 四位 → 两位 → 三位');
 
+// 面试官工作室：这是「所有专业都能用」那条要求最直接的验收点。
+// 走「只用本地规则」这条路，因为它不联网、确定性强，而且正好证明没有 API Key 也能配出面试官。
+const studioOpened = await evalJs('(() => { const b = document.querySelector("[data-shot=open-studio]"); if (b === null) return "no-button"; b.click(); return "ok"; })()');
+check('投料台有「配置面试官」入口', studioOpened === 'ok', String(studioOpened));
+const studioVisible = await waitFor(async () => { const t = await bodyText(); return t.indexOf('面试官工作室') >= 0 ? t : ''; }, '工作室弹层', 8000);
+check('工作室打开后讲清它与内置面试官的关系', studioVisible.indexOf('共用同一套契约结构') >= 0, '');
+// 点了以后要等 React 把 state 刷进 DOM：点完立刻读 value 读到的是空串，
+// 断言就变成在测「React 有多快」而不是在测「例子填进来了没有」。
+const seedClicked = await evalJs('(() => { const b = document.querySelector("[data-shot=" + JSON.stringify("studio-seed-医护") + "]"); if (b === null) return "no-seed"; b.click(); return "ok"; })()');
+const seedPicked = await waitFor(async () => {
+  const value = await evalJs('(() => { const e = document.querySelector("[data-shot=studio-desc]"); return e === null ? "" : e.value; })()');
+  return value.length > 0 ? value : '';
+}, '医护例子填进描述框', 8000);
+// 断言的是「例子真的是一份完整的岗位描述」，不是「按钮被点到了」：
+// 按例子正文里的关键词认（种子标签叫「医护」，正文写的是「临床护士」）。
+check('工作室提供非计算机行业的现成例子（医护）', seedClicked === 'ok' && seedPicked.indexOf('临床护士') >= 0, String(seedClicked) + ' / ' + seedPicked.slice(0, 30));
+await evalJs('document.querySelector("[data-shot=studio-local]").click()');
+const draftReady = await waitFor(async () => {
+  const name = await evalJs('document.querySelector("[data-shot=studio-name]").value');
+  return name.length > 0 ? name : '';
+}, '本地规则生成草稿', 15000);
+check('不用联网也能把一句话补成结构化契约', draftReady.indexOf('面试官') >= 0, String(draftReady));
+const draftFields = await evalJs('(() => { const pick = (n) => { const e = document.querySelector("[data-shot=" + n + "]"); return e === null ? "" : e.value; }; return { goal: pick("studio-goal"), blurb: pick("studio-blurb"), tactics: Array.from(document.querySelectorAll("[data-shot^=studio-tactic-]")).map((e) => e.value).filter((v) => v.length > 0).length }; })()');
+check('草稿把目标、简介与追问手法都填上了', String(draftFields.goal).length >= 8 && String(draftFields.blurb).length >= 4 && draftFields.tactics >= 2, JSON.stringify(draftFields).slice(0, 120));
+const promptShown = await evalJs('(() => { const b = document.querySelector("[data-shot=studio-prompt-toggle]"); if (b === null) return "no-toggle"; b.click(); return "ok"; })()');
+const promptBody = await waitFor(async () => { const t = await evalJs('(() => { const pre = document.querySelector("[data-shot=studio-prompt]"); return pre === null ? "" : pre.innerText; })()'); return t.length > 200 ? t : ''; }, '工作室里的 System Prompt', 8000);
+check('能看到这份自定义契约渲染出的 System Prompt', promptShown === 'ok' && promptBody.indexOf('## 追问预算') >= 0, String(promptBody.length) + ' 字');
+const saved = await evalJs('(() => { const b = document.querySelector("[data-shot=studio-save]"); if (b === null) return "no-save"; if (b.disabled) return "disabled"; b.click(); return "ok"; })()');
+const savedNote = await waitFor(async () => { const t = await evalJs('(document.querySelector("[data-shot=studio-note]") || { textContent: "" }).textContent'); return t.indexOf('已保存') >= 0 ? t : ''; }, '保存成功提示', 15000);
+check('自定义面试官能存进库', saved === 'ok' && savedNote.length > 0, savedNote.slice(0, 60));
+await evalJs('document.querySelector("[data-shot=studio-close]").click()');
+await sleep(400);
+const customChip = await waitFor(async () => { const n = await evalJs('document.querySelectorAll("[data-shot^=role-custom-]").length'); return n > 0 ? String(n) : ''; }, '面板出现自建面试官', 8000);
+check('存下来的自定义面试官出现在面板里', customChip !== '', customChip + ' 位');
+const customToggled = await evalJs('(() => { const b = document.querySelector("[data-shot^=role-custom-]"); if (b === null) return "no-chip"; b.click(); return "ok"; })()');
+const contractFive = await waitFor(async () => { const n = await evalJs('document.querySelectorAll("[data-shot=contract-toggle]").length'); return n === 4 ? '4' : ''; }, '自定义面试官的契约', 8000);
+check('自建面试官进面板后契约跟着多一条', customToggled === 'ok' && contractFive === '4', contractFive);
+await evalJs('(() => { const b = document.querySelector("[data-shot^=role-custom-]"); if (b !== null) b.click(); return "ok"; })()');
+await sleep(400);
+
 await clickText('即时');
 await clickText('开始质询');
 const doneText = await waitText('置信度', 60000);
@@ -442,7 +488,7 @@ for (const e of events) {
   if (e.method === 'Runtime.exceptionThrown') problems.push('异常：' + JSON.stringify(e.params.exceptionDetails.text));
   if (e.method === 'Runtime.consoleAPICalled' && (e.params.type === 'error' || e.params.type === 'warning')) problems.push(e.params.type + '：' + e.params.args.map((a) => a.value || a.description || a.type).join(' '));
   if (e.method === 'Log.entryAdded' && (e.params.entry.level === 'error' || e.params.entry.level === 'warning')) problems.push('日志 ' + e.params.entry.level + '：' + e.params.entry.text);
-  if (e.method === 'Network.responseReceived' && e.params.response.status >= 400) problems.push('HTTP ' + String(e.params.response.status) + '：' + e.params.response.url);
+  if (e.method === 'Network.responseReceived' && e.params.response.status >= 400) problems.push('HTTP ' + String(e.params.response.status) + ' ' + String(requestMethods.get(e.params.requestId) || '?') + '：' + e.params.response.url);
 }
 check('整轮下来浏览器控制台没有报错或警告', problems.length === 0, problems.slice(0, 4).join(' | '));
 
