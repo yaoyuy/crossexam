@@ -90,7 +90,7 @@ async function ranSession(target: Rig): Promise<string> {
   const created = await target.app.request('/api/sessions', {
     method: 'POST',
     headers: JSON_HEADERS,
-    body: JSON.stringify({ resumeText: RESUME, jobTitle: '后端工程师', jdText: '负责订单系统', interviewers: ['tech'] }),
+    body: JSON.stringify({ resumeText: RESUME, jobTitle: '后端工程师', interviewers: ['tech'] }),
   });
   expect(created.status).toBe(201);
   const id = ((await created.json()) as { id: string }).id;
