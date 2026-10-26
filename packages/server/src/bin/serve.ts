@@ -8,8 +8,10 @@
 
 import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { serve } from '@hono/node-server';
 import { createApp } from '../http/app.ts';
+import { mountWebApp } from '../http/static.ts';
 import { closeDatabase, openDatabase } from '../store/index.ts';
 import { createLlmClient, defaultCassetteDir, describeClient } from '../llm/index.ts';
 
@@ -24,6 +26,11 @@ const cassetteDir = defaultCassetteDir();
 const client = createLlmClient({ cassetteDir });
 const app = createApp({ db, client, cassetteDir });
 
+// 前端已经构建过就顺便托管，让 http://127.0.0.1:8787 一个端口就是完整产品
+// 用模块自身位置定位，保证从任何工作目录启动都能找到前端产物
+const webDist = fileURLToPath(new URL('../../../web/dist', import.meta.url));
+const hasWeb = mountWebApp(app, webDist);
+
 serve({ fetch: app.fetch, port }, (info) => {
   console.log('');
   console.log('  CrossExam 质询室 — 多 Agent 对抗式面试沙盘');
@@ -32,6 +39,9 @@ serve({ fetch: app.fetch, port }, (info) => {
   console.log('  跑法      ' + describeClient(client, cassetteDir));
   console.log('  数据库    ' + dbPath);
   console.log('  卡带目录  ' + cassetteDir);
+  console.log('  界面      ' + (hasWeb
+    ? 'http://127.0.0.1:' + String(info.port) + '  （已托管构建好的前端）'
+    : '未构建前端，先跑 npm run build，当前只有 /api 接口'));
   console.log('  试一下    curl http://127.0.0.1:' + String(info.port) + '/api/demo');
   console.log('');
 });
