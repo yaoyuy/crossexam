@@ -28,7 +28,7 @@ npm run preview
 
 | 步骤 | 耗时 | 说明 |
 | --- | --- | --- |
-| git clone | 4.0 s | 含 29 盘卡带与 12 张截图 |
+| git clone | 4.0 s | 含 29 盘卡带与 14 张截图 |
 | npm install | 14.4 s | 116 个包，来自 npmmirror |
 | npm run verify | 13.1 s | 类型检查 + 313 条断言 + 冒烟 + 构建 |
 | 起服 + 跑完一场 + 下载报告 | 0.4 s | 回放模式，21 ms 跑完整场 |
