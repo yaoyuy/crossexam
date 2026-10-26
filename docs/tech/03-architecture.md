@@ -278,7 +278,7 @@ SSE 有三个终止事件，任何一个发生都意味着这一场结束了：
 | 顺序 | 命令 | 证明什么 | 当前规模 |
 | --- | --- | --- | --- |
 | 1 | `npm run typecheck` | 类型对（`tsc --noEmit`，含各包） | 全仓库 |
-| 2 | `npm run test` | 逻辑对（vitest） | 30 个文件 / 292 条断言 / 3.5 s |
+| 2 | `npm run test` | 逻辑对（vitest） | 31 个文件 / 308 条断言 / 3.5 s |
 | 3 | `npm run smoke` | **产品能跑**（真起进程、真打 HTTP、真等 SSE） | 9 项 |
 | 4 | `npm run build` | 前端能构建 | vite，27 modules |
 
@@ -299,9 +299,9 @@ SSE 有三个终止事件，任何一个发生都意味着这一场结束了：
 | --- | --- | --- | --- |
 | packages/shared/src | 937 | 489 | 纯函数，测试密度最高 |
 | packages/server/src | 4884 | 3107 | 编排 + IO，含脚本化模型夹具 |
-| packages/web/src | 2491 | 719 | 折叠器与文案 |
-| tools/ | 2075 | 398 | 导出器 / 冒烟 / 截图 / 复现 / 文档构建 |
-| **合计** | **10629** | **4713** | 测试/源码 ≈ 0.44 |
+| packages/web/src | 2767 | 719 | 折叠器与文案 |
+| tools/ | 2199 | 490 | 导出器 / 冒烟 / 截图 / 复现 / 文档构建 |
+| **合计** | **10787** | **4805** | 测试/源码 ≈ 0.45 |
 
 仓库里 **0 个 TODO / FIXME / HACK、0 处 `as any`、0 处 `@ts-ignore`**（全仓库 grep 实测）。
 console.log 只出现在两个 CLI 入口（serve.ts 与 seed-demo.ts）。
