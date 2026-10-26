@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { PERSONA_BLURB, PERSONA_LABEL, STAGE_HINT, STAGE_LABEL, VERDICT_LABEL } from '../labels.ts';
+import { channelLabel, PERSONA_BLURB, PERSONA_LABEL, STAGE_HINT, STAGE_LABEL, VERDICT_LABEL } from '../labels.ts';
 import type { ContractView, HealthInfo, InterviewerRole } from '../api.ts';
 import { consistencyNote, contractLines } from '../contract.ts';
 import type { SandboxState } from '../state.ts';
-import { progressOf, totalProbes, verdictCounts } from '../state.ts';
+import { liveChannels, progressOf, readableStreamText, tailText, totalProbes, verdictCounts } from '../state.ts';
 import { Chip, Dots, ErrorNotes, Pane, Stat } from './Bits.tsx';
 
 /** 每位面试官一个固定的名字颜色，界面上扫一眼就知道这条追问是谁问的 */
@@ -41,6 +41,7 @@ export function StageRail(props: {
   const [openPrompt, setOpenPrompt] = useState<string | null>(null);
   const progress = progressOf(state);
   const counts = verdictCounts(state);
+  const live = liveChannels(state);
   const panel = state.interviewers.length > 0 ? (state.interviewers as InterviewerRole[]) : props.panel;
   const running = state.phase === 'running';
 
@@ -173,6 +174,39 @@ export function StageRail(props: {
           </ol>
         )}
       </div>
+
+      {live.length === 0 ? null : (
+        <div className="flex flex-col gap-2" data-shot="live">
+          <h3 className="text-[11px] font-semibold uppercase tracking-wide text-ink-400">实时输出</h3>
+          <p className="text-[11px] leading-relaxed text-ink-500">
+            模型正在一个字一个字地写。这里取的是它正在写的那句人话（它原始吐出来的是 JSON）——
+            分片不进事件日志、刷新就没了，能断线续传的只有上面那条阶段时间线。
+          </p>
+          <ul className="flex flex-col gap-1.5">
+            {live.map((buffer) => {
+              const text = tailText(readableStreamText(buffer.text), 240);
+              return (
+                <li
+                  key={buffer.channel}
+                  className="rounded-lg border border-ember-500/25 bg-ink-950/60 px-2.5 py-1.5"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[11px] font-semibold text-ember-300">
+                      {channelLabel(buffer.channel)}
+                    </span>
+                    <span className="text-[10px] text-ink-500">
+                      {buffer.kind === 'reasoning' ? '思考' : '输出'}
+                    </span>
+                  </div>
+                  <p className="mt-1 max-h-24 overflow-hidden whitespace-pre-wrap text-[11px] leading-relaxed text-ink-400">
+                    {text === '' ? '…' : text}
+                  </p>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
 
       <div className="grid grid-cols-3 gap-2 rounded-lg border border-ink-800 bg-ink-850/50 p-2.5">
         <Stat label="主张" value={progress.claims} hint="从简历里抽出的可追问主张" />

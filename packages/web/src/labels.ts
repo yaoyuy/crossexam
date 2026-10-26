@@ -82,3 +82,21 @@ export const SESSION_STATUS_LABEL: Record<string, string> = {
   done: '已完成',
   failed: '失败',
 };
+
+/**
+ * 流式输出的 channel → 实况栏那一行的标题。
+ * channel 由服务端拼（见 packages/server/src/orchestrator/*.ts 传给 stageRequest 的第四参）：
+ * 阶段名，或「阶段:编号」。认不出来的原样显示，不猜。
+ */
+export function channelLabel(channel: string): string {
+  if (channel === 'extract') return '正在抽取主张';
+  const cut = channel.indexOf(':');
+  if (cut <= 0) return channel;
+  const stage = channel.slice(0, cut);
+  const id = channel.slice(cut + 1);
+  if (stage === 'probe') return (PERSONA_LABEL[id as InterviewerRole] ?? id) + ' 正在追问';
+  if (stage === 'answer') return '求职者作答 ' + id;
+  if (stage === 'verdict') return '判定 ' + id;
+  if (stage === 'suggest') return '改写建议 ' + id;
+  return channel;
+}
