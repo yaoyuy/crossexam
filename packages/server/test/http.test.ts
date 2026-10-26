@@ -837,3 +837,105 @@ describe('面试官库与自定义契约', () => {
     expect(body.panel).toEqual(['tech']);
   });
 });
+describe('岗位模板库', () => {
+  const TEMPLATE_ID = 'med-pharmacy-lead';
+
+  async function applyTemplateTo(target: Rig, id: string = TEMPLATE_ID): Promise<Response> {
+    return target.app.request('/api/templates/' + id + '/apply', { method: 'POST' });
+  }
+
+  it('模板是只读数据：12 个行业 × 3 个岗位，每条都带指纹、两位推荐面试官与足够长的料', async () => {
+    const t = rig();
+    const res = await t.app.request('/api/templates');
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      industries: string[];
+      templates: {
+        id: string;
+        industry: string;
+        jd: string;
+        resume: string;
+        hints: string[];
+        presets: string[];
+        digest: string;
+      }[];
+      limits: { industryCount: number; perIndustry: number };
+    };
+    expect(body.industries.length).toBe(12);
+    expect(body.templates.length).toBe(36);
+    expect(body.limits.perIndustry).toBe(3);
+    for (const item of body.templates) {
+      expect(body.industries).toContain(item.industry);
+      expect(item.digest).toMatch(/^[0-9a-f]{16}$/);
+      expect(item.presets.length).toBe(2);
+      // 界面不校验字数，所以这里守住「点一下就能跑」的下限
+      expect(item.jd.length).toBeGreaterThanOrEqual(180);
+      expect(item.resume.length).toBeGreaterThanOrEqual(200);
+      expect(item.hints.length).toBeGreaterThanOrEqual(2);
+    }
+  });
+
+  it('翻一遍模板库不落库：面试官库里还是空的', async () => {
+    const t = rig();
+    await t.app.request('/api/templates');
+    const lib = (await (await t.app.request('/api/interviewers')).json()) as { custom: unknown[] };
+    expect(lib.custom).toEqual([]);
+  });
+
+  it('一键采用：料与阵容一起给到，模板自带的那位这时才进库', async () => {
+    const t = rig();
+    const res = await applyTemplateTo(t);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      created: boolean;
+      template: { id: string; industry: string; title: string; jd: string; resume: string; digest: string };
+      panel: string[];
+      interviewer: { id: string; digest: string; systemPrompt: string };
+    };
+    expect(body.created).toBe(true);
+    expect(body.template.id).toBe(TEMPLATE_ID);
+    expect(body.template.industry).toBe('医疗护理');
+    expect(body.template.jd.length).toBeGreaterThan(100);
+    expect(body.template.resume.length).toBeGreaterThan(100);
+    // 阵容 = 两位预设 + 模板自带的那位，顺序由服务端定死
+    expect(body.panel.length).toBe(3);
+    expect(body.panel[2]).toBe(body.interviewer.id);
+    expect(body.interviewer.id.startsWith('custom-')).toBe(true);
+    expect(body.interviewer.digest).toMatch(/^[0-9a-f]{16}$/);
+    expect(body.interviewer.systemPrompt).toContain('## 追问预算');
+    const lib = (await (await t.app.request('/api/interviewers')).json()) as { custom: { id: string }[] };
+    expect(lib.custom.map((row) => row.id)).toEqual([body.interviewer.id]);
+  });
+
+  it('同一套模板点两次不会多出一位面试官，第二次明说这是复用', async () => {
+    const t = rig();
+    const first = (await (await applyTemplateTo(t)).json()) as { created: boolean; panel: string[] };
+    const second = (await (await applyTemplateTo(t)).json()) as { created: boolean; panel: string[] };
+    expect(first.created).toBe(true);
+    expect(second.created).toBe(false);
+    expect(second.panel).toEqual(first.panel);
+    const lib = (await (await t.app.request('/api/interviewers')).json()) as { custom: unknown[] };
+    expect(lib.custom.length).toBe(1);
+  });
+
+  it('采用后的阵容能直接开跑：会话把这三位原样记下来', async () => {
+    const t = rig();
+    const applied = (await (await applyTemplateTo(t)).json()) as { panel: string[] };
+    const res = await createSession(t, {
+      resumeText: RESUME,
+      jobTitle: '药房主管',
+      jdText: '负责处方审核与效期管理',
+      interviewers: applied.panel,
+    });
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { panel: string[] };
+    expect(body.panel).toEqual(applied.panel);
+  });
+
+  it('没有这套模板就 404，不猜一个最接近的', async () => {
+    const t = rig();
+    const res = await applyTemplateTo(t, 'nope-nope');
+    expect(res.status).toBe(404);
+    expect(((await res.json()) as { error: string }).error).toContain('没有这套模板');
+  });
+});
