@@ -13,7 +13,11 @@ import type {
   ClaimCategory,
   EventRow,
   LlmStats,
+  MatchSummary,
   Probe,
+  RejectedRequirement,
+  Requirement,
+  RequirementMatch,
   RejectedClaim,
   RejectedProbe,
   RunEvent,
@@ -83,6 +87,16 @@ export interface SandboxState {
   interviewers: string[];
   /** 点在引文上时高亮简历原文的哪一段 */
   focus: Anchor | null;
+  /** 点在一条岗位要求上时，高亮它所属的那份 JD 原文的哪一段 */
+  jdFocus: Anchor | null;
+  /** 这场沙盘照着哪几份 JD 抽出、合并出来的要求清单；没有 JD 时为空 */
+  requirements: Requirement[];
+  /** 每条要求与主张的对照结果 */
+  requirementMatches: RequirementMatch[];
+  /** 锚不到 JD 原文、被丢掉的要求 */
+  requirementRejected: RejectedRequirement[];
+  /** 对照摘要；还没跑到 JD 阶段时为 null */
+  requirementSummary: MatchSummary | null;
   /**
    * 正在流动的模型输出，按 channel 归位（extract / probe:tech / answer:P1 / verdict:C1 / suggest:C1）。
    * 刻意与事件流分开：分片是过程观感，事件日志才是可回放的真相。
@@ -108,6 +122,11 @@ export const initialSandbox: SandboxState = {
   eventCount: 0,
   interviewers: [],
   focus: null,
+  jdFocus: null,
+  requirements: [],
+  requirementMatches: [],
+  requirementRejected: [],
+  requirementSummary: null,
   streams: {},
 };
 
@@ -118,6 +137,7 @@ export type SandboxAction =
   | { type: 'sse'; name: string; data: unknown }
   | { type: 'telemetry'; stats: LlmStats }
   | { type: 'focus'; anchor: Anchor | null }
+  | { type: 'focus-jd'; anchor: Anchor | null }
   | { type: 'load'; state: SandboxState }
   | { type: 'reset' };
 
@@ -370,6 +390,16 @@ export function applyEvent(state: SandboxState, event: RunEvent): SandboxState {
       }
       return next;
     }
+    case 'requirements': {
+      // 要求清单整批替换：它是这一场的输入派生出来的表，不存在「追加」语义
+      return {
+        ...base,
+        requirements: event.requirements,
+        requirementMatches: event.matches,
+        requirementRejected: event.rejected,
+        requirementSummary: event.summary,
+      };
+    }
     case 'suggestions': {
       let next = base;
       for (const outcome of event.suggestions) {
@@ -442,6 +472,8 @@ export function sandboxReducer(state: SandboxState, action: SandboxAction): Sand
       return { ...state, telemetry: action.stats };
     case 'focus':
       return { ...state, focus: action.anchor };
+    case 'focus-jd':
+      return { ...state, jdFocus: action.anchor };
     default:
       return state;
   }
@@ -515,4 +547,34 @@ export function allAnchors(state: SandboxState): Anchor[] {
     for (const pv of item.probes) anchors.push(pv.probe.anchor);
   }
   return anchors;
+}
+
+/** 一条要求的对照结果；还没对照过时为 null */
+export function requirementMatch(state: SandboxState, requirementId: string): RequirementMatch | null {
+  for (const match of state.requirementMatches) if (match.requirementId === requirementId) return match;
+  return null;
+}
+
+/** 这条主张被哪几条岗位要求对上了（只有 hit / weak 会有对应主张） */
+export function requirementsForClaim(state: SandboxState, claimId: string): Requirement[] {
+  const ids = new Set<string>();
+  for (const match of state.requirementMatches) {
+    if (match.claimId === claimId && match.status !== 'missing') ids.add(match.requirementId);
+  }
+  return state.requirements.filter((requirement) => ids.has(requirement.id));
+}
+
+/** 某份 JD 上被抽成要求的位置：在 JD 原文里画出「这句话被拿去问过」 */
+export function anchorsOfJd(state: SandboxState, jdId: string): Anchor[] {
+  return state.requirements.filter((requirement) => requirement.jdId === jdId).map((requirement) => requirement.anchor);
+}
+
+/** 对照摘要的人话：还没跑 JD 阶段时说清「这场没有岗位要求」 */
+export function matchConclusionOf(summary: MatchSummary | null, jdCount: number): string {
+  if (jdCount === 0) return '这场没有上传岗位要求，面试官按各自的经验追问。';
+  if (summary === null || summary.total === 0) return '岗位要求还没抽出对照结果。';
+  return (
+    '岗位要求共 ' + String(summary.total) + ' 条：简历答得上 ' + String(summary.hit) + ' 条、答得含糊 ' +
+    String(summary.weak) + ' 条、没写 ' + String(summary.missing) + ' 条。'
+  );
 }

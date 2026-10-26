@@ -50,6 +50,68 @@ export interface RejectedClaim {
   reason: string;
 }
 
+/** 用户交进来的一份岗位描述。id 由服务端按顺序编（J1..Jn）。 */
+export interface JobDescription {
+  id: string;
+  ordinal: number;
+  title: string;
+  text: string;
+}
+
+export type RequirementKind = 'must' | 'plus' | 'duty';
+
+/** 从 JD 里抽出来的一条要求；anchor 锚在这条要求所属的那份 JD 原文上 */
+export interface Requirement {
+  id: string;
+  kind: RequirementKind;
+  text: string;
+  keywords: string[];
+  anchor: Anchor;
+  /** 代表句出自哪份 JD（跨份合并后取引文最长的那一份） */
+  jdId: string;
+  /** 合并进来的所有 JD id，按 JD 顺序 */
+  sources: string[];
+}
+
+/** 锚不到 JD 原文、被丢掉的要求：留在报告里说明「这条为什么没进对照」 */
+export interface RejectedRequirement {
+  key: string;
+  jdId: string;
+  quote: string;
+  text: string;
+  reason: string;
+}
+
+/** 简历对一条要求的回答程度。missing 不生成追问——没写过的经历，逼问没有意义。 */
+export type MatchStatus = 'hit' | 'weak' | 'missing';
+
+export interface RequirementMatch {
+  requirementId: string;
+  /** 命中的主张 id；missing 时是 null */
+  claimId: string | null;
+  status: MatchStatus;
+  reason: string;
+}
+
+export interface MatchSummary {
+  hit: number;
+  weak: number;
+  missing: number;
+  total: number;
+}
+
+/** 追问阶段看到的「要求 → 主张」对照表；只有 hit / weak 会进提示词 */
+export interface RequirementNote {
+  id: string;
+  kind: RequirementKind;
+  status: MatchStatus;
+  label: string;
+  claimId: string | null;
+  jdId: string;
+  jdTitle: string;
+  text: string;
+  jdQuote: string;
+}
 export interface Probe {
   id: string;
   claimId: string;
@@ -59,6 +121,10 @@ export interface Probe {
   anchor: Anchor;
   parentProbeId: string | null;
   rationale: string;
+  /** 这条追问照着哪条岗位要求问的；没有第二条锚时为 null */
+  requirementId?: string | null;
+  /** 岗位要求原文的锚点（锚在那份 JD 上）；没有第二条锚时为 null */
+  jdAnchor?: Anchor | null;
 }
 
 export interface Answer {
@@ -136,6 +202,13 @@ export type RunEvent =
   | { type: 'answers'; answers: AnswerOutcome[]; errors: AnswerError[] }
   | { type: 'budget'; totalProbes: number; open: string[]; closed: string[] }
   | { type: 'verdicts'; verdicts: VerdictOutcome[]; errors: VerdictError[] }
+  | {
+      type: 'requirements';
+      requirements: Requirement[];
+      rejected: RejectedRequirement[];
+      matches: RequirementMatch[];
+      summary: MatchSummary;
+    }
   | { type: 'suggestions'; suggestions: SuggestOutcome[]; errors: SuggestError[] }
   | { type: 'error'; fatal: boolean; message: string };
 
@@ -215,6 +288,17 @@ export interface SessionView {
   llm: LlmStats;
   /** 这场沙盘当时用的意图契约，含指纹对账结果 */
   contracts: ContractView[];
+  /** 这场沙盘照着哪几份 JD 问的（没上传时是空数组） */
+  jds: JobDescription[];
+  /** 抽出来并跨份合并后的要求清单 */
+  requirements: Requirement[];
+  /** 锚不到 JD 原文、没进对照的那些要求 */
+  requirementRejected: RejectedRequirement[];
+  /** 每条要求与主张的对照结果 */
+  requirementMatches: RequirementMatch[];
+  /** 追问阶段实际摆上桌的对照表（只有 hit / weak） */
+  requirementNotes: RequirementNote[];
+  requirementSummary: MatchSummary;
 }
 
 export interface ContractPersona {
@@ -487,6 +571,8 @@ export interface CreateSessionInput {
   model?: string;
   /** 这一场的面试官阵容：预设 id 或自定义 id，顺序即提问顺序。不传就用默认三位。 */
   interviewers?: string[];
+  /** 1–8 份岗位描述（标题可省，省了取正文第一行）；不传或不给正文就等于没有 JD。 */
+  jds?: { title: string; text: string }[];
 }
 
 export interface CreatedSession {
@@ -496,6 +582,8 @@ export interface CreatedSession {
   jobTitle: string;
   /** 服务端落定的阵容（已按上限截断、已校验存在） */
   panel: string[];
+  /** 落定的 JD 编号与标题（只回编号，正文留在库里） */
+  jds: { id: string; ordinal: number; title: string }[];
 }
 
 export async function createSession(input: CreateSessionInput): Promise<CreatedSession> {

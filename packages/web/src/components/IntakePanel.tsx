@@ -3,11 +3,14 @@ import type { ReactNode } from 'react';
 import { SESSION_STATUS_LABEL } from '../labels.ts';
 import { IMPORT_ACCEPT } from '../api.ts';
 import type { LlmMode, SessionSummary } from '../api.ts';
+import { emptyJd, filledJds, jdDraftProblem, MAX_JDS } from '../jds.ts';
+import type { JdDraft } from '../jds.ts';
 import { Chip, Pane } from './Bits.tsx';
 
 export interface IntakeDraft {
   resumeText: string;
-  jdText: string;
+  /** 目标岗位：1–8 份，整行留空的行不算一份 */
+  jds: JdDraft[];
   jobTitle: string;
 }
 
@@ -77,7 +80,14 @@ export function IntakePanel(props: {
 }) {
   const draft = props.draft;
   const tooShort = draft.resumeText.trim().length < MIN_RESUME_CHARS;
+  const jdProblem = jdDraftProblem(draft.jds);
+  const jdCount = filledJds(draft.jds).length;
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // JD 列表的增删改都在这里算好一次，投料台不需要上层为它多长三个回调
+  const setJds = (next: JdDraft[]) => props.onDraftChange({ jds: next });
+  const changeJd = (index: number, patch: Partial<JdDraft>) =>
+    setJds(draft.jds.map((jd, at) => (at === index ? { ...jd, ...patch } : jd)));
 
   return (
     <Pane
@@ -148,16 +158,71 @@ export function IntakePanel(props: {
         )}
       </div>
 
-      <label className="flex flex-col gap-1">
-        <span className="text-[11px] text-ink-400">目标岗位 JD</span>
-        <textarea
-          className="field"
-          rows={4}
-          value={draft.jdText}
-          placeholder="贴岗位描述，面试官会据此决定往哪个方向追问。"
-          onChange={(event) => props.onDraftChange({ jdText: event.target.value })}
-        />
-      </label>
+      {/*
+        目标岗位：1–8 份。做成列表而不是单个输入框，是为了让「同一份简历投不同岗位」
+        变成一件可以摆在一起看的事——交叉出现的要求会被归并成一条，只在一份里出现的
+        就只属于那一份。
+      */}
+      <div className="flex flex-col gap-1.5">
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] text-ink-400">
+            {"目标岗位 JD（1–" + String(MAX_JDS) + " 份，可只贴一份）"}
+          </span>
+          <span className="text-[11px] text-ink-500">{jdCount === 0 ? "还没贴" : "已填 " + String(jdCount) + " 份"}</span>
+          <button
+            type="button"
+            data-shot="jd-add"
+            className="btn btn-quiet ml-auto px-2 py-0.5 text-[11px]"
+            disabled={props.busy || draft.jds.length >= MAX_JDS}
+            title="再多贴一份 JD：面试官会把几份里的要求放在一起看"
+            onClick={() => setJds([...draft.jds, emptyJd()])}
+          >
+            + 再加一份
+          </button>
+        </div>
+        {draft.jds.map((jd, index) => (
+          <div
+            key={String(index)}
+            data-shot={"jd-row-" + String(index + 1)}
+            className="flex flex-col gap-1.5 rounded-xl border border-ink-800 bg-ink-900/30 p-2"
+          >
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] text-ink-400">{"第 " + String(index + 1) + " 份"}</span>
+              <span className="text-[11px] text-ink-500">{String(jd.text.length) + " 字"}</span>
+              {draft.jds.length <= 1 ? null : (
+                <button
+                  type="button"
+                  data-shot={"jd-remove-" + String(index + 1)}
+                  className="ml-auto px-1 text-[11px] text-ink-500 hover:text-rose-ink"
+                  onClick={() => setJds(draft.jds.filter((_, at) => at !== index))}
+                >
+                  删掉
+                </button>
+              )}
+            </div>
+            <input
+              className="field"
+              data-shot={"jd-title-" + String(index + 1)}
+              value={jd.title}
+              placeholder="岗位名称（可留空，默认取 JD 第一行）"
+              onChange={(event) => changeJd(index, { title: event.target.value })}
+            />
+            <textarea
+              className="field"
+              rows={4}
+              data-shot={"jd-text-" + String(index + 1)}
+              value={jd.text}
+              placeholder="贴岗位描述：硬性要求、加分项、岗位职责……面试官会照着这里的原文追问，并注明是哪一条要求。"
+              onChange={(event) => changeJd(index, { text: event.target.value })}
+            />
+          </div>
+        ))}
+        {jdProblem === null ? null : (
+          <p data-shot="jd-problem" className="text-[11px] leading-relaxed text-amber-ink">
+            {jdProblem}
+          </p>
+        )}
+      </div>
 
       <label className="flex flex-col gap-1">
         <span className="text-[11px] text-ink-400">岗位名称（可留空）</span>
@@ -283,7 +348,7 @@ export function IntakePanel(props: {
         type="button"
         data-shot="run"
         className="btn btn-primary w-full"
-        disabled={props.busy || tooShort || props.panel.length === 0}
+        disabled={props.busy || tooShort || jdProblem !== null || props.panel.length === 0}
         onClick={props.onRun}
       >
         {props.busy ? '质询中…' : '开始质询'}
@@ -291,7 +356,9 @@ export function IntakePanel(props: {
       <p className="text-[11px] leading-relaxed text-ink-400">
         {tooShort
           ? '简历太短了：至少 ' + String(MIN_RESUME_CHARS) + ' 个字符，才有东西可追问。'
-          : props.hint ?? '每个会话只跑一次：想换面试官或改简历，直接再点一次「开始质询」，会新建一场。'}
+          : jdProblem !== null
+            ? jdProblem
+            : props.hint ?? '每个会话只跑一次：想换面试官或改简历，直接再点一次「开始质询」，会新建一场。'}
       </p>
 
       <div className="flex flex-col gap-1.5 border-t border-ink-800 pt-2.5">
