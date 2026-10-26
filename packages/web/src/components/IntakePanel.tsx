@@ -2,7 +2,7 @@ import { useRef } from 'react';
 import { PERSONA_BLURB, PERSONA_LABEL, SESSION_STATUS_LABEL } from '../labels.ts';
 import { PANEL_ORDER } from '../contract.ts';
 import { IMPORT_ACCEPT } from '../api.ts';
-import type { InterviewerRole, SessionSummary } from '../api.ts';
+import type { InterviewerRole, LlmMode, SessionSummary } from '../api.ts';
 import { Chip, Pane } from './Bits.tsx';
 
 export interface IntakeDraft {
@@ -39,6 +39,16 @@ export function IntakePanel(props: {
   onToggleRole: (role: InterviewerRole) => void;
   pace: number;
   onPaceChange: (pace: number) => void;
+  /** 这一场用什么跑：离线回放 / 联网直连 / 联网录制 */
+  runMode: LlmMode;
+  onRunModeChange: (mode: LlmMode) => void;
+  runModel: string;
+  onRunModelChange: (value: string) => void;
+  modeChoices: { value: LlmMode; label: string; hint: string }[];
+  /** 模型下拉的候选（来自后端 /api/models）；空数组表示只能手填 */
+  modelOptions: string[];
+  /** 联网相关的一句提示：缺哪个环境变量、或清单为什么是空的 */
+  runModeNote: string | null;
   onUseDemo: () => void;
   onRun: () => void;
   onClear: () => void;
@@ -162,6 +172,59 @@ export function IntakePanel(props: {
             );
           })}
         </div>
+      </div>
+
+      {/*
+        运行模式：回放是默认路径（不联网、可复现），联网两种要显式选。
+        模型名用 input + datalist：既能下拉挑，也能直接手填——
+        很多自建网关不提供 /models，手填必须是能走通的那条路。
+      */}
+      <div className="flex flex-col gap-1.5">
+        <span className="text-[11px] text-ink-400">运行模式（这一场用什么跑）</span>
+        <div className="flex flex-wrap gap-1.5">
+          {props.modeChoices.map((choice) => (
+            <button
+              key={choice.value}
+              type="button"
+              data-shot={'mode-' + choice.value}
+              title={choice.hint}
+              className={'chip ' + (props.runMode === choice.value ? 'border-ember-500/50 text-ember-300' : 'opacity-70')}
+              onClick={() => props.onRunModeChange(choice.value)}
+            >
+              {props.runMode === choice.value ? '\u2713 ' : ''}
+              {choice.label}
+            </button>
+          ))}
+        </div>
+        {props.runMode === 'replay' ? (
+          <p data-shot="mode-note" className="text-[11px] leading-relaxed text-ink-500">
+            {props.modeChoices.find((item) => item.value === 'replay')?.hint}
+          </p>
+        ) : (
+          <label className="flex flex-col gap-1">
+            <span className="text-[11px] text-ink-400">
+              模型名{props.modelOptions.length === 0 ? '（手填）' : ''}
+            </span>
+            <input
+              className="field"
+              data-shot="model-input"
+              list="crossexam-models"
+              value={props.runModel}
+              placeholder="例如 deepseek-chat；留空就用后端的 LLM_MODEL"
+              onChange={(event) => props.onRunModelChange(event.target.value)}
+            />
+            <datalist id="crossexam-models">
+              {props.modelOptions.map((name) => (
+                <option key={name} value={name} />
+              ))}
+            </datalist>
+            {props.runModeNote === null ? null : (
+              <p data-shot="mode-note" className="text-[11px] leading-relaxed text-amber-ink">
+                {props.runModeNote}
+              </p>
+            )}
+          </label>
+        )}
       </div>
 
       <div className="flex flex-col gap-1.5">

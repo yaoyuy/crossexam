@@ -6,6 +6,7 @@ import {
   fetchContracts,
   fetchDemo,
   fetchHealth,
+  fetchModels,
   fetchStats,
   getSession,
   importResumeFile,
@@ -19,6 +20,7 @@ import type {
   ContractView,
   DemoInfo,
   HealthInfo,
+  LlmMode,
   InterviewerRole,
   SessionSummary,
   SseEvent,
@@ -43,12 +45,32 @@ const DEFAULT_PANEL: InterviewerRole[] = ['tech', 'hr', 'hiring_manager'];
 const STREAM_TICK_MS = 40;
 const STREAM_BATCH = 3;
 
-function modeChip(health: HealthInfo | null): { text: string; className: string } {
-  if (health === null) return { text: '连接本地服务中…', className: 'opacity-70' };
-  if (health.mode === 'replay') {
+/** 投料台上的运行模式三选一。文案与新手教程里的模式对照表同一套口径。 */
+const MODE_CHOICES: { value: LlmMode; label: string; hint: string }[] = [
+  {
+    value: 'replay',
+    label: '离线回放',
+    hint: '读仓库里已经录好的卡带，全程不联网、不需要 API Key：评委克隆下来就能跑，结果可复现。',
+  },
+  {
+    value: 'live',
+    label: '联网直连',
+    hint: '真调模型，什么都不落盘：需要后端配好 LLM_BASE_URL 与 LLM_API_KEY。',
+  },
+  {
+    value: 'record',
+    label: '联网录制',
+    hint: '真调模型，并把这一场的提示词与回复存成新卡带：下次就能用回放模式原样重演。',
+  },
+];
+
+/** 顶部那枚 chip 说的是「这一场实际会怎么跑」，所以它看的是页面选的模式，不是服务端启动模式。 */
+function modeChip(mode: LlmMode | null, health: HealthInfo | null): { text: string; className: string } {
+  if (health === null || mode === null) return { text: '连接本地服务中…', className: 'opacity-70' };
+  if (mode === 'replay') {
     return { text: '离线回放 · 不联网、不需要 API Key', className: 'border-mint-500/40 text-mint-400' };
   }
-  if (health.mode === 'record') return { text: '联网录制中 · 会把这一场存成卡带', className: 'border-amber-ink/40 text-amber-ink' };
+  if (mode === 'record') return { text: '联网录制 · 会把这一场存成卡带', className: 'border-amber-ink/40 text-amber-ink' };
   return { text: '联网直连 · 用你自己的模型跑', className: 'border-ember-500/40 text-ember-300' };
 }
 
@@ -68,6 +90,11 @@ export function App() {
   const [importNote, setImportNote] = useState<ImportNote | null>(null);
   const [material, setMaterial] = useState<{ resumeText: string; title: string }>({ resumeText: '', title: '' });
   const [contracts, setContracts] = useState<ContractView[] | null>(null);
+  // 这一场用什么跑：默认跟随服务端启动时的模式，页面上可以逐场改。
+  const [runMode, setRunMode] = useState<LlmMode>('replay');
+  const [runModel, setRunModel] = useState('');
+  const [modelOptions, setModelOptions] = useState<string[]>([]);
+  const [modelNote, setModelNote] = useState<string | null>(null);
   const [theme, setTheme] = useState<Theme>(readStoredTheme);
   // 第一次打开自动弹一次教程；点过「知道了」之后就不再打扰
   const [helpOpen, setHelpOpen] = useState(() => shouldAutoOpenHelp());
@@ -100,6 +127,8 @@ export function App() {
         const [loadedHealth, loadedDemo] = await Promise.all([fetchHealth(), fetchDemo()]);
         setHealth(loadedHealth);
         setDemo(loadedDemo);
+        // 页面默认选中的模式 = 服务端当前的模式，先让两边说的是同一件事。
+        setRunMode(loadedHealth.mode);
       } catch (error) {
         setHint(error instanceof Error ? error.message : '连不上本地服务，请先 npm run dev');
       }
@@ -203,6 +232,8 @@ export function App() {
         resumeText: draft.resumeText,
         jdText: draft.jdText,
         ...(jobTitle.length > 0 ? { jobTitle } : {}),
+        mode: runMode,
+        ...(runMode === 'replay' || runModel.trim() === '' ? {} : { model: runModel.trim() }),
       });
       sessionId = created.id;
       setMaterial({ resumeText: draft.resumeText, title: created.jobTitle });
@@ -243,7 +274,7 @@ export function App() {
           .catch(() => undefined);
       }
     }
-  }, [busy, draft, panel, pushEvent, drain, refreshSessions]);
+  }, [busy, draft, panel, runMode, runModel, pushEvent, drain, refreshSessions]);
 
   const handleLoadSession = useCallback(async (id: string) => {
     setBusy(true);
@@ -311,6 +342,33 @@ export function App() {
       });
   }, []);
 
+  /**
+   * 切到联网模式时才向后端要一次模型清单：默认的离线路径一个网络包都不发。
+   * 后端没配好也照样给出下一步（缺哪个环境变量），而不是静默失败。
+   */
+  const handleRunModeChange = useCallback((mode: LlmMode) => {
+    setRunMode(mode);
+    setModelOptions([]);
+    setModelNote(null);
+    if (mode === 'replay') return;
+    setModelNote('正在向后端要模型清单…');
+    void fetchModels()
+      .then((list) => {
+        setModelOptions(list.models);
+        setRunModel((current) => (current === '' ? list.defaultModel : current));
+        if (!list.ready) {
+          setModelNote('后端还没配好联网：缺 ' + list.missing.join('、') + '。补上 .env 里的这些变量再刷新页面。');
+        } else if (list.error !== null) {
+          setModelNote(list.error);
+        } else if (list.models.length === 0) {
+          setModelNote('后端没报错，但清单是空的：直接手填模型名即可。');
+        }
+      })
+      .catch((error: unknown) => {
+        setModelNote(error instanceof Error ? error.message : '模型清单没拉下来');
+      });
+  }, []);
+
   const handleToggleRole = useCallback((role: InterviewerRole) => {
     setPanel((current) => nextPanel(current, role));
   }, []);
@@ -338,7 +396,7 @@ export function App() {
     });
   }, []);
 
-  const mode = modeChip(health);
+  const mode = modeChip(health === null ? null : runMode, health);
   const hasReport = sandbox.sessionId !== null && sandbox.claims.length > 0;
   const reportHref = hasReport && sandbox.sessionId !== null ? reportUrl(sandbox.sessionId) : null;
   const reportPrintHref = hasReport && sandbox.sessionId !== null ? reportHtmlUrl(sandbox.sessionId, true) : null;
@@ -437,6 +495,13 @@ export function App() {
             activeSessionId={sandbox.sessionId}
             onLoadSession={(id) => void handleLoadSession(id)}
             onDeleteSession={(id) => void handleDeleteSession(id)}
+            runMode={runMode}
+            onRunModeChange={handleRunModeChange}
+            runModel={runModel}
+            onRunModelChange={setRunModel}
+            modeChoices={MODE_CHOICES}
+            modelOptions={modelOptions}
+            runModeNote={modelNote}
           />
           <StageRail state={sandbox} panel={panel} health={health} contracts={contracts} />
         </aside>

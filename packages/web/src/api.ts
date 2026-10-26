@@ -154,6 +154,20 @@ export interface HealthInfo {
   runMode: string;
   model: string;
   cassetteDir: string;
+  /** 这一版能选的运行模式，顺序即展示顺序。旧服务端可能不返回，界面有兜底。 */
+  modes?: LlmMode[];
+  modeLabels?: Record<string, string>;
+  /** 联网就绪状态：缺哪个环境变量由 missing 点名。 */
+  live?: { ready: boolean; missing: string[] };
+}
+
+/** 真实端点上的模型清单；没配好联网时 ready=false 且 models 为空。 */
+export interface ModelList {
+  ready: boolean;
+  models: string[];
+  defaultModel: string;
+  error: string | null;
+  missing: string[];
 }
 
 export interface DemoInfo {
@@ -276,6 +290,10 @@ export function fetchHealth(): Promise<HealthInfo> {
   return getJson<HealthInfo>('/api/health');
 }
 
+export function fetchModels(): Promise<ModelList> {
+  return getJson<ModelList>('/api/models');
+}
+
 export function fetchDemo(): Promise<DemoInfo> {
   return getJson<DemoInfo>('/api/demo');
 }
@@ -305,16 +323,27 @@ export interface CreateSessionInput {
   resumeText?: string;
   jdText?: string;
   jobTitle?: string;
+  /** 这一场用什么跑；不传就沿用服务端启动时的模式。 */
+  mode?: LlmMode;
+  /** 联网时要用的模型名；回放模式会忽略它。 */
+  model?: string;
 }
 
-export async function createSession(input: CreateSessionInput): Promise<{ id: string; mode: LlmMode; jobTitle: string }> {
+export interface CreatedSession {
+  id: string;
+  mode: LlmMode;
+  model: string;
+  jobTitle: string;
+}
+
+export async function createSession(input: CreateSessionInput): Promise<CreatedSession> {
   const res = await fetch('/api/sessions', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(input),
   });
   if (!res.ok) throw new ApiError(await readError(res), res.status);
-  return (await res.json()) as { id: string; mode: LlmMode; jobTitle: string };
+  return (await res.json()) as CreatedSession;
 }
 
 export type ImportKind = 'pdf' | 'docx' | 'text';
