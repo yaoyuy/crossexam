@@ -5,7 +5,7 @@
  * 便于测试盯着；真正防漂移的是服务端算出来的 digest。
  */
 
-import type { ContractView } from './api.ts';
+import type { ContractView, InterviewerRole } from './api.ts';
 
 export interface ContractLine {
   label: string;
@@ -70,4 +70,21 @@ export function consistencyNote(view: ContractView): ConsistencyNote {
     tone: 'drift',
     text: '契约已漂移 · 运行时 ' + digestText(view.storedDigest) + ' → 现在 ' + now,
   };
+}
+
+/**
+ * 面试官面板的规范顺序。
+ *
+ * 增删面试官时如果直接往数组尾巴上追加，面板就会变成点击顺序：先把「压力面试官」加进来、
+ * 再删掉，或者先删后加，就会得到 [技术, 业务主管, HR] 这种顺序。而追问编号（P1、P2…）、
+ * 契约条数、以及送进模型的那份提示词都是按面板顺序生成的——顺序一变，回放模式下按提示词
+ * 指纹寻址的卡带就全部对不上，本来能离线跑通的演示会报「找不到记录」。
+ * 所以面板顺序一律按这个枚举重排，与点击历史无关。
+ */
+export const PANEL_ORDER: InterviewerRole[] = ['tech', 'hr', 'hiring_manager', 'stress', 'domain_expert'];
+
+/** 增删一位面试官，并按 PANEL_ORDER 归一化顺序（理由见上） */
+export function nextPanel(current: readonly InterviewerRole[], role: InterviewerRole): InterviewerRole[] {
+  const picked = current.includes(role) ? current.filter((item) => item !== role) : [...current, role];
+  return PANEL_ORDER.filter((item) => picked.includes(item));
 }

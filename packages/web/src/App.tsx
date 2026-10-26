@@ -20,6 +20,7 @@ import type {
   SessionSummary,
   SseEvent,
 } from './api.ts';
+import { nextPanel } from './contract.ts';
 import { allAnchors, initialSandbox, sandboxReducer, stateFromHistory, totalProbes } from './state.ts';
 import { Chip } from './components/Bits.tsx';
 import { ClaimBoard } from './components/ClaimBoard.tsx';
@@ -277,9 +278,7 @@ export function App() {
   }, [demo]);
 
   const handleToggleRole = useCallback((role: InterviewerRole) => {
-    setPanel((current) =>
-      current.includes(role) ? current.filter((item) => item !== role) : [...current, role],
-    );
+    setPanel((current) => nextPanel(current, role));
   }, []);
 
   const handleClear = useCallback(() => {

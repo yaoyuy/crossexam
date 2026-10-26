@@ -6,8 +6,8 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { budgetText, consistencyNote, contractLines, digestText } from '../src/contract.ts';
-import type { ContractView } from '../src/api.ts';
+import { budgetText, consistencyNote, contractLines, digestText, nextPanel, PANEL_ORDER } from '../src/contract.ts';
+import type { ContractView, InterviewerRole } from '../src/api.ts';
 
 function view(patch: Partial<ContractView> = {}): ContractView {
   return {
@@ -81,5 +81,25 @@ describe('意图契约的展示层', () => {
     expect(drift.text).toContain('契约已漂移');
     expect(drift.text).toContain('fedcba98');
     expect(drift.text).toContain('01234567');
+  });
+});
+
+describe('面试官面板的增删', () => {
+  it('增删都按规范顺序重排，不受点击历史影响', () => {
+    const base: InterviewerRole[] = ['tech', 'hr', 'hiring_manager'];
+    const withStress = nextPanel(base, 'stress');
+    expect(withStress).toEqual(['tech', 'hr', 'hiring_manager', 'stress']);
+    const withoutStress = nextPanel(withStress, 'stress');
+    expect(withoutStress).toEqual(base);
+    // 这一步就是真跑出来的那次：先加再删、先删后加，面板顺序会走样，回放卡带就全对不上
+    const dropHr = nextPanel(base, 'hr');
+    expect(dropHr).toEqual(['tech', 'hiring_manager']);
+    const backToBase = nextPanel(dropHr, 'hr');
+    expect(backToBase).toEqual(base);
+  });
+
+  it('规范顺序覆盖全部五个角色，不重不漏', () => {
+    expect(PANEL_ORDER.length).toBe(5);
+    expect(new Set(PANEL_ORDER).size).toBe(5);
   });
 });

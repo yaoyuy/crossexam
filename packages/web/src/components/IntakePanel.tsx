@@ -1,4 +1,5 @@
 import { PERSONA_BLURB, PERSONA_LABEL, SESSION_STATUS_LABEL } from '../labels.ts';
+import { PANEL_ORDER } from '../contract.ts';
 import type { InterviewerRole, SessionSummary } from '../api.ts';
 import { Chip, Pane } from './Bits.tsx';
 
@@ -9,8 +10,6 @@ export interface IntakeDraft {
 }
 
 export const MIN_RESUME_CHARS = 30;
-
-const PANEL_CHOICES: InterviewerRole[] = ['tech', 'hr', 'hiring_manager', 'stress', 'domain_expert'];
 
 export const PACE_CHOICES: { value: number; label: string; hint: string }[] = [
   { value: 0, label: '即时', hint: '事件来了就画，回放模式下整场不到一秒' },
@@ -101,7 +100,7 @@ export function IntakePanel(props: {
       <div className="flex flex-col gap-1.5">
         <span className="text-[11px] text-ink-400">面试官面板（默认三位，可增减）</span>
         <div className="flex flex-wrap gap-1.5">
-          {PANEL_CHOICES.map((role) => {
+          {PANEL_ORDER.map((role) => {
             const selected = props.panel.includes(role);
             return (
               <button
