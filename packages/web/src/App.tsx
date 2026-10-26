@@ -252,12 +252,16 @@ export function App() {
 
   const handleDeleteSession = useCallback(
     async (id: string) => {
+      // 先从列表里摘掉，再发请求：这一行在请求回来之前就点了第二下的话，
+      // 第二次会打到一个已经不存在的会话上（服务端如实回 404，控制台就留下一条报错）。
+      setSessions((current) => current.filter((item) => item.id !== id));
       try {
         await deleteSession(id);
         if (sandbox.sessionId === id) dispatch({ type: 'reset' });
         await refreshSessions();
       } catch (error) {
         setHint(error instanceof Error ? error.message : '删不掉这条会话');
+        await refreshSessions();
       }
     },
     [sandbox.sessionId, refreshSessions],
