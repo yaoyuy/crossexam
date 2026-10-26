@@ -27,6 +27,7 @@ CrossExam 把这件事提前：喂入简历 + 目标岗位 JD，系统抽出简�
 | 判定 | 每条主张：站得住 / 表述过度 / 证据缺失 / 与原文矛盾 / 无法回答，并写明「为什么这样判」 |
 | 反推 | 定位到原文片段的简历修改建议 |
 | 带走 | 同一份结果的三种形态：Markdown / 可打印 HTML（另存为 PDF）/ Word |
+| 模式 | 页面里**逐场**选运行模式：离线回放（默认，不联网）/ 联网直连 / 联网录制；模型名可下拉可手填，没配好就直接告诉你缺哪个环境变量 |
 | 上手 | 第一次打开自动弹一次新手教程：四步用起来、三种模式对照、隐私口径、常见问题 |
 | 变体 | 深色 / 浅色两套配色，头部一键切换并记住选择（浅色给白天与投影用） |
 
@@ -75,14 +76,15 @@ npm run repro          # 干净目录复现预演：clone → install → 门禁
 同一台机器上多次实测落在 34–40 秒之间（`clone` 受磁盘缓存冷热影响最大，2.8 s 与 7.6 s 都出现过），
 所以这张表记的是一次完整预演的实测值，量级与上限（600 秒）的关系不变。
 
-想联网跑真实模型：
+想联网跑真实模型：**在页面里把「运行模式」切到「联网直连」即可**（不必重启服务）。
+也可以先把下面这行写进 `.env`，页面会读到并允许在联网模式间切换：
 
 ```bash
 cp .env.example .env   # 填 LLM_BASE_URL / LLM_API_KEY / LLM_MODEL（任何 OpenAI 兼容端点）
-CROSSEXAM_MODE=live npm run preview
 ```
 
-想把自己的对话录成新卡带（例如换一个模型）：`CROSSEXAM_MODE=record npm run preview`，跑一遍后卡带落到 `fixtures/llm/`。
+想把自己这一场录成新卡带（例如换一个模型）：在页面里切到**联网录制**跑一遍即可，卡带落到 `fixtures/llm/`；
+命令行等价写法是 `CROSSEXAM_MODE=record npm run preview`。录制的卡带按**提示词指纹**寻址，所以改过提示词就必须重录。
 
 面试官人数默认 3 位（技术 / HR / 业务主管）；想加压力面试官或领域专家，用 `?panel=tech,hr,stress` 点名，
 `.env` 里的 `PANEL_SIZE` 是**同时上场的上限**（1–6，只截断不补齐），启动横幅会打出实际生效的上限。
@@ -97,8 +99,8 @@ CROSSEXAM_MODE=live npm run preview
 | `npm run dev` | 前后端热更新（两个进程，开发用） |
 | `npm run verify` | **提交门禁**：类型检查 + 测试 + 真进程冒烟 + 构建 |
 | `npm run smoke` | 真起一个服务进程打接口（含 SSE 收尾检查） |
-| `npm run shots` | 真浏览器（Edge/Chrome + CDP）截 14 张图，控制台有报错即失败 |
-| `npm run e2e:ui` | 真浏览器把每个功能点一遍（42 项断言 + 零控制台报错），红了退出码 1 |
+| `npm run shots` | 真浏览器（Edge/Chrome + CDP）截 15 张图，控制台有报错即失败 |
+| `npm run e2e:ui` | 真浏览器把每个功能点一遍（47 项断言 + 零控制台报错），红了退出码 1 |
 | `npm run seed:demo` | 重新合成 29 盘离线演示卡带（改了提示词就必须重跑） |
 | `npm run repro` | 干净目录复现预演，逐步计时并与 10 分钟上限比对 |
 | `npm run export:prompt` | 导出 AI 协同的 Prompt 链快照到 `docs/prompt-chain/` |

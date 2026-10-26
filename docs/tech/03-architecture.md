@@ -255,11 +255,12 @@ llm_call(id, session_id, digest, purpose, model, replayed, usage_json, elapsedMs
 
 | 接口 | 用途 |
 | --- | --- |
-| `GET /api/health` | 模式、跑法、模型、卡带目录 |
+| `GET /api/health` | 模式、跑法、模型、卡带目录，以及可选运行模式清单与「联网是否配好」 |
+| `GET /api/models` | 联网模式下可用的模型清单（配不全时**一个网络包都不发**，直接返回缺哪个环境变量） |
 | `GET /api/demo` | 内置示例简历与 JD |
 | `POST /api/import` | 上传 PDF / Word / 文本，解析成简历正文（字节不存留；413 太大 / 415 格式不支持 / 422 解析不出文字） |
 | `GET /api/contracts?panel=` | 意图契约全文 + 指纹（纯确定性，不调模型、不读库） |
-| `POST /api/sessions` | 建档（useDemo 或 resumeText） |
+| `POST /api/sessions` | 建档（useDemo 或 resumeText，可指定 `mode` 与 `model`：模式与模型随会话落库） |
 | `POST /api/sessions/:id/run` | 跑沙盘：默认 SSE 直播，`?stream=0` 走 JSON |
 | `GET /api/sessions/:id/events?from=` | 事件续传 |
 | `GET /api/sessions/:id/report.md` | 下载 Markdown 报告 |
@@ -304,6 +305,12 @@ HTML 报告不引用任何外部资源，保存单文件即可离线打开；页
 （中文简历的现实情况）。老版 `.doc` 是二进制复合文档，明确拒绝并提示另存为 `.docx`——**宁可给一句可执行的话，也不给一段看起来像正文的乱码**。
 选型对比与三个反直觉的 PDF 行为见 ADR-0007、findings F39；导入器自己有 11 条单测，HTTP 分档另有 4 条。
 
+### 3.6.5 运行模式与模型：逐场选，且随会话留档
+
+三种模式（离线回放 / 联网直连 / 联网录制）在**页面里逐场选择**，选择结果写进会话行：`llmMode` 落模式，`meta.model` 落模型名。跑的时候按会话行建客户端——单一事实来源在库里，不需要内存里的映射表，翻回一周前的会话也能说清它当时是怎么跑出来的。
+
+`GET /api/models` 只在显式选择联网后才被前端调用：先 `resolveLiveConfig`，缺 `LLM_BASE_URL` / `LLM_API_KEY` 就**一个网络包都不发**，直接把缺哪个变量告诉界面。拉不到清单不等于不能用——界面是 `input + datalist`，可以手填模型名；`/models` 返回什么也**不是可用性证据**（本机实测它只列出两款模型，而实际能调通四款）。见 D33、D34、F41。
+
 ## 3.7 工程质量：门禁四道
 
 `npm run verify` 是提交前必须全绿的一道门，它由四件事组成：
@@ -311,9 +318,9 @@ HTML 报告不引用任何外部资源，保存单文件即可离线打开；页
 | 顺序 | 命令 | 证明什么 | 当前规模 |
 | --- | --- | --- | --- |
 | 1 | `npm run typecheck` | 类型对（`tsc --noEmit`，含各包） | 全仓库 |
-| 2 | `npm run test` | 逻辑对（vitest） | 36 个文件 / 360 条断言 / 3.5 s |
+| 2 | `npm run test` | 逻辑对（vitest） | 36 个文件 / 369 条断言 / 3.4 s |
 | 3 | `npm run smoke` | **产品能跑**（真起进程、真打 HTTP、真等 SSE） | 9 项 |
-| 4 | `npm run build` | 前端能构建 | vite，27 modules |
+| 4 | `npm run build` | 前端能构建 | vite，30 modules |
 
 第 3 道是`findings.md` F11 的直接产物：同进程的 `app.request()` 测试全绿，真起服务却第一次写入就报没有表。
 **单元测试证明的是「函数逻辑对」，冒烟证明的是「产品能跑」，这两句话之间隔着一个进程边界，而事故恰好长在边界上。**
@@ -322,7 +329,7 @@ HTML 报告不引用任何外部资源，保存单文件即可离线打开；页
 
 | 命令 | 作用 | 什么时候跑 |
 | --- | --- | --- |
-| `npm run shots` | 无头浏览器点一遍全流程，出 14 张截图，**控制台有报错即失败** | 改了界面之后 |
+| `npm run shots` | 无头浏览器点一遍全流程，出 15 张截图，**控制台有报错即失败** | 改了界面之后 |
 | `npm run repro` | 干净目录 clone → install → verify → 起服跑一场，逐步计时 | 改复现路径之后 |
 | `npm run seed:demo` | 重新生成 29 盘离线卡带并自检 | 改了提示词之后 |
 
@@ -331,10 +338,10 @@ HTML 报告不引用任何外部资源，保存单文件即可离线打开；页
 | 模块 | 源码行 | 测试行 | 说明 |
 | --- | --- | --- | --- |
 | packages/shared/src | 937 | 489 | 纯函数，测试密度最高 |
-| packages/server/src | 5823 | 3521 | 编排 + IO + 导入解析 + 报告三种形态，含脚本化模型夹具 |
-| packages/web/src | 3347 | 979 | 折叠器、文案与主题变量（含 index.css） |
-| tools/ | 2731 | 490 | 导出器 / 冒烟 / 截图 / 界面点测 / 复现 / 文档构建（只计 .mjs，测试目录另计） |
-| **合计** | **12838** | **5479** | 测试/源码 ≈ 0.43 |
+| packages/server/src | 5967 | 3699 | 编排 + IO + 导入解析 + 报告三种形态，含脚本化模型夹具 |
+| packages/web/src | 3199 | 979 | 折叠器、文案与主题变量（只计 .ts/.tsx，index.css 另 311 行） |
+| tools/ | 2772 | 490 | 导出器 / 冒烟 / 截图 / 界面点测 / 复现 / 文档构建（只计 .mjs，测试目录另计） |
+| **合计** | **12875** | **5657** | 测试/源码 ≈ 0.44 |
 
 仓库里 **0 个 TODO / FIXME / HACK、0 处 `as any`、0 处 `@ts-ignore`**（全仓库 grep 实测）。
 console.log 只出现在两个 CLI 入口（serve.ts 与 seed-demo.ts）。
