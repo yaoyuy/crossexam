@@ -430,6 +430,22 @@ export function listEvents(db: Db, sessionId: string, fromSeq: number = 0): Even
   });
 }
 
+/* ------------------------------------------------- 重跑之前要抹掉的痕迹 */
+
+/**
+ * 抹掉一次没跑完的运行留下的痕迹：事件、追问、主张。
+ *
+ * 用在「上次跑到一半进程就没了，这次重来」：主张是整批落在最后那个事务里的，所以半截的运行
+ * 没有主张，但事件与追问已经写进去了；不清掉的话，重跑之后日志里会把同一段过程记两遍。
+ *
+ * 刻意**不动 llm_call**：那是真实花掉的 token 与钱，删掉账本就不诚实了。
+ */
+export function clearRunArtifacts(db: Db, sessionId: string): void {
+  db.prepare('DELETE FROM probe WHERE session_id = ?').run(sessionId);
+  db.prepare('DELETE FROM claim WHERE session_id = ?').run(sessionId);
+  db.prepare('DELETE FROM event WHERE session_id = ?').run(sessionId);
+}
+
 /* ------------------------------------------------------------------ llm_call */
 
 export interface NewLlmCall {

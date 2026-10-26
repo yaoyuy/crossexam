@@ -29,6 +29,7 @@ import type { VerdictOutcome } from './orchestrator/verdict.ts';
 import type { SuggestOutcome } from './orchestrator/suggest.ts';
 import {
   appendEvent,
+  clearRunArtifacts,
   getSession,
   insertClaims,
   insertProbe,
@@ -135,6 +136,12 @@ export async function runAndPersist(input: PersistRunInput): Promise<RunSessionR
   const session = getSession(db, sessionId);
   if (session === null) throw new Error('会话不存在：' + sessionId);
   assertFreshSession(db, sessionId);
+  // 上一轮的进程被直接关掉（不是抛错）时，主张还没落库，事件与追问却已经写进去了。
+  // 这种半截会话允许重跑，但必须先把痕迹抹掉：否则同一段过程会在事件日志里出现两份，
+  // 而事件日志是前端重放的唯一真相。
+  if (listEvents(db, sessionId).length > 0 || listProbes(db, sessionId).length > 0) {
+    clearRunArtifacts(db, sessionId);
+  }
 
   async function emit(event: RunEvent): Promise<void> {
     if (event.type === 'stage') {
