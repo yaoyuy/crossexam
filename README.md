@@ -78,6 +78,9 @@ CROSSEXAM_MODE=live npm run preview
 
 想把自己的对话录成新卡带（例如换一个模型）：`CROSSEXAM_MODE=record npm run preview`，跑一遍后卡带落到 `fixtures/llm/`。
 
+面试官人数默认 3 位（技术 / HR / 业务主管）；想加压力面试官或领域专家，用 `?panel=tech,hr,stress` 点名，
+`.env` 里的 `PANEL_SIZE` 是**同时上场的上限**（1–6，只截断不补齐），启动横幅会打出实际生效的上限。
+
 ---
 
 ## 命令表
@@ -88,7 +91,7 @@ CROSSEXAM_MODE=live npm run preview
 | `npm run dev` | 前后端热更新（两个进程，开发用） |
 | `npm run verify` | **提交门禁**：类型检查 + 测试 + 真进程冒烟 + 构建 |
 | `npm run smoke` | 真起一个服务进程打接口（含 SSE 收尾检查） |
-| `npm run shots` | 真浏览器（Edge/Chrome + CDP）截 9 张图，控制台有报错即失败 |
+| `npm run shots` | 真浏览器（Edge/Chrome + CDP）截 10 张图，控制台有报错即失败 |
 | `npm run seed:demo` | 重新合成 29 盘离线演示卡带（改了提示词就必须重跑） |
 | `npm run repro` | 干净目录复现预演，逐步计时并与 10 分钟上限比对 |
 | `npm run export:prompt` | 导出 AI 协同的 Prompt 链快照到 `docs/prompt-chain/` |
