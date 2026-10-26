@@ -426,3 +426,54 @@ npm run repro **exit 0**：干净目录 34.5 s 跑通全流程。
 ### 下一步
 
 P5：技术文档 PDF、演示视频脚本（含 ≥2 分钟 AI 协同过程复现）、Prompt 链快照刷新、发布清单（建远端仓库 + 逐项核对提交物）。
+
+## Session 9（2026-10-26）P4：live 模式也逐字吐字（不只是回放）+ 一次测量事故
+
+### 起因：用户给了 DeepSeek Key，要求真跑一遍、核一遍代码
+
+核代码时发现了三件事，这一节处理的是第三件（前两件见 Session 8 之后的两个 fix 提交）：
+
+1. suggestionDraftSchema 要 claimId、而提示词从没让模型给 → live 实测 9 条建议全炸，离线却全绿（F23）；
+2. claim/probe 表用全局主键，同进程第二场会话必撞 UNIQUE（已改会话内复合主键，SCHEMA_VERSION=2）；
+3. **live 模式下界面上看不到流式吐字**：五个阶段全走 client.complete()，live.ts 的 stream() 没有任何业务调用方。
+   而「流式、思考可视化」是赛题明写的评分项，且只有 live 才是真实使用场景。
+
+### 做法：流式做成客户端包装，不改五个阶段
+
+- 新增 packages/server/src/llm/streaming.ts：withStreaming(inner, sink) 把 complete() 变成
+  「for await inner.stream()，按 channel 外推分片，最终结果取 done」；没有 done 直接抛 bad-request。
+- LlmRequest 增加 channel；stageRequest 增加第四参；五个阶段分别传
+  extract / probe:面试官 / answer:追问编号 / verdict:主张编号 / suggest:主张编号。
+- SSE 新增不带 id 的 event: stream。**分片不进事件表、不落库、不参与卡带指纹**——写成 ADR-0004，
+  理由是分片是观感而不是结论，断线续传的语义只落在阶段边界上。
+- 前端：api.asStreamChunk 逐字段校验 → state 里 applyStreamChunk / streamText / liveChannels /
+  readableStreamText（模型吐的是 JSON，界面只取它正在写的那句人话：text / question / rationale / after / why / problem）；
+  StageRail 新增「实时输出」栏，ClaimBoard 在作答与判定处显示 LiveLine；
+  分片走独立快队列（40 ms 3 片），所以慢放模式下也能看见字一个个出来，而主队列节奏不变。
+
+### 测试与产物
+
+- 新增 server test/llm-streaming.test.ts（5 条）与 web test/stream.test.ts（17 条）；
+  http.test.ts 补断言：SSE 里出现 event: stream 与各路 channel，且**事件表仍是 16 条**（分片不进日志的回归门禁）。
+- 门禁 npm run verify exit 0：**29 个测试文件 / 271 条断言** + 冒烟 9 项 + build。
+- 截图器新增 04-live-output.png（等实况栏真的有字再按快门），其余顺延为 05–10；
+  旧的 6 张已删除，README 与截图清单同步改名。npm run shots：10 张图、控制台 0 报错。
+
+### 一次测量事故（F22）
+
+第一次 live 实测报「收到流式分片 0 片」，我差点把它当产品缺陷去改代码。真因是 8796 端口上还挂着
+**流式功能落地之前**启动的旧服务：脚本自己 spawn 的新服务抢不到端口就退了，探测打到旧进程，
+于是「没有流式」只是旧代码的正常表现——数据库路径（.tmp/live2 vs .tmp/live3）才是铁证。
+
+换成「起服务前先自检端口为空、跑完核对写的是自己的库」的脚本后：**5814 片 / 29 路 channel /
+0 片进事件表 / 21 条阶段事件 / 7 主张 7 判定，17 项全 PASS**。
+
+### 关键判断
+
+分片给眼睛看，事件日志才是可回放的真相。两者分开之后，演示里可以放心开着流式跑，
+而不必担心「为了好看把日志搅浑」——这也正是技术文档里「过程可复现性」那 25% 想看到的东西。
+
+### 下一步
+
+P5：技术文档 PDF、演示视频脚本（含 ≥2 分钟 AI 协同过程复现）、Prompt 链快照刷新、
+发布清单（建远端仓库 + 逐项核对提交物）。
