@@ -13,6 +13,7 @@ export * from './shortfall.ts';
 export * from './compare.ts';
 export * from './overview.ts';
 export * from './growth.ts';
+export * from './tailor.ts';
 export * from './revise.ts';
 export * from './supplement.ts';
 export * from './templates.ts';
