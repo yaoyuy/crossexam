@@ -15,12 +15,18 @@ import type { Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import {
   DEFAULT_BUDGET,
+  DEFAULT_DIFFICULTY,
+  DIFFICULTIES,
   JOB_TEMPLATES,
   TEMPLATE_INDUSTRIES,
   TEMPLATE_LIMITS,
+  budgetOf,
   contractDigest,
   customInterviewerId,
+  difficultyOf,
+  difficultyViews,
   interviewerDraftSchema,
+  isDifficulty,
   jdDigest,
   jdIdOf,
   jdProblems,
@@ -31,7 +37,7 @@ import {
   templateById,
   templateDigest,
 } from '@crossexam/shared';
-import type { IntentContract, InterviewerDraft, JobDescription } from '@crossexam/shared';
+import type { Difficulty, IntentContract, InterviewerDraft, JobDescription } from '@crossexam/shared';
 import { DEMO_JD, DEMO_RESUME, DEMO_TITLE } from '../demo-content.ts';
 import { createLlmClient, defaultCassetteDir, describeClient, listLiveModels, LLM_MODES, MODE_LABEL, resolveLiveConfig } from '../llm/index.ts';
 import type { LlmClient, LlmMode } from '../llm/types.ts';
@@ -305,9 +311,11 @@ export function createApp(opts: AppOptions): Hono {
    * 解析这一场的阵容。返回 contracts 与 missing 两件东西：
    * missing 非空时调用方必须拒绝（少一位面试官而界面显示五位是最难查的问题）。
    */
-  const panelFrom = (ids: readonly string[]) => {
+  const panelFrom = (ids: readonly string[], difficulty: Difficulty = DEFAULT_DIFFICULTY) => {
     const wanted = normalizePanelIds(ids, panelLimit);
-    return { ids: wanted, resolved: resolvePanel(db, wanted, DEFAULT_BUDGET) };
+    // 档位只影响预算，于是「换一档」= 换一组预算数字 = 换一个契约指纹。
+    // 这也是为什么同一场会话必须把档位一起留档：不然跑完再对账就算不回来了。
+    return { ids: wanted, resolved: resolvePanel(db, wanted, budgetOf(difficulty)) };
   };
   const app = new Hono();
 
@@ -322,6 +330,9 @@ export function createApp(opts: AppOptions): Hono {
       modes: LLM_MODES,
       modeLabels: MODE_LABEL,
       live: liveReadiness(),
+      // 档位清单由 shared 提供：界面按它渲染 chip，服务端按它算预算，两边不各写一份
+      difficulties: difficultyViews(),
+      defaultDifficulty: DEFAULT_DIFFICULTY,
     }),
   );
 
@@ -346,13 +357,16 @@ export function createApp(opts: AppOptions): Hono {
    * 所以界面在开跑之前就能把这场质询的规则摊开；跑完之后还能拿指纹和落库的那份对账。
    */
   app.get('/api/contracts', (c) => {
-    const { resolved } = panelFrom(idsOf(c.req.query('panel')));
+    // 界面在开跑之前就能把规则摊开：换档位时重算一遍，看到的就是这一场真正会用的那一份。
+    const difficulty = difficultyOf(c.req.query('difficulty'));
+    const { resolved } = panelFrom(idsOf(c.req.query('panel')), difficulty);
     if (resolved.missing.length > 0) {
       return c.json({ error: '找不到这几位面试官：' + resolved.missing.join('、') + '。' + knownPanelHint() }, 400);
     }
     return c.json({
       panel: resolved.ids,
-      budget: DEFAULT_BUDGET,
+      difficulty,
+      budget: budgetOf(difficulty),
       contracts: viewsOfContracts(resolved.contracts),
     });
   });
@@ -592,10 +606,21 @@ export function createApp(opts: AppOptions): Hono {
       }
     }
 
+    // 问多深要在建会话时就定下来，和阵容同理：重跑时必须还是那一档，
+    // 否则同一场会话的契约指纹会随页面此刻的选择变化，对账就没意义了。
+    // 写接口对档位**严格**：认不出的档位是打错字，静默当默认档会让人以为生效了。
+    const rawDifficulty = body['difficulty'];
+    if (rawDifficulty !== undefined && rawDifficulty !== null && !isDifficulty(rawDifficulty)) {
+      return c.json({
+        error: '追问强度只能是 ' + DIFFICULTIES.join(' / ') + '，收到「' + textField(rawDifficulty) + '」。',
+      }, 400);
+    }
+    const difficulty = difficultyOf(rawDifficulty);
+
     // 阵容在建会话时就定下来：重跑同一场不会因为页面此刻勾了别人就换人。
     const wantedIds = stringList(body['interviewers']);
     const panel = normalizePanelIds(wantedIds, panelLimit);
-    const resolved = resolvePanel(db, panel, DEFAULT_BUDGET);
+    const resolved = resolvePanel(db, panel, budgetOf(difficulty));
     if (resolved.missing.length > 0) {
       return c.json({ error: '找不到这几位面试官：' + resolved.missing.join('、') + '。' + knownPanelHint() }, 400);
     }
@@ -607,10 +632,12 @@ export function createApp(opts: AppOptions): Hono {
       resumeText,
       resumeHash: shortHash(resumeText, 24),
       llmMode: mode,
-      budget: { config: DEFAULT_BUDGET, totalProbes: 0, claims: {} },
+      // 预算账本一建会话就按档位写好：跑的时候用它，读的时候也用它重算契约指纹。
+      budget: { config: budgetOf(difficulty), totalProbes: 0, claims: {} },
       meta: {
         source: useDemo ? 'demo' : 'user',
         model: wantedModel,
+        difficulty,
         panel: resolved.ids,
         // 指纹逐份留档：JD 原文是输入，日后想核对「当时贴的是不是这一版」只看指纹就够。
         jdDigests: jds.list.map((jd) => jdDigest(jd.text)),
@@ -623,6 +650,7 @@ export function createApp(opts: AppOptions): Hono {
         mode,
         model: wantedModel,
         jobTitle,
+        difficulty,
         panel: resolved.ids,
         // 只回编号与标题：原文界面本来就有，没必要再传一遍。
         jds: jds.list.map((jd) => ({ id: jd.id, ordinal: jd.ordinal, title: jd.title })),

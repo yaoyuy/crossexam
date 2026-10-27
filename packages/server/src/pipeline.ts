@@ -10,10 +10,11 @@
  * 这样前端"重放一遍"与"查表"看到的是同一件事，不需要把 JSON 拆成十个列。
  */
 
-import { contractDigest, matchSummary, renderSystemPrompt, requirementNotes, shortHash } from '@crossexam/shared';
+import { contractDigest, difficultyOf, matchSummary, renderSystemPrompt, requirementNotes, shortHash } from '@crossexam/shared';
 import type {
   BudgetConfig,
   ContractBudgetView,
+  Difficulty,
   IntentContract,
   JobDescription,
   MatchSummary,
@@ -193,7 +194,10 @@ export async function runAndPersist(input: PersistRunInput): Promise<RunSessionR
       jdText: session.jdText,
       jds,
       contracts: roster.contracts,
-      budgetConfig: input.budgetConfig,
+      // 用上面算好的那一份，不是 input.budgetConfig：
+      // 后者为 undefined 时编排层会回落 DEFAULT_BUDGET，而契约是按 session.budget.config 算的，
+      // 两处不一致就会出现「提示词里的预算是这一档、界面按另一档对账」的裂缝。
+      budgetConfig,
       maxRounds: input.maxRounds ?? DEFAULT_MAX_ROUNDS,
       maxClaims: input.maxClaims,
       maxProbesPerTurn: input.maxProbesPerTurn,
@@ -212,6 +216,7 @@ export async function runAndPersist(input: PersistRunInput): Promise<RunSessionR
 export function persistResult(db: Db, sessionId: string, result: RunSessionResult): void {
   const suggestionByClaim = new Map<string, Suggestion>();
   for (const suggestion of result.suggestions) suggestionByClaim.set(suggestion.claimId, suggestion);
+
 
   withTransaction(db, () => {
     insertClaims(db, sessionId, result.claims);
@@ -279,6 +284,8 @@ export interface SessionView {
   /** 直接喂给追问提示词的那几条（只有能对上主张的才在里面） */
   requirementNotes: RequirementNote[];
   requirementSummary: MatchSummary;
+  /** 这一场问得多深。老会话没记过这个字段，按默认档算 */
+  difficulty: Difficulty;
   /** 这场沙盘当时用的意图契约。表里只存了指纹，全文是按同样输入重算出来的 */
   contracts: ContractView[];
 }
@@ -474,5 +481,6 @@ export function assembleSession(db: Db, sessionId: string): SessionView | null {
     // 「哪些要求能进提示词」是纯函数，存下来只会多一个会和代码不一致的副本。
     requirementNotes: requirementNotes(jds, requirements, requirementMatches),
     requirementSummary: matchSummary(requirementMatches),
+    difficulty: difficultyOf(session.meta['difficulty']),
   };
 }
