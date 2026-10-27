@@ -36,7 +36,7 @@ import type {
   SseEvent,
   TemplateLibrary,
 } from './api.ts';
-import { nextPanel, PANEL_ORDER } from './contract.ts';
+import { DEFAULT_DIFFICULTY, nextPanel, PANEL_ORDER } from './contract.ts';
 import { MODEL_NOTE_PENDING, modelNoteOf } from './runmode.ts';
 import { personaBlurbOf, personaLabelOf } from './labels.ts';
 import { markHelpSeen, shouldAutoOpenHelp } from './help.ts';
@@ -135,6 +135,10 @@ export function App() {
   const [runModel, setRunModel] = useState('');
   const [modelOptions, setModelOptions] = useState<string[]>([]);
   const [modelNote, setModelNote] = useState<string | null>(null);
+  // 这一场问多深：默认档由服务端决定，页面上可以逐场改。预算写在渲染出的提示词里，
+  // 所以换档 = 换契约指纹，界面上的契约视图会跟着重算。
+  const [difficulty, setDifficulty] = useState<string>(DEFAULT_DIFFICULTY);
+  const [difficultyChoices, setDifficultyChoices] = useState<{ id: string; label: string; hint: string }[]>([]);
   const [theme, setTheme] = useState<Theme>(readStoredTheme);
   // 第一次打开自动弹一次教程；点过「知道了」之后就不再打扰
   const [helpOpen, setHelpOpen] = useState(() => shouldAutoOpenHelp());
@@ -195,6 +199,9 @@ export function App() {
         setDemo(loadedDemo);
         // 页面默认选中的模式 = 服务端当前的模式，先让两边说的是同一件事。
         setRunMode(loadedHealth.mode);
+        // 档位清单与默认档都来自服务端：界面不自己编三档，也不自己决定默认哪一档。
+        setDifficultyChoices(loadedHealth.difficulties ?? []);
+        setDifficulty(loadedHealth.defaultDifficulty ?? DEFAULT_DIFFICULTY);
       } catch (error) {
         setHint(error instanceof Error ? error.message : '连不上本地服务，请先 npm run dev');
       }
@@ -208,7 +215,7 @@ export function App() {
    */
   useEffect(() => {
     let alive = true;
-    void fetchContracts(panel)
+    void fetchContracts(panel, difficulty)
       .then((data) => {
         if (alive) setContracts(data.contracts);
       })
@@ -218,7 +225,7 @@ export function App() {
     return () => {
       alive = false;
     };
-  }, [panel]);
+  }, [panel, difficulty]);
 
   useEffect(
     () => () => {
@@ -304,6 +311,8 @@ export function App() {
         ...(runMode === 'replay' || runModel.trim() === '' ? {} : { model: runModel.trim() }),
         // 阵容随会话落库：跑完之后再改面板，也不会把历史会话的面试官换掉
         interviewers: panel,
+        // 档位同理：它决定这一场的预算与契约指纹，必须随会话固定下来
+        difficulty,
       });
       sessionId = created.id;
       // 服务端回的只有编号与标题，正文用刚提交的那几份对上——右栏立刻就能看 JD 原文
@@ -351,7 +360,7 @@ export function App() {
           .catch(() => undefined);
       }
     }
-  }, [busy, draft, panel, runMode, runModel, pushEvent, drain, refreshSessions]);
+  }, [busy, draft, panel, runMode, runModel, difficulty, pushEvent, drain, refreshSessions]);
 
   const handleLoadSession = useCallback(async (id: string) => {
     setBusy(true);
@@ -779,6 +788,9 @@ export function App() {
             modeChoices={MODE_CHOICES}
             modelOptions={modelOptions}
             runModeNote={modelNote}
+            difficulty={difficulty}
+            difficultyChoices={difficultyChoices}
+            onDifficultyChange={setDifficulty}
           />
           <StageRail state={sandbox} panel={panel} health={health} contracts={contracts} onFocusClaim={handleFocusClaim} />
         </aside>
