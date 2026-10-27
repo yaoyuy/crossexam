@@ -25,7 +25,7 @@
  */
 
 import { REQUIREMENT_KIND_LABEL, VERDICT_LABEL } from '@crossexam/shared';
-import type { ClaimCategory, CounterKind, MatchStatus, RequirementKind, VerdictKind } from '@crossexam/shared';
+import type { ClaimCategory, CounterKind, MatchStatus, RequirementKind, RewriteStyle, VerdictKind } from '@crossexam/shared';
 import { CASSETTE_VERSION, digestFor, writeCassette } from './cassette.ts';
 import type { CassetteEntry } from './cassette.ts';
 import { chunkText } from './replay.ts';
@@ -61,6 +61,12 @@ export interface DemoSuggestionPlan {
   problem: string;
   before: string;
   after: string;
+  /**
+   * 保守档与敢改档各写一句：常规档就是 after 本身。
+   * 为什么三分必写：改写风格换的是提示词里的一段收敛说明，指纹随之改变；
+   * 演示脚本若对档位无感知，三档就会吐出同一批建议，界面上的档位等于假的。
+   */
+  afterByStyle: Partial<Record<RewriteStyle, string>>;
   why: string;
 }
 
@@ -122,6 +128,10 @@ export const DEMO_PLANS: readonly DemoClaimPlan[] = [
       problem: '把日常统计值与压测峰值并列成一次提升，面试官追问压测条件就会露馅。',
       before: 'QPS 从 800 提升到 5000',
       after: '引入 Redis 缓存后，同一接口在预发环境单机压测下 QPS 由 800 提升到 5000（压测工具与口径见附录）',
+      afterByStyle: {
+        conservative: 'QPS 从 800 提升到 5000（前后口径不同，不作直接对比）',
+        bold: '主导引入 Redis 缓存：缓存方案与落地由我负责，QPS 从 800 提升到 5000（前后口径不同，仅看量级）',
+      },
       why: '数字保留，但把口径与场景交代清楚：日常值不做跨口径比较，面试官问起来你能直接把压测条件摊开。',
     },
   },
@@ -150,6 +160,10 @@ export const DEMO_PLANS: readonly DemoClaimPlan[] = [
       problem: '只有规模、没有贡献边界，面试官一问细节就答不上来。',
       before: '独立完成 RBAC 权限模块，覆盖 12 个业务线。',
       after: '负责 RBAC 权限模块的设计与实现，覆盖 12 个业务线的权限接入（核心模型与鉴权链路由我独立完成）',
+      afterByStyle: {
+        conservative: '负责 RBAC 权限模块，覆盖 12 个业务线',
+        bold: 'RBAC 权限模块由我负责设计与实现，覆盖 12 个业务线的权限接入；其中核心模型与鉴权链路为独立完成',
+      },
       why: '把「独立完成」的边界限定到具体部分：既保住了成果，也不再让别人以为整件事都是你一个人做的。',
     },
   },
@@ -178,6 +192,10 @@ export const DEMO_PLANS: readonly DemoClaimPlan[] = [
       problem: '纯形容词无法被验证，追问两次就暴露了。',
       before: '学习能力强，抗压能力强，有责任心，能快速融入团队。',
       after: '学习能力：能在两周内独立接手陌生模块；抗压：有线上故障值班与复盘经历（详见项目经历）',
+      afterByStyle: {
+        conservative: '学习能力强，抗压能力强，有责任心（具体事例见项目经历）',
+        bold: '学习能力：两周内独立接手陌生模块并交付；抗压：承担过线上故障值班，做过完整复盘（详见项目经历）',
+      },
       why: '把形容词换成可被追问的事实，面试官接着问也问得下去，反而给了你展开的机会。',
     },
   },
@@ -206,6 +224,10 @@ export const DEMO_PLANS: readonly DemoClaimPlan[] = [
       problem: '只说获奖，没说评选范围与个人贡献，读起来像集体荣誉。',
       before: '参与的项目获得公司年度技术突破奖。',
       after: '参与的项目获得公司年度技术突破奖（部门推荐、公司评审；本人负责其中权限模块的设计与实现）',
+      afterByStyle: {
+        conservative: '参与的项目获得公司年度技术突破奖（本人负责其中权限模块）',
+        bold: '参与的项目获得公司年度技术突破奖（部门推荐、公司评审的年度评选；本人负责其中权限模块的设计与实现与业务线接入）',
+      },
       why: '把范围与你的那部分补上，奖项才从「团队光环」变成可追问的个人成果。',
     },
   },
@@ -486,16 +508,35 @@ function verdictText(prompt: string): string {
   });
 }
 
-function suggestText(prompt: string): string {
+/**
+ * 从提示词里读出用户选的改写风格档位。
+ *
+ * 档位那一行出自 suggestSystem，渲染在**系统提示词**里（messages[0] 是用户提示词，只有主张与判定）——
+ * 第一版从 user 里找，三种档位全都找不到、全按常规档处理，三档建议一字不差，被测试逮住。
+ * 那一行形如「## 这一版的收敛程度（用户选的档位：保守）」。
+ * 认不出就按常规档：宁可让演示停在常规档，也不要为了让脚本好写而改提示词的渲染格式——
+ * 提示词是评委在界面上能摊开看的东西，不该为了脚本让步。
+ */
+function styleIn(prompt: string): RewriteStyle {
+  if (prompt.indexOf('用户选的档位：保守') >= 0) return 'conservative';
+  if (prompt.indexOf('用户选的档位：敢改') >= 0) return 'bold';
+  return 'normal';
+}
+
+function suggestText(prompt: string, system: string): string {
   const claimId = firstClaimId(prompt);
   const plan = planForClaimId(claimId);
   if (plan === null || plan.suggestion === null) throw new Error('演示脚本没有覆盖这条主张的改写建议：' + claimId);
   const suggestion = plan.suggestion;
+  const style = styleIn(system);
+  // 档位不同，改出来的句子必须真的不同：否则界面上切档位只是换了一句说明，
+  // 建议本身一字未变，评委一眼就能看出是假的。
+  const after = suggestion.afterByStyle[style] ?? suggestion.after;
   return JSON.stringify({
     claimId,
     problem: suggestion.problem,
     before: suggestion.before,
-    after: suggestion.after,
+    after,
     why: suggestion.why,
   });
 }
@@ -710,7 +751,7 @@ function respond(req: LlmRequest, state: ScriptState): string {
   if (req.purpose === 'probe') return probeText(user, state);
   if (req.purpose === 'answer') return answerText(user);
   if (req.purpose === 'verdict') return verdictText(user);
-  if (req.purpose === 'suggest') return suggestText(user);
+  if (req.purpose === 'suggest') return suggestText(user, req.system);
   if (req.purpose === 'jd-extract') return jdExtractText(user);
   if (req.purpose === 'jd-merge') return jdMergeText(user);
   if (req.purpose === 'jd-match') return jdMatchText(user);

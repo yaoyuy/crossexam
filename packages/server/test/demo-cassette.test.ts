@@ -69,14 +69,21 @@ function fakeEntry(digest: string, model: string): CassetteEntry {
 }
 
 /** 走真实 HTTP 接口跑一遍示例简历：创建会话 -> 同步开跑 -> 读摘要与落库后的详情 */
-async function runDemoOverHttp(cassetteDir: string, difficulty = ''): Promise<{ summary: RunSummary; view: SessionView }> {
+async function runDemoOverHttp(
+  cassetteDir: string,
+  difficulty = '',
+  style = '',
+): Promise<{ summary: RunSummary; view: SessionView }> {
   const db = openDatabase({ path: ':memory:' });
   try {
     const app = createApp({ db, client: createReplayClient(cassetteDir), cassetteDir });
+    const body: Record<string, unknown> = { useDemo: true };
+    if (difficulty !== '') body['difficulty'] = difficulty;
+    if (style !== '') body['style'] = style;
     const created = await app.request('/api/sessions', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(difficulty === '' ? { useDemo: true } : { useDemo: true, difficulty }),
+      body: JSON.stringify(body),
     });
     expect(created.status).toBe(201);
     const session = (await created.json()) as { id: string };
@@ -152,7 +159,34 @@ describe('离线演示（合成卡带）', () => {
     expect(rounds).toEqual([2, 3, 4]);
     expect(perInterviewer).toEqual([1, 2, 2]);
   });
-  it('生成器写出的卡带覆盖八个阶段，且两遍结果一致', async () => {
+
+  // 改写风格换一档，改写阶段的系统提示词就换一段收敛说明，指纹跟着换；
+  // 而如果脚本对档位无感知，三档会吐出同一批建议——那界面上切档位就只是换了一句说明。
+  // 所以这条测试同时盯两件事：三档都跑得通，以及三档改出来的句子真的不一样。
+  it('三档改写风格都能在零网络下跑完，且改出来的句子真的不一样', async () => {
+    const afters: Record<string, string[]> = {};
+    for (const style of ['conservative', 'normal', 'bold']) {
+      const { summary, view } = await runDemoOverHttp(FIXTURE_DIR, '', style);
+      expect(summary.claims).toBe(5);
+      expect(summary.suggestions).toBe(4);
+      expect(view.style).toBe(style);
+      // suggestions 里既有「改了」也有「不用改」（站得住的那条），这里只取真的改出来的句子
+      afters[style] = view.suggestions
+        .filter((item) => item.status === 'suggested' && item.suggestion !== null)
+        .map((item) => item.suggestion?.after ?? '');
+    }
+    const conservative = afters['conservative'] ?? [];
+    const normal = afters['normal'] ?? [];
+    const bold = afters['bold'] ?? [];
+    expect(conservative.length).toBe(4);
+    expect(new Set(conservative).size).toBe(4);
+    // 三条红线在任何档位下都不变：保守档不许比常规档更长（它是做减法的），
+    // 敢改档不许更短——否则「敢改/保守」两个名字就没有说服力。
+    const total = (list: string[]): number => list.reduce((sum, item) => sum + item.length, 0);
+    expect(total(conservative) < total(normal)).toBe(true);
+    expect(total(bold) > total(normal)).toBe(true);
+  });
+  it('生成器写出的卡带覆盖九个阶段，且两遍结果一致', async () => {
     const dir = newTempDir('demo-seed');
     const report = await seedDemoCassettes({ dir });
 
