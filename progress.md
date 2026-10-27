@@ -1171,3 +1171,26 @@ P11 改与复用：B2 逐条并排改动对照 ✅ · B1 改写风格档位 · C
 **门禁与实测**：`npm run verify` exit 0（58 个测试文件 / 606 条断言 + 冒烟 9 项 + vite 42 modules）；`npm run e2e:ui` **121/121**；`npm run shots` **24 张**；卡带 48 盘。
 
 **下一步**：P11 的 B1 改写风格档位（只调措辞收敛，不突破事实边界；改 suggest 提示词要重录卡带）。
+## Session 29（2026-10-27）· P11 B1：改写风格三档
+
+**目标**：同一处「表述过度」，有人想只删几个形容词，有人想整句重写——给用户一个只调**措辞收敛程度**的旋钮，且不突破事实边界。
+
+**产出**
+
+| 层 | 落点 |
+| --- | --- |
+| shared | `packages/shared/src/style.ts`：`REWRITE_STYLES=[conservative,normal,bold]` / `DEFAULT_REWRITE_STYLE=normal` / `REWRITE_STYLE_LABEL`（保守/常规/敢改）/ `REWRITE_STYLE_HINT` / `REWRITE_STYLE_GUIDE` / `rewriteStyleOf` / `rewriteStyleViews`；测试 +6 条 |
+| server | `prompts.ts` 的 suggest 系统提示词带上档位；`run.ts` / `suggest.ts` / `pipeline.ts` 透传 `style`；`session.meta.style` 落库；`GET /api/health` 下发 `styles` + `defaultStyle`；非法档位 400；`report.ts` / `report-html.ts` 抬头加「追问强度」「改写风格」两行；测试 +7 条 |
+| web | `IntakePanel` 三档 chip（插在「追问强度」之后、「播放节奏」之前）+ 说明段；`api.ts` / `contract.ts` / `App.tsx` 接线；打开历史会话时把强度与风格两档拨回当年 |
+| demo | `scripted-demo` 从 System Prompt 读档位（第一版从 user 提示词读，三档都读成了常规）；`seed:demo` 覆盖 3 档强度 × 3 档风格 = 9 种组合，卡带 48 → **56 盘** |
+| tools | `e2e.mjs` +5 项（**换风格后契约指纹必须不变**，与追问强度相反），**125/125** |
+
+**真问题**
+
+- 三档不进契约指纹：契约回答「谁在问」，风格回答「改得多狠」。混进同一个指纹，「换了风格」会被界面解释成「换了面试官」，历史场次不可比（F65 / D53 / ADR-0017）。
+- `bold` 档最容易被模型读成「可以自己润色」，档位说明第一句就写死「不新增任何事实」，并由 `newNumbersIn` 在代码里兜底。
+- 测试桩两连坑（F66）：suggest 返回的是**单个对象**不是数组；判定给 `solid` 时改写阶段整段跳过，三档都拿不到建议。
+
+**门禁与实测**：`npm run verify` exit 0（**60 个测试文件 / 620 条断言** + 冒烟 9 项 + 构建）；`npm run e2e:ui` **125/125** 且控制台 0 报错；`npm run shots` 24 张；`npm run seed:demo` 写 **56 盘**（extract 1 / jd-extract 1 / jd-merge 1 / jd-match 1 / probe 24 / answer 10 / verdict 5 / suggest 12 / counter 1），九组合两遍签名一致，默认组合 `79f7d89bfdc9`。
+
+**下一步**：P11 的 C1 简历版本对比（改完再跑一遍，判定怎么变）。
