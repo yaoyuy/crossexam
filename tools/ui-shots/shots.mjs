@@ -517,7 +517,14 @@ async function main() {
     await cdp.shot(opts.out, '25-growth.png');
     await cdp.evaluate(click('growth-close'));
     await sleep(250);
-
+    // P12 ③ 一岗一版：同一份简历 × 同一个岗位，只做留下与去掉。这张拍的是筛完的那一刻——
+    // 右栏换成「这一版（按岗位筛）」，旁边写明留下几条主张、去掉哪几条，以及三个导出入口。
+    await cdp.evaluate(click('jd-tailor'));
+    await cdp.waitFor("document.querySelector('[data-shot=\"tailor\"]') !== null && document.querySelector('[data-shot=\"tailor\"]').innerText.includes('留下')", '一岗一版出结论', 20000);
+    await sleep(350);
+    await cdp.shot(opts.out, '26-tailor.png');
+    await cdp.evaluate(click('resume-show-original'));
+    await sleep(250);
     // 报告导出：同一份结果有三种形态（Markdown 便于携带、可打印 HTML 便于阅读、Word 便于改）。
     // 这一张拍的是服务端渲染出来的可打印 HTML——PDF 就是它经浏览器打印得到的，服务端不自己造 PDF。
     const sid = await cdp.evaluate("fetch('/api/sessions').then((r) => r.json()).then((data) => (data.sessions[0] ?? {}).id ?? '')");
