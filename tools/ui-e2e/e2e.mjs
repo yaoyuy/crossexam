@@ -607,6 +607,15 @@ check('点反问的引文，那一侧的原文跳到它的依据那一段', coun
 // 第 8 项：勾选 → 确认采纳 → 简历被真的改掉 → 导出三件套 → 全部撤销退回原文。
 // 这一段必须落在「清空」之前：那时 demo 场次还开着，5 条主张里有 4 条带改写建议。
 // 断言分三层：界面上的勾选与结论、服务端真的改了、导出的文件里真有改动。
+// C1：改完再跑一遍 -> 比上次。一场跑完右栏就有「比上次」这一栏，
+// 第一场它说的是「这是第一版」；「改完再跑一遍」按钮只在真的采纳过之后才出现——
+// 没改过简历就点它，等于把同一份简历跑两遍，比出来的「没变」毫无意义。
+// 「这是第一版」这五个字是这一栏的副标题（Pane 的 subtitle），headline 里是那句解释，
+// 所以这里读整栏的文字：两处都在这一栏里，分开读会把状态与说明割成两个断言。
+const comparePane = await textOf('compare');
+check('跑完一场，「比上次」就说清这是第一版', comparePane.indexOf('第一版') >= 0 && comparePane.indexOf('改完再跑一遍') >= 0, comparePane.replace(/\n/g, ' / ').slice(0, 70));
+const rerunIdle = await hasShot('revision-rerun');
+check('没改过简历时不给「改完再跑一遍」', rerunIdle === 'no', rerunIdle);
 const revBar = await evalJs('(() => { const el = document.querySelector("[data-shot=revisions]"); return el === null ? "" : el.innerText; })()');
 check('右栏有「采纳改写」这一栏', revBar.indexOf('采纳改写') >= 0, revBar.replace(/\n/g, ' / ').slice(0, 60));
 const chooseCount = await evalJs('document.querySelectorAll("[data-shot^=choose-]").length');
@@ -618,6 +627,8 @@ check('「全部采纳」把建议一次勾上', chosenBar.indexOf('本次勾选
 await evalJs('document.querySelector("[data-shot=revision-submit]").click()');
 const revisedNote = await waitFor(async () => { const t = await evalJs('(() => { const el = document.querySelector("[data-shot=revision-note]"); return el === null ? "" : el.innerText; })()'); return t.length > 0 ? t : ''; }, '采纳结论', 20000);
 check('确认采纳后给出结论（改成了几处）', revisedNote.indexOf('已按这次勾选改好简历') >= 0, revisedNote.slice(0, 80));
+const rerunReady = await hasShot('revision-rerun');
+check('采纳之后才出现「改完再跑一遍」', rerunReady === 'yes', rerunReady);
 const revisedResume = (await (await fetch('http://127.0.0.1:' + PORT + '/api/sessions/' + demoSession.id + '/revisions')).json()).revised;
 check('服务端真的把简历改了（不是只在前端画一下）',
   revisedResume !== null && revisedResume.applied.length > 0 && revisedResume.text !== view.session.resumeText,
