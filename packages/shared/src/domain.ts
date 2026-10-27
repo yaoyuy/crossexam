@@ -203,3 +203,54 @@ export interface RequirementMatch {
   status: MatchStatus;
   reason: string;
 }
+
+/**
+ * 反问环节：一场质询结束后，轮到求职者提问（「你有什么想问我们的吗」）。
+ *
+ * 五类取向不是随便分的：现场真问得出价值的反问，基本都落在团队 / 技术 / 成长 / 业务 / 流程
+ * 这五件事上。分类的意义在报告里——用户能看到自己的反问是不是全挤在「待遇」这一件事上。
+ */
+export type CounterKind = 'team' | 'tech' | 'growth' | 'business' | 'process';
+
+export const COUNTER_KIND_LABEL: Record<CounterKind, string> = {
+  team: '团队与协作',
+  tech: '技术栈与工具',
+  growth: '成长与考核',
+  business: '业务与产品',
+  process: '流程与节奏',
+};
+
+/**
+ * 这句反问的依据出自哪里。
+ * jd = 岗位要求里的一句话；resume = 简历里的某条主张。
+ * 没有材料就没有依据，也就不会有反问——这条规矩和追问一样硬。
+ */
+export type CounterSource = 'jd' | 'resume';
+
+export const COUNTER_SOURCE_LABEL: Record<CounterSource, string> = {
+  jd: '依据岗位要求',
+  resume: '依据简历原话',
+};
+
+export interface CounterQuestion {
+  id: string;
+  ordinal: number;
+  /** 求职者要问出口的那句话 */
+  text: string;
+  kind: CounterKind;
+  /** 为什么该问这个：报告里给用户看的「这句问得有依据」 */
+  reason: string;
+  /** 用人方大概会怎么答。这是沙盘模拟出来的，不是真的 HR 在答 */
+  reply: string;
+  source: CounterSource;
+  /** 依据所在的原文区间：source=jd 锚在那份 JD 上，resume 锚在简历上 */
+  anchor: Anchor;
+  /** source=jd 时，依据出自哪份 JD；否则 null */
+  jdId: string | null;
+}
+
+/** 锚不到材料的反问：和 rejectedClaims 一样是可展示的产物，不是日志 */
+export interface RejectedCounter {
+  text: string;
+  reason: string;
+}

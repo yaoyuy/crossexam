@@ -7,6 +7,7 @@ export * from './difficulty.ts';
 export * from './contract.ts';
 export * from './interviewer.ts';
 export * from './requirements.ts';
+export * from './counters.ts';
 export * from './shortfall.ts';
 export * from './revise.ts';
 export * from './supplement.ts';
