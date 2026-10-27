@@ -471,6 +471,9 @@ async function main() {
     await cdp.evaluate(click('supplement-delete-' + supId));
     await cdp.waitFor("((document.querySelector(" + supNoteSel + ") || {}).innerText || '').indexOf('已删掉') >= 0", '补充说明删掉', 15000);
 
+    // P10 · A4：轮到你了。中栏最后一段，列出几句能反问 HR 的话，每句都带原文依据。
+    // 拍的是回放场次：4 句反问，两句依据岗位要求、两句依据简历原话，回答标明是沙盘模拟的。
+    await cdp.shot(opts.out, '23-counters.png', "document.querySelector('[data-shot=\"counters\"]').scrollIntoView({ block: 'start' })");
     // 意图契约：展开一位面试官的契约，再摊开他实际拿到的 System Prompt。
     // 这一张是「意图控制」这条评分项的直接证据：目标/手法/禁区/预算都是结构化数据，
     // prompt 由它确定性渲染，指纹还要和会话里落库的那一份对得上。

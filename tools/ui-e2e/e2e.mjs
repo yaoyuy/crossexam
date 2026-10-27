@@ -550,6 +550,34 @@ check('点短板名单里的主张，右栏简历跳到它的原文位置',
   resumeFocused.split('\n').slice(0, 2).join(' / ').slice(0, 70));
 
 
+// P10 · A4：轮到你了。反问是「锦上添花」的一节——有材料才生成，每句都必须带原文依据，
+// 而且必须写清楚回答是沙盘模拟的，不是真 HR 在答。
+const counterPane = await evalJs('(() => { const el = document.querySelector("[data-shot=counters]"); return el === null ? "" : el.innerText; })()');
+check('中栏多出「轮到你了（可以反问）」这一栏', counterPane.indexOf('轮到你了') >= 0 && view.counters.length > 0, String(view.counters.length) + ' 句');
+const counterCards = await evalJs('document.querySelectorAll("[data-shot^=counter-quote-]").length');
+check('每句反问一张卡：带依据原文、写明为什么值得问，并说清回答是模拟的',
+  counterCards === view.counters.length && counterPane.indexOf('沙盘模拟') >= 0 && counterPane.indexOf('为什么值得问') >= 0,
+  String(counterCards) + ' 句 / 服务端 ' + String(view.counters.length) + ' 句');
+const jdSourced = view.counters.filter((item) => item.source === 'jd');
+const resumeSourced = view.counters.filter((item) => item.source === 'resume');
+check('两种依据都标出来源，一条都不含糊',
+  jdSourced.length + resumeSourced.length === view.counters.length &&
+    (jdSourced.length === 0 || counterPane.indexOf('依据岗位要求') >= 0) &&
+    (resumeSourced.length === 0 || counterPane.indexOf('依据简历原话') >= 0),
+  String(jdSourced.length) + ' 句来自岗位要求 / ' + String(resumeSourced.length) + ' 句来自简历原话');
+const rejectedBlock = await evalJs('document.querySelector("[data-shot=counter-rejected]") === null ? "no" : "yes"');
+check('锚不回材料的句子不进正文，只在下面说明为什么被丢掉',
+  (view.counterRejected.length === 0) === (rejectedBlock === 'no'),
+  String(view.counterRejected.length) + ' 句被丢掉 / 界面 ' + rejectedBlock);
+// 点引文要跳回那句依据所在的那一份原文（简历或 JD，取决于这句反问的依据来自哪里）
+const resumeCounter = resumeSourced[0] ?? view.counters[0];
+const counterShot = 'counter-quote-' + resumeCounter.id;
+await evalJs('(() => { const b = document.querySelector("[data-shot=" + ' + JSON.stringify(counterShot) + ' + "]"); if (b !== null) b.click(); })()');
+const counterRange = describeRangeOf(resumeCounter);
+const counterPaneShot = resumeCounter.source === 'jd' ? 'jd' : 'resume';
+const counterFocus = await waitFor(async () => { const t = await evalJs('document.querySelector("[data-shot=" + ' + JSON.stringify(counterPaneShot) + ' + "]").innerText'); return t.indexOf(counterRange) >= 0 ? t : ''; }, '原文聚焦到反问的依据', 8000);
+check('点反问的引文，那一侧的原文跳到它的依据那一段', counterFocus.indexOf(counterRange) >= 0, counterPaneShot + ' → ' + counterRange);
+
 // 第 8 项：勾选 → 确认采纳 → 简历被真的改掉 → 导出三件套 → 全部撤销退回原文。
 // 这一段必须落在「清空」之前：那时 demo 场次还开着，5 条主张里有 4 条带改写建议。
 // 断言分三层：界面上的勾选与结论、服务端真的改了、导出的文件里真有改动。
