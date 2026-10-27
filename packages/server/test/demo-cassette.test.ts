@@ -68,14 +68,14 @@ function fakeEntry(digest: string, model: string): CassetteEntry {
 }
 
 /** 走真实 HTTP 接口跑一遍示例简历：创建会话 -> 同步开跑 -> 读摘要与落库后的详情 */
-async function runDemoOverHttp(cassetteDir: string): Promise<{ summary: RunSummary; view: SessionView }> {
+async function runDemoOverHttp(cassetteDir: string, difficulty = ''): Promise<{ summary: RunSummary; view: SessionView }> {
   const db = openDatabase({ path: ':memory:' });
   try {
     const app = createApp({ db, client: createReplayClient(cassetteDir), cassetteDir });
     const created = await app.request('/api/sessions', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ useDemo: true }),
+      body: JSON.stringify(difficulty === '' ? { useDemo: true } : { useDemo: true, difficulty }),
     });
     expect(created.status).toBe(201);
     const session = (await created.json()) as { id: string };
@@ -121,6 +121,27 @@ describe('离线演示（合成卡带）', () => {
     expect((anchored[0]?.jdAnchor?.quote.length ?? 0) > 3).toBe(true);
   });
 
+  // 追问强度换一档，提示词里的预算就换一段，指纹跟着换——所以卡带必须按档位各录一份。
+  // 这条测试盯的就是「三档都不缺卡带」：漏录一档，用户一切档就掉进「查不到卡带」，
+  // 而那正是最像产品坏了的一种失败。
+  it('三档追问强度都能在零网络下跑完，且档位真的流进了契约', async () => {
+    const rounds: number[] = [];
+    const perInterviewer: number[] = [];
+    for (const difficulty of ['gentle', 'normal', 'hard']) {
+      const { summary, view } = await runDemoOverHttp(FIXTURE_DIR, difficulty);
+      expect(summary.claims).toBe(5);
+      expect(summary.suggestions).toBe(4);
+      expect(summary.probes).toBeGreaterThan(0);
+      expect(view.difficulty).toBe(difficulty);
+      const budget = view.contracts[0]?.contract.budget;
+      rounds.push(budget?.maxRoundsPerClaim ?? 0);
+      perInterviewer.push(budget?.maxProbesPerInterviewerPerClaim ?? 0);
+    }
+    // 温和 2 轮·每人 1 次 / 常规 3 轮·每人 2 次 / 挑刺 4 轮·每人 2 次：
+    // 档位不是界面上的装饰，它改的是每一场真正拿去渲染提示词的那份契约。
+    expect(rounds).toEqual([2, 3, 4]);
+    expect(perInterviewer).toEqual([1, 2, 2]);
+  });
   it('生成器写出的卡带覆盖八个阶段，且两遍结果一致', async () => {
     const dir = newTempDir('demo-seed');
     const report = await seedDemoCassettes({ dir });
