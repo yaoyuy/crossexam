@@ -209,6 +209,82 @@ describe('离线演示（合成卡带）', () => {
     expect(entry?.version).toBe(1);
   });
 
+  // C1「改完再跑一遍」在离线演示里必须有证据：评委点开示例简历，先看到 1 条站得住，
+  // 采纳改写后再点一次，应该看到 5 条。这条测试走真 HTTP 把两步都跑一遍——
+  // 它红了，就说明演示里那个按钮点下去只会报「找不到卡带」。
+  it('示例简历采纳改写后再跑一遍，「比上次」能说清站得住的从 1 条变成 5 条', async () => {
+    const db = openDatabase({ path: ':memory:' });
+    try {
+      const app = createApp({ db, client: createReplayClient(FIXTURE_DIR), cassetteDir: FIXTURE_DIR });
+      const created = await app.request('/api/sessions', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ useDemo: true }),
+      });
+      expect(created.status).toBe(201);
+      const session = (await created.json()) as { id: string };
+
+      const ran = await app.request('/api/sessions/' + session.id + '/run?stream=0', { method: 'POST' });
+      expect(ran.status).toBe(200);
+
+      // 全部采纳：示例的 C1 本来就站得住（没有建议），C2..C5 各有一条建议
+      const accepted = await app.request('/api/sessions/' + session.id + '/revisions', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ claims: ['C1', 'C2', 'C3', 'C4', 'C5'] }),
+      });
+      expect(accepted.status).toBe(200);
+      const revised = (await accepted.json()) as { revised: { text: string } | null };
+      expect(revised.revised).not.toBeNull();
+      const rewritten = revised.revised?.text ?? '';
+      expect(rewritten).not.toBe('');
+
+      // 第二场：同一份 JD、改完的简历，并记下父会话
+      const detail = await app.request('/api/sessions/' + session.id);
+      const view = (await detail.json()) as SessionView;
+      const second = await app.request('/api/sessions', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          resumeText: rewritten,
+          jds: view.jds.map((jd) => ({ title: jd.title, text: jd.text })),
+          parentSessionId: session.id,
+        }),
+      });
+      expect(second.status).toBe(201);
+      const next = (await second.json()) as { id: string; parentSessionId: string | null };
+      expect(next.parentSessionId).toBe(session.id);
+
+      const reran = await app.request('/api/sessions/' + next.id + '/run?stream=0', { method: 'POST' });
+      expect(reran.status).toBe(200);
+      const again = (await reran.json()) as RunSummary;
+      // 改完之后每一条都站得住：这是演示要讲的那件事，不是巧合
+      expect(again.verdicts.every((verdict) => verdict.kind === 'solid')).toBe(true);
+
+      const compared = await app.request('/api/sessions/' + next.id + '/compare');
+      expect(compared.status).toBe(200);
+      const cmp = (await compared.json()) as {
+        first: boolean;
+        resumeChanged: boolean;
+        comparison: { headline: string; improved: unknown[]; worsened: unknown[] } | null;
+      };
+      expect(cmp.first).toBe(false);
+      expect(cmp.resumeChanged).toBe(true);
+      // improved / worsened 是配成对的数组（界面上要逐条摆出来），不是条数
+      expect(cmp.comparison?.improved.length).toBe(4);
+      expect(cmp.comparison?.worsened.length).toBe(0);
+      expect(cmp.comparison?.headline).toContain('站得住 1 → 5 条');
+
+      // 报告里也要看得见：报告是被带走的产物，界面能看而报告看不到，等于没做
+      const report = await app.request('/api/sessions/' + next.id + '/report.md');
+      const md = await report.text();
+      expect(md).toContain('## 比上次');
+      expect(md).toContain('站得住 1 → 5 条');
+    } finally {
+      closeDatabase(db);
+    }
+  });
+
   it('重跑会清掉旧指纹的合成卡带，但不动真人录下来的卡带', async () => {
     const dir = newTempDir('demo-prune');
     const first = await seedDemoCassettes({ dir });
