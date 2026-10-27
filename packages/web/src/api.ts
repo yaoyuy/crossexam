@@ -293,6 +293,15 @@ export interface EventRow {
   createdAt: string;
 }
 
+/** 用户当场补的一句真话：不是模型生成的，也不回写简历原文。 */
+export interface SessionSupplement {
+  claimId: string;
+  text: string;
+  digest: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface SessionView {
   session: SessionSummary & { resumeText: string; jdText: string; resumeHash: string };
   events: EventRow[];
@@ -313,6 +322,8 @@ export interface SessionView {
   /** 追问阶段实际摆上桌的对照表（只有 hit / weak） */
   requirementNotes: RequirementNote[];
   requirementSummary: MatchSummary;
+  /** 用户当场补的那些真话。采纳之后它们会作为新的一行加进简历 */
+  supplements: SessionSupplement[];
   /** 这一场问得有多狠。旧会话可能没有，界面按默认档处理。 */
   difficulty?: string;
 }
@@ -681,6 +692,25 @@ export async function acceptRevisions(id: string, claims: readonly string[]): Pr
     claims: [...claims],
   });
   return data.revised;
+}
+
+/**
+ * 记下一句补充说明。按主张 id 一条，再调一次就是改这一条（不占新名额）。
+ * 它不写进简历原文：勾上并「确认采纳」之后才会作为新的一行加进去。
+ */
+export async function saveSupplement(id: string, claimId: string, text: string): Promise<SessionSupplement> {
+  const data = await postJson<{ supplement: SessionSupplement }>(
+    '/api/sessions/' + encodeURIComponent(id) + '/supplements',
+    { claimId: claimId, text: text },
+  );
+  return data.supplement;
+}
+
+export async function deleteSupplement(id: string, claimId: string): Promise<void> {
+  const res = await fetch('/api/sessions/' + encodeURIComponent(id) + '/supplements/' + encodeURIComponent(claimId), {
+    method: 'DELETE',
+  });
+  if (!res.ok) throw new ApiError(await readError(res), res.status);
 }
 
 export async function discardRevisions(id: string): Promise<void> {

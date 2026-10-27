@@ -7,6 +7,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   acceptAll,
+  choosableClaimIds,
   isAccepted,
   revisionSummary,
   revisedDelta,
@@ -88,6 +89,28 @@ describe('哪条改不动、哪条已经进去了', () => {
     expect(isAccepted(revised, 'C1')).toBe(true);
     expect(isAccepted(revised, 'C3')).toBe(false);
     expect(isAccepted(null, 'C1')).toBe(false);
+  });
+});
+
+describe('哪些主张可以勾选采纳', () => {
+  const claims = [
+    { id: 'C1', hasSuggestion: true },
+    { id: 'C2', hasSuggestion: false },
+    { id: 'C3', hasSuggestion: false },
+    { id: 'C4', hasSuggestion: true },
+  ];
+
+  it('有建议的算，自己补了一句真话的也算', () => {
+    expect(choosableClaimIds(claims, ['C3'])).toEqual(['C1', 'C3', 'C4']);
+  });
+
+  it('顺序照界面上主张的顺序，不按勾选或补充的先后', () => {
+    expect(choosableClaimIds(claims, ['C3', 'C2'])).toEqual(['C1', 'C2', 'C3', 'C4']);
+  });
+
+  it('既没建议也没补充说明的，勾不上', () => {
+    expect(choosableClaimIds([{ id: 'C9', hasSuggestion: false }], [])).toEqual([]);
+    expect(choosableClaimIds([], ['C9'])).toEqual([]);
   });
 });
 
