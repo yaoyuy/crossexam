@@ -203,9 +203,11 @@ Vite + React 19 + Tailwind v4、zod（模型输出先过 schema 再入库）、v
 | [docs/CrossExam-技术文档.pdf](docs/CrossExam-技术文档.pdf) | 技术文档 PDF（≤ 30 页，由 `npm run docs:pdf` 生成） |
 | [docs/tech/](docs/tech/) | 技术文档的 Markdown 源（六章 + 封面） |
 | [docs/video/script.md](docs/video/script.md) | 演示视频脚本（分镜 + AI 协同段落 + 录制核对表） |
+| [docs/video/preflight.md](docs/video/preflight.md) | 录制前检查（一次录成的 15 项 + 录制参数 + 开拍顺序） |
+| [docs/video/teleprompter.md](docs/video/teleprompter.md) | 提词卡（一屏一句，照念） |
 | [docs/release-checklist.md](docs/release-checklist.md) | 发布清单（五项提交物逐项核对，含只有本人能决定的事项） |
 | [docs/feature-candidates.md](docs/feature-candidates.md) | 候选功能清单（还没做的按性价比排序，每项写明工时与判断） |
 
 ## 许可
 
-MIT。
+MIT，见 [LICENSE](LICENSE)。
