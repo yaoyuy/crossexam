@@ -6,6 +6,7 @@ import {
   createSession,
   deleteSession,
   discardRevisions,
+  fetchCompare,
   fetchContracts,
   fetchDemo,
   fetchHealth,
@@ -27,6 +28,7 @@ import {
 import type {
   Anchor,
   AppliedTemplate,
+  CompareView,
   ContractView,
   DemoInfo,
   HealthInfo,
@@ -52,6 +54,7 @@ import type { RevisedResume } from './revisions.ts';
 import { RevisionBar } from './components/RevisionBar.tsx';
 import { Chip } from './components/Bits.tsx';
 import { ClaimBoard } from './components/ClaimBoard.tsx';
+import { CompareBar } from './components/CompareBar.tsx';
 import { HelpPanel } from './components/HelpPanel.tsx';
 import { IntakePanel } from './components/IntakePanel.tsx';
 import { InterviewerStudio } from './components/InterviewerStudio.tsx';
@@ -166,6 +169,9 @@ export function App() {
   const [supplements, setSupplements] = useState<SessionSupplement[]>([]);
   // 上一次存或删补充说明的结果，按主张显示在那张卡片上；换场次就清掉
   const [supplementNote, setSupplementNote] = useState<{ claimId: string; text: string } | null>(null);
+  // 这一版比上一版怎么样（P11 · C1）。null = 还没取到；服务端的 CompareView 自带
+  // 「第一版」「上一版被删了」两档，所以这里的 null 只表示「还没问过服务端」。
+  const [compare, setCompare] = useState<CompareView | null>(null);
 
   const queueRef = useRef<SseEvent[]>([]);
   const timerRef = useRef<number | null>(null);
@@ -308,78 +314,134 @@ export function App() {
     [drain],
   );
 
-  const handleRun = useCallback(async () => {
-    if (busy) return;
-    setBusy(true);
-    setHint(null);
-    let sessionId: string | null = null;
+  /**
+   * 跑一场。抽成独立函数是因为有两条入口：投料台点「开始质询」（简历是现在输入框里那份），
+   * 以及「改完再跑一遍」（简历是改完的那一版，并且要把这一场记成上一场）。
+   * 两条入口除这三处输入之外完全同一条路径，所以不能各写一份。
+   */
+  const startRun = useCallback(
+    async (input: {
+      resumeText: string;
+      /** 交给服务端的 JD；空白行已经被剔掉了 */
+      jds: { title: string; text: string }[];
+      /** 投料台里那几份原始草稿：用来把服务端回的编号与正文对上 */
+      draftJds: IntakeDraft['jds'];
+      jobTitle: string;
+      /** 从哪一场改完再跑出来的；普通的一场是 null */
+      parentSessionId: string | null;
+    }) => {
+      if (busy) return;
+      setBusy(true);
+      setHint(null);
+      let sessionId: string | null = null;
+      // 新的一场开始前先把上一场的对比结论收起来：留着会让「比上次」说着另一场的事
+      setCompare(null);
 
-    try {
-      const jobTitle = draft.jobTitle.trim();
+      try {
+        const jobTitle = input.jobTitle.trim();
+        const created = await createSession({
+          resumeText: input.resumeText,
+          jds: input.jds,
+          ...(jobTitle.length > 0 ? { jobTitle } : {}),
+          mode: runMode,
+          ...(runMode === 'replay' || runModel.trim() === '' ? {} : { model: runModel.trim() }),
+          // 阵容随会话落库：跑完之后再改面板，也不会把历史会话的面试官换掉
+          interviewers: panel,
+          // 档位同理：它决定这一场的预算与契约指纹，必须随会话固定下来
+          difficulty,
+          // 改写风格也随会话固定：跑完之后再改风格，不该把历史会话的建议换成另一档的说法
+          style,
+          // 版本链只在建档这一次写入，且父 id 由服务端校验存在，所以链在结构上不会成环
+          ...(input.parentSessionId === null ? {} : { parentSessionId: input.parentSessionId }),
+        });
+        sessionId = created.id;
+        // 服务端回的只有编号与标题，正文用刚提交的那几份对上——右栏立刻就能看 JD 原文
+        setMaterial({
+          resumeText: input.resumeText,
+          title: created.jobTitle,
+          jds: materialJds(created.jds, input.draftJds),
+        });
+        // 投料台也换成这一版：右栏与「历史会话」说的必须是同一份材料，
+        // 否则用户点完「改完再跑一遍」回去改 JD，改的是上一版的草稿
+        setDraft({ resumeText: input.resumeText, jds: input.draftJds, jobTitle: created.jobTitle });
+        setActiveJdId(null);
+        // 新的一场从零开始：上一场的改写与勾选不能跟过来
+        setRevised(null);
+        setChosen([]);
+        setRevisionNote(null);
+        setViewing('original');
+        setSupplements([]);
+        setSupplementNote(null);
+        queueRef.current = [];
+        streamingRef.current = true;
+        dispatch({ type: 'begin', sessionId: created.id });
+        void refreshSessions();
+
+        const id = created.id;
+        pollRef.current = window.setInterval(() => {
+          void fetchStats(id)
+            .then((stats) => dispatch({ type: 'telemetry', stats }))
+            .catch(() => undefined);
+        }, 800);
+
+        await streamRun(id, { panel }, pushEvent);
+      } catch (error) {
+        const message =
+          error instanceof ApiError || error instanceof Error ? error.message : '质询没能开始';
+        dispatch({ type: 'sse', name: 'fatal', data: { message } });
+      } finally {
+        streamingRef.current = false;
+        if (paceRef.current === 0) drain();
+        if (pollRef.current !== null) {
+          window.clearInterval(pollRef.current);
+          pollRef.current = null;
+        }
+        setBusy(false);
+        void refreshSessions();
+        if (sessionId !== null) {
+          void fetchStats(sessionId)
+            .then((stats) => dispatch({ type: 'telemetry', stats }))
+            .catch(() => undefined);
+          void getSession(sessionId)
+            .then((view) => {
+              if (view.contracts.length > 0) setContracts(view.contracts);
+            })
+            .catch(() => undefined);
+          // 跑完才问「比上次」：开跑时上一版是确定的，但这一版还没有判定，问了也是空
+          void fetchCompare(sessionId)
+            .then((view) => setCompare(view))
+            .catch(() => setCompare(null));
+        }
+      }
+    },
+    [busy, panel, runMode, runModel, difficulty, style, pushEvent, drain, refreshSessions],
+  );
+
+  const handleRun = useCallback(() => {
+    void startRun({
+      resumeText: draft.resumeText,
       // 空白行不算一份 JD：粘错了留空，不该让服务端回一句「内容太短」
-      const jds = jdPayload(draft.jds);
-      const created = await createSession({
-        resumeText: draft.resumeText,
-        jds,
-        ...(jobTitle.length > 0 ? { jobTitle } : {}),
-        mode: runMode,
-        ...(runMode === 'replay' || runModel.trim() === '' ? {} : { model: runModel.trim() }),
-        // 阵容随会话落库：跑完之后再改面板，也不会把历史会话的面试官换掉
-        interviewers: panel,
-        // 档位同理：它决定这一场的预算与契约指纹，必须随会话固定下来
-        difficulty,
-        // 改写风格也随会话固定：跑完之后再改风格，不该把历史会话的建议换成另一档的说法
-        style,
-      });
-      sessionId = created.id;
-      // 服务端回的只有编号与标题，正文用刚提交的那几份对上——右栏立刻就能看 JD 原文
-      setMaterial({ resumeText: draft.resumeText, title: created.jobTitle, jds: materialJds(created.jds, draft.jds) });
-      setActiveJdId(null);
-      // 新的一场从零开始：上一场的改写与勾选不能跟过来
-      setRevised(null);
-      setChosen([]);
-      setRevisionNote(null);
-      setViewing('original');
-      setSupplements([]);
-      setSupplementNote(null);
-      queueRef.current = [];
-      streamingRef.current = true;
-      dispatch({ type: 'begin', sessionId: created.id });
-      void refreshSessions();
+      jds: jdPayload(draft.jds),
+      draftJds: draft.jds,
+      jobTitle: draft.jobTitle,
+      parentSessionId: null,
+    });
+  }, [startRun, draft]);
 
-      const id = created.id;
-      pollRef.current = window.setInterval(() => {
-        void fetchStats(id)
-          .then((stats) => dispatch({ type: 'telemetry', stats }))
-          .catch(() => undefined);
-      }, 800);
-
-      await streamRun(id, { panel }, pushEvent);
-    } catch (error) {
-      const message =
-        error instanceof ApiError || error instanceof Error ? error.message : '质询没能开始';
-      dispatch({ type: 'sse', name: 'fatal', data: { message } });
-    } finally {
-      streamingRef.current = false;
-      if (paceRef.current === 0) drain();
-      if (pollRef.current !== null) {
-        window.clearInterval(pollRef.current);
-        pollRef.current = null;
-      }
-      setBusy(false);
-      void refreshSessions();
-      if (sessionId !== null) {
-        void fetchStats(sessionId)
-          .then((stats) => dispatch({ type: 'telemetry', stats }))
-          .catch(() => undefined);
-        void getSession(sessionId)
-          .then((view) => {
-            if (view.contracts.length > 0) setContracts(view.contracts);
-          })
-          .catch(() => undefined);
-      }
-    }
-  }, [busy, draft, panel, runMode, runModel, difficulty, style, pushEvent, drain, refreshSessions]);
+  /**
+   * 改完再跑一遍：把改完的简历当成新简历，记下这一场是上一版，然后走同一条跑场路径。
+   * 这才是「改得对不对」的闭环——只给建议不重跑，等于让人自己猜有没有用。
+   */
+  const handleRerun = useCallback(() => {
+    if (revised === null || sandbox.sessionId === null) return;
+    void startRun({
+      resumeText: revised.text,
+      jds: jdPayload(draft.jds),
+      draftJds: draft.jds,
+      jobTitle: draft.jobTitle,
+      parentSessionId: sandbox.sessionId,
+    });
+  }, [startRun, revised, sandbox.sessionId, draft]);
 
   const handleLoadSession = useCallback(async (id: string) => {
     setBusy(true);
@@ -406,6 +468,8 @@ export function App() {
       setViewing(stored === null ? 'original' : 'revised');
       setSupplements(view.supplements ?? []);
       setSupplementNote(null);
+      // 历史会话也把「比上次」带回来：它是那一场的结论，不该只在刚跑完时看得见
+      setCompare(await fetchCompare(id).catch(() => null));
       // 这两档是那一场的输入，跟著会话落过库：打开历史会话时把界面拨回当时的样子，
       // 否则用户会以为「我明明选的是敢改」——而报告与建议都是当年那一档产的。
       if (typeof view.difficulty === 'string' && view.difficulty !== '') setDifficulty(view.difficulty);
@@ -606,6 +670,7 @@ export function App() {
     setViewing('original');
     setSupplements([]);
     setSupplementNote(null);
+    setCompare(null);
   }, []);
 
   const handleCloseHelp = useCallback(() => {
@@ -958,7 +1023,13 @@ export function App() {
             onSubmit={() => void handleAccept()}
             onDiscard={() => void handleDiscardRevisions()}
             onShowOriginal={() => setViewing('original')}
+            onRerun={revised === null || busy ? null : handleRerun}
           />
+          {/*
+            「比上次」摆在采纳改写下面：它的因是「改完」，它的果是「这一版的判定」，
+            两栏挨着才看得出这是一条闭环。没有上一版时它整栏不渲染。
+          */}
+          <CompareBar view={compare} />
         </div>
       </main>
 

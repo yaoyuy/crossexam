@@ -28,6 +28,8 @@ export function RevisionBar(props: {
   onSubmit: () => void;
   onDiscard: () => void;
   onShowOriginal: () => void;
+  /** 把改完的这一版当成新简历再质询一遍；只有真的采纳过才传得进来 */
+  onRerun?: (() => void) | null;
 }) {
   const revised = props.revised;
   // 并排对照默认收起：它是「想核对一下」时才展开的东西，不该占着这一栏的地方
@@ -141,6 +143,18 @@ export function RevisionBar(props: {
                 >
                   {showDiff ? '收起对照' : '并排看改动'}
                 </button>
+                {props.onRerun === null || props.onRerun === undefined ? null : (
+                  <button
+                    type="button"
+                    className="btn btn-primary px-2.5 py-1 text-[12px]"
+                    onClick={props.onRerun}
+                    disabled={props.busy}
+                    title="把改完的这一版当成新简历再质询一遍，然后回来比一比判定变了没有"
+                    data-shot="revision-rerun"
+                  >
+                    改完再跑一遍
+                  </button>
+                )}
                 <button
                   type="button"
                   className="chip cursor-pointer transition-colors hover:border-rose-ink hover:text-ink-100"
