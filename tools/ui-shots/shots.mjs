@@ -501,6 +501,22 @@ async function main() {
     await cdp.evaluate(click('theme'));
     await sleep(350);
     await cdp.shot(opts.out, '13-light.png', top('claims'));
+    // P12 ② 成长档案：沿用刚刚采纳过的那一版，点「改完再跑一遍」跑出第二场（带父会话），
+    // 再从头部进成长档案。这一张拍的是「同一条主张改了几回」——相邻两版配对连成的轨迹、
+    // 已经改站住的那几条。它必须放在报告与模板那两张之前，因为那两张会导航离开当前会话。
+    await cdp.evaluate(click('revision-accept-all'));
+    await sleep(200);
+    await cdp.evaluate(click('revision-submit'));
+    await cdp.waitFor("(document.querySelector('[data-shot=\"revision-note\"]')?.innerText ?? '').includes('已按这次勾选改好简历')", '第二版采纳结论', 20000);
+    await cdp.evaluate(click('revision-rerun'));
+    await cdp.waitFor("(document.querySelector('[data-shot=\"compare\"]')?.innerText ?? '').includes('变好')", '第二场跑完并算出对比', 120000);
+    await sleep(400);
+    await cdp.evaluate(click('growth-open'));
+    await cdp.waitFor("document.querySelector('[data-shot=\"growth\"]') !== null && document.querySelector('[data-shot=\"growth\"]').innerText.includes('版')", '成长档案打开', 20000);
+    await sleep(350);
+    await cdp.shot(opts.out, '25-growth.png');
+    await cdp.evaluate(click('growth-close'));
+    await sleep(250);
 
     // 报告导出：同一份结果有三种形态（Markdown 便于携带、可打印 HTML 便于阅读、Word 便于改）。
     // 这一张拍的是服务端渲染出来的可打印 HTML——PDF 就是它经浏览器打印得到的，服务端不自己造 PDF。
