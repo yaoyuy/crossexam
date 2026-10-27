@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyRevisions, movedSpans, pendingClaimIds, revisionOf, reviseDigest } from '../src/revise.ts';
+import { applyRevisions, movedSpans, pendingClaimIds, revisionOf, reviseDigest, sideBySide } from '../src/revise.ts';
 import type { Revision } from '../src/revise.ts';
 import type { Suggestion } from '../src/domain.ts';
 
@@ -140,5 +140,55 @@ describe('建议 → 改写', () => {
 
   it('没采纳的条目列得出来', () => {
     expect(pendingClaimIds(['C1', 'C2', 'C3'], ['C2'])).toEqual(['C1', 'C3']);
+  });
+});
+
+describe('并排对照：把上下文也摆进来', () => {
+  it('没有改动时只剩一行上下文', () => {
+    const rows = sideBySide(RESUME, []);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.kind).toBe('same');
+    expect(rows[0]?.claimId).toBeNull();
+    // 整篇比上下文还长，留开头并以省略号收尾
+    expect(rows[0]?.left.startsWith('张明')).toBe(true);
+    expect(rows[0]?.left.endsWith('…')).toBe(true);
+  });
+
+  it('一条改动切成三段：前置上下文 / 改动 / 后置上下文', () => {
+    const result = applyRevisions(RESUME, [revision('C1', '抗压能力强', '连续两个月支持大促值班。')]);
+    const rows = sideBySide(RESUME, result.applied);
+    expect(rows.map((row) => row.kind)).toEqual(['same', 'changed', 'same']);
+    expect(rows[1]?.left).toBe('抗压能力强');
+    expect(rows[1]?.right).toBe('连续两个月支持大促值班。');
+    expect(rows[1]?.claimId).toBe('C1');
+    // 改动之前的那段上下文留的是**尾巴**：紧挨着改动的那几个字
+    expect(rows[0]?.left.startsWith('…')).toBe(true);
+    expect(rows[0]?.left.endsWith('学习能力强，')).toBe(true);
+  });
+
+  it('插入型的改前是空串，照样占一行', () => {
+    const at = RESUME.indexOf('学习能力强');
+    const insert: Revision = { claimId: 'C2', start: at, end: at, before: '', after: '日订单 30 万，峰值 QPS 5000。' };
+    const rows = sideBySide(RESUME, [insert], 10);
+    const changed = rows.filter((row) => row.kind === 'changed');
+    expect(changed).toHaveLength(1);
+    expect(changed[0]?.left).toBe('');
+    expect(changed[0]?.right).toBe('日订单 30 万，峰值 QPS 5000。');
+  });
+
+  it('上下文超长按方向截断，长度正好是上限加省略号', () => {
+    const result = applyRevisions(RESUME, [revision('C1', '抗压能力强', '带过两个实习生。')]);
+    const rows = sideBySide(RESUME, result.applied, 6);
+    expect(rows[0]?.left).toHaveLength(7);
+    expect(rows[0]?.left.endsWith('…')).toBe(false);
+    expect(rows[0]?.left.startsWith('…')).toBe(true);
+  });
+
+  it('上下文行两侧一模一样，改动行才是左右不同', () => {
+    const result = applyRevisions(RESUME, [revision('C1', '抗压能力强', '带过两个实习生。')]);
+    for (const row of sideBySide(RESUME, result.applied)) {
+      if (row.kind === 'same') expect(row.left).toBe(row.right);
+      else expect(row.left).not.toBe(row.right);
+    }
   });
 });
