@@ -22,10 +22,11 @@ import type {
   Requirement,
   RequirementNote,
   ResumeOutline,
+  RewriteStyle,
   Verdict,
   VerdictKind,
 } from '@crossexam/shared';
-import { REQUIREMENT_KIND_LABEL, VERDICT_LABEL, renderSystemPrompt } from '@crossexam/shared';
+import { REQUIREMENT_KIND_LABEL, REWRITE_STYLE_GUIDE, REWRITE_STYLE_LABEL, VERDICT_LABEL, renderSystemPrompt } from '@crossexam/shared';
 import type { LlmRequest } from '../llm/types.ts';
 
 const NL = String.fromCharCode(10);
@@ -467,6 +468,22 @@ export const SUGGEST_SYSTEM = [
   '## 输出要求（只输出一个 JSON 对象）',
   '{"problem":"这段表述的问题","before":"简历原文逐字片段","after":"建议改成","why":"为什么这样改"}',
 ].join(NL);
+
+/**
+ * 把档位并进改写提示词：只追加一段「这一版的收敛程度」，其余部分逐字节不变。
+ * 这么做的直接后果是 suggest 阶段的提示词指纹随档位改变——每档必须各有一批自己的卡带，
+ * 否则用户在界面上切到「敢改」，一点开跑就报「找不到记录」。
+ */
+export function suggestSystem(style: RewriteStyle): string {
+  return [
+    SUGGEST_SYSTEM,
+    '',
+    '## 这一版的收敛程度（用户选的档位：' + REWRITE_STYLE_LABEL[style] + '）',
+    REWRITE_STYLE_GUIDE[style],
+    '',
+    '档位只影响措辞改到多狠。上面「铁律」里的三条在任何档位下都不变：不加事实、不加数字、before 必须是原文逐字片段。',
+  ].join(NL);
+}
 
 export function buildSuggestPrompt(input: {
   claim: Claim;

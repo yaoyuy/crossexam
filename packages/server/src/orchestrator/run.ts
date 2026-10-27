@@ -30,12 +30,14 @@ import type {
   RequirementMatch,
   RequirementNote,
   ResumeOutline,
+  RewriteStyle,
   Suggestion,
   Verdict,
   VerdictKind,
 } from '@crossexam/shared';
 import {
   DEFAULT_BUDGET,
+  DEFAULT_REWRITE_STYLE,
   budgetSnapshot,
   buildContracts,
   initBudget,
@@ -91,6 +93,8 @@ export interface RunSessionInput {
    * 没传就是纯简历场次——一个网络包都不多发，这是离线可复现的一部分。
    */
   jds?: readonly JobDescription[];
+  /** 改写风格（保守 / 常规 / 敢改）：只影响 suggest 阶段的措辞收敛程度 */
+  style?: RewriteStyle;
   panel?: readonly InterviewerRole[];
   /**
    * 直接给契约（自定义面试官走这条）。
@@ -160,6 +164,7 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionResu
   const maxRounds = input.maxRounds ?? DEFAULT_MAX_ROUNDS;
   const jdText = input.jdText ?? '';
   const jds = input.jds ?? [];
+  const style = input.style ?? DEFAULT_REWRITE_STYLE;
   const outline = input.outline ?? segmentResume(input.resumeText);
   const contracts: IntentContract[] =
     input.contracts !== undefined && input.contracts.length > 0
@@ -328,6 +333,7 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionResu
       transcriptByClaim,
       resumeText: input.resumeText,
       outline,
+      style,
     });
     usage = addUsage(usage, advised.usage);
     await emit({ type: 'suggestions', suggestions: advised.outcomes, errors: advised.errors });
