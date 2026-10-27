@@ -780,7 +780,7 @@ export function App() {
             modelOptions={modelOptions}
             runModeNote={modelNote}
           />
-          <StageRail state={sandbox} panel={panel} health={health} contracts={contracts} />
+          <StageRail state={sandbox} panel={panel} health={health} contracts={contracts} onFocusClaim={handleFocusClaim} />
         </aside>
 
         {/*
