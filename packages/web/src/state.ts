@@ -13,10 +13,12 @@ import type {
   AnswerOutcome,
   Claim,
   ClaimCategory,
+  CounterQuestion,
   EventRow,
   LlmStats,
   MatchSummary,
   Probe,
+  RejectedCounter,
   RejectedRequirement,
   Requirement,
   RequirementMatch,
@@ -99,6 +101,10 @@ export interface SandboxState {
   requirementRejected: RejectedRequirement[];
   /** 对照摘要；还没跑到 JD 阶段时为 null */
   requirementSummary: MatchSummary | null;
+  /** 跑完给出的反问清单；它是最后一步的产物，整批替换 */
+  counters: CounterQuestion[];
+  /** 锚不回材料、没上桌的反问 */
+  counterRejected: RejectedCounter[];
   /**
    * 正在流动的模型输出，按 channel 归位（extract / probe:tech / answer:P1 / verdict:C1 / suggest:C1）。
    * 刻意与事件流分开：分片是过程观感，事件日志才是可回放的真相。
@@ -129,6 +135,8 @@ export const initialSandbox: SandboxState = {
   requirementMatches: [],
   requirementRejected: [],
   requirementSummary: null,
+  counters: [],
+  counterRejected: [],
   streams: {},
 };
 
@@ -401,6 +409,10 @@ export function applyEvent(state: SandboxState, event: RunEvent): SandboxState {
         requirementRejected: event.rejected,
         requirementSummary: event.summary,
       };
+    }
+    case 'counter': {
+      // 反问清单也是整批替换：它由这一场的材料一次算出来，没有「追加」语义
+      return { ...base, counters: event.counters, counterRejected: event.rejected };
     }
     case 'suggestions': {
       let next = base;
