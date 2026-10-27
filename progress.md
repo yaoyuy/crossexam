@@ -1147,4 +1147,27 @@ P10 把「问」做深（A1 让求职者补一句真话 / A2 追问难度档位 
 
 ### 下一步
 
-P11 改与复用：B2 逐条并排改动对照 · B1 改写风格档位 · C1 简历版本对比 · C2 历史仪表盘 · C3 单文件 HTML 打包。
+P11 改与复用：B2 逐条并排改动对照 ✅ · B1 改写风格档位 · C1 简历版本对比 · C2 历史仪表盘 · C3 单文件 HTML 打包。
+
+## Session 28（2026-10-27）· P11 B2：改前改后并排对照
+
+**目标**：采纳改写之后，用户要能看见「哪一句被改成了什么、它落在简历的什么位置」——报告与界面都要有，且两处必须是同一份结论。
+
+**产出**
+
+| 层 | 落点 |
+| --- | --- |
+| shared | `packages/shared/src/revise.ts` 新增 `SIDE_CONTEXT_CHARS` / `SideRow` / `clipSide` / `sideBySide`（改动行 + 上下文行）；测试 +5 条 |
+| server | `report.ts` 新增 `sideBySideLines` / `sideCell` 与「六、改前改后对照」一节；`report-html.ts` 新增 `sideSection` + 五条 CSS；`renderReport` / `ReportHtmlOptions` 收 `applied`；三条导出路由把 `revisedOf(...).applied` 传进去；测试 +3 条 |
+| web | `RevisionBar` 新增「并排看改动」开关（`data-shot=revision-diff-toggle` / `revision-diff`），默认收起 |
+| tools | `e2e.mjs` +4 项（121/121）；`shots.mjs` +1 张（24 张） |
+
+**真问题**
+
+- 报告章节编号跟着内容走：没采纳过时不该出现「六」，否则复现方式跳号。改成按 `applied` 是否为空决定六七（`reproSection(view, hasSide)`）。
+- 复现方式章节编号在两份渲染器里各写一遍就会不一致，最终仍由同一个判断（`applied.length > 0`）驱动两处。
+- `report.html` / `report.doc` 两个路由原先直接内联 `c.req.param('id')`，加 `revisedOf(db, id)` 时暴出 `TS2304: Cannot find name id`，补上局部绑定。
+
+**门禁与实测**：`npm run verify` exit 0（58 个测试文件 / 606 条断言 + 冒烟 9 项 + vite 42 modules）；`npm run e2e:ui` **121/121**；`npm run shots` **24 张**；卡带 48 盘。
+
+**下一步**：P11 的 B1 改写风格档位（只调措辞收敛，不突破事实边界；改 suggest 提示词要重录卡带）。

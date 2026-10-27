@@ -296,9 +296,9 @@ llm_call(id, session_id, digest, purpose, model, replayed, usage_json, elapsedMs
 | `POST /api/sessions` | 建档（useDemo 或 resumeText，可指定 `mode`、`model`、`interviewers`，以及 `jds`——1–8 份岗位 JD：这些选择都随会话落库） |
 | `POST /api/sessions/:id/run` | 跑沙盘：默认 SSE 直播，`?stream=0` 走 JSON |
 | `GET /api/sessions/:id/events?from=` | 事件续传 |
-| `GET /api/sessions/:id/report.md` | 下载 Markdown 报告 |
-| `GET /api/sessions/:id/report.html?print=1` | 可打印 HTML 报告（`print=1` 时自动调 `window.print()`，PDF 由浏览器另存） |
-| `GET /api/sessions/:id/report.doc` | Word 报告（同一份 HTML + `application/msword`） |
+| `GET /api/sessions/:id/report.md` | 下载 Markdown 报告（采纳过改写就多一节「改前改后对照」） |
+| `GET /api/sessions/:id/report.html?print=1` | 可打印 HTML 报告（`print=1` 时自动调 `window.print()`，PDF 由浏览器另存；采纳过才带并排对照表） |
+| `GET /api/sessions/:id/report.doc` | Word 报告（同一份 HTML + `application/msword`，同上） |
 | `POST /api/sessions/:id/supplements` | 记下某条主张的补充说明（一句真话）：只存那句话与指纹，**不存坐标**——插入点由主张的锚点现算 |
 | `DELETE /api/sessions/:id/supplements/:claimId` | 删掉这条补充说明（没记过返回 404） |
 | `GET /api/sessions/:id/revisions` | 当前采纳出来的那一版简历（没采纳过是 `null`） |
@@ -450,6 +450,22 @@ P10 的四项都在**同一份对话记录上换一个角度**：一律不新增
 
 四条链路共用一个前提：**结论必须能由输入唯一确定**，所以它们都是纯函数，也都能在零网络下由仓库里的卡带复现。
 
+### 3.6.11 改前改后对照：把改动摆回上下文里
+
+采纳改写之后，界面与报告都要能回答「到底哪一句被改成了什么」。只把 before / after 一列一列摆出来是不够的：
+读者看不出这句改动落在简历的什么位置，也不知道前后文是什么。所以并排对照多摆一类行——
+
+- **改动行**：左边是原文那一段，右边是改完的那一段；插入型改写的「原文」是空的，写「（新增一行）」。
+- **上下文行**：改动之间那些**没动过**的原文也摆进来，两侧相同，超长时朝改动的方向截断（改动之前留尾巴、之后留开头）。
+
+聚合只写一遍：`packages/shared/src/revise.ts` 的 `sideBySide(resumeText, applied)` 产出这些行，
+报告（`report.ts` 里的三列表格）与界面（`RevisionBar` 的 `data-shot=revision-diff`）都读它——
+同一份结论在两处各算一遍，迟早会长出两个版本（F63）。这一节**只在真的采纳过之后出现**：
+没采纳就不是「改前改后」，而是把同一份原文抄两遍（ADR-0016、决策 D50 / D51）；
+章节编号也跟着走——没采纳时「复现方式」仍然是六。
+
+界面里默认收起，点「并排看改动」才展开：它是核对时才看的东西，不该一直占着采纳栏的地方。
+
 ## 3.7 工程质量：门禁四道
 
 `npm run verify` 是提交前必须全绿的一道门，它由四件事组成：
@@ -457,9 +473,9 @@ P10 的四项都在**同一份对话记录上换一个角度**：一律不新增
 | 顺序 | 命令 | 证明什么 | 当前规模 |
 | --- | --- | --- | --- |
 | 1 | `npm run typecheck` | 类型对（`tsc --noEmit`，含各包） | 全仓库 |
-| 2 | `npm run test` | 逻辑对（vitest） | 58 个文件 / 598 条断言 / 6.1 s |
+| 2 | `npm run test` | 逻辑对（vitest） | 58 个文件 / 606 条断言 |
 | 3 | `npm run smoke` | **产品能跑**（真起进程、真打 HTTP、真等 SSE） | 9 项 |
-| 4 | `npm run build` | 前端能构建 | vite，42 modules（JS 332.86 kB / gzip 102.80 kB） |
+| 4 | `npm run build` | 前端能构建 | vite，42 modules（CSS 29.00 kB / JS 334.50 kB，gzip 103.16 kB） |
 
 第 3 道是`findings.md` F11 的直接产物：同进程的 `app.request()` 测试全绿，真起服务却第一次写入就报没有表。
 **单元测试证明「函数逻辑对」，冒烟证明「产品能跑」——两句话之间隔着一个进程边界，而事故恰好长在边界上。**
@@ -468,7 +484,7 @@ P10 的四项都在**同一份对话记录上换一个角度**：一律不新增
 
 | 命令 | 作用 | 什么时候跑 |
 | --- | --- | --- |
-| `npm run shots` | 无头浏览器点一遍全流程，出 23 张截图，**控制台有报错即失败** | 改了界面之后 |
+| `npm run shots` | 无头浏览器点一遍全流程，出 24 张截图，**控制台有报错即失败** | 改了界面之后 |
 | `npm run repro` | 干净目录 clone → install → verify → 起服跑一场，逐步计时 | 改复现路径之后 |
 | `npm run seed:demo` | 重新生成 48 盘离线卡带并自检 | 改了提示词之后 |
 
@@ -476,11 +492,11 @@ P10 的四项都在**同一份对话记录上换一个角度**：一律不新增
 
 | 模块 | 源码行 | 测试行 | 说明 |
 | --- | --- | --- | --- |
-| packages/shared/src | 3725 | 1583 | 纯函数与数据（含 36 条岗位模板、短板聚合、补充说明、反问依据），测试密度最高 |
-| packages/server/src | 9730 | 5499 | 编排 + IO + 导入解析 + 面试官库 + 岗位要求 + 反问 + 报告三种形态 + 采纳改写，含脚本化模型夹具 |
-| packages/web/src | 6142 | 1733 | 折叠器、文案、工作室、模板选择器、要求对照、短板与反问栏（只计 .ts/.tsx，index.css 另 321 行） |
-| tools/ | 3475 | 596 | 导出器 / 冒烟 / 截图 / 界面点测 / 复现 / 文档构建 / 零门槛启动器（只计 .mjs，测试目录另计） |
-| **合计** | **23072** | **9411** | 测试/源码 ≈ 0.41 |
+| packages/shared/src | 3774 | 1633 | 纯函数与数据（含 36 条岗位模板、短板聚合、补充说明、反问依据、并排对照），测试密度最高 |
+| packages/server/src | 9788 | 5397 | 编排 + IO + 导入解析 + 面试官库 + 岗位要求 + 反问 + 报告三种形态 + 采纳改写，含脚本化模型夹具 |
+| packages/web/src | 6179 | 1733 | 折叠器、文案、工作室、模板选择器、要求对照、短板与反问栏、并排对照表（只计 .ts/.tsx，index.css 另 321 行） |
+| tools/ | 3503 | 596 | 导出器 / 冒烟 / 截图 / 界面点测 / 复现 / 文档构建 / 零门槛启动器（只计 .mjs，测试目录另计） |
+| **合计** | **23244** | **9359** | 测试/源码 ≈ 0.40 |
 
 ### 3.7.2 零门槛入口：双击就能用，判断逻辑可单测
 
