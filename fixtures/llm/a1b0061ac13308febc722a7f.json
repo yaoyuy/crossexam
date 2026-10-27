@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "digest": "a1b0061ac13308febc722a7f",
+  "purpose": "jd-match",
+  "model": "scripted-demo",
+  "recordedAt": "2026-10-26T00:00:00.000Z",
+  "request": {
+    "system": "你是「岗位要求对照官」。你要逐条判断：这份简历里有没有能对上某条岗位要求的内容。\n\n## 三种状态\n- hit：简历写清楚了，能直接对上这条要求（技能、年限、项目、证书）。\n- weak：沾边但不硬——只提了名字没有深度、只有课程培训没有实战、只写了「参与」。\n- missing：简历里根本没写这类内容。**这是最有价值的信息，不要为了凑 hit 而硬对。**\n\n## 纪律\n1. claimId 必须从下面列出的主张编号里选；对不上就写 null，不要硬凑一条主张。\n2. status 是 hit 或 weak 时必须给出 claimId；是 missing 时 claimId 必须是 null。\n3. reason 一句话说清依据（简历哪句话对上了，或者缺了什么），最多 300 字。\n4. 每一条要求都要出现一次，不多不少。\n\n## 输出要求（只输出一个 JSON 对象）\n{\"matches\":[{\"requirementId\":\"R1\",\"claimId\":\"C3\",\"status\":\"hit\",\"reason\":\"简历写了三年 Node.js 经验\"}]}",
+    "messages": [
+      {
+        "role": "user",
+        "content": "## 岗位要求（每一条都要对照一次，方括号里的就是 requirementId）\n- [R1] 硬性要求：本科及以上学历，5 年以上后端研发经验\n  要求原文：本科及以上学历，5 年以上后端研发经验\n- [R2] 硬性要求：精通 Node.js / TypeScript，熟悉 PostgreSQL、Redis\n  要求原文：精通 Node.js / TypeScript，熟悉 PostgreSQL、Redis\n- [R3] 硬性要求：有日订单百万级系统的性能优化经验，能给出量化的优化结论\n  要求原文：有日订单百万级系统的性能优化经验，能给出量化的优化结论\n- [R4] 硬性要求：具备良好的沟通能力与主人翁意识\n  要求原文：具备良好的沟通能力与主人翁意识\n- [R5] 岗位职责：负责交易与订单核心链路的架构设计与性能优化\n  要求原文：负责交易与订单核心链路的架构设计与性能优化\n- [R6] 岗位职责：主导高并发场景下的稳定性治理，输出可复用的技术方案\n  要求原文：主导高并发场景下的稳定性治理，输出可复用的技术方案\n- [R7] 岗位职责：与产品、前端紧密协作，推动需求高质量交付\n  要求原文：与产品、前端紧密协作，推动需求高质量交付\n\n## 这份简历里可以被引用的主张（claimId 只能从这里选）\n[C1] 类别=metric 权重=0.95\n  主张：主导订单系统重构，把首屏加载从 2.4s 优化到 0.8s\n  原文引文：主导重构订单系统，首屏加载从 2.4s 降到 0.8s。\n\n[C2] 类别=metric 权重=0.90\n  主张：引入 Redis 缓存，把接口 QPS 从 800 提升到 5000\n  原文引文：主导引入 Redis 缓存，QPS 由 800 提升到 5000（前后口径不同，不作直接对比）。\n\n[C3] 类别=ownership 权重=0.80\n  主张：独立完成 RBAC 权限模块，覆盖 12 个业务线\n  原文引文：RBAC 权限模块，覆盖 12 个业务线\n\n[C4] 类别=skill 权重=0.60\n  主张：学习能力强、抗压能力强\n  原文引文：抗压能力强，有责任心（具体事例见项目经历）\n\n[C5] 类别=achievement 权重=0.75\n  主张：参与的项目获得公司年度技术突破奖\n  原文引文：技术突破奖（本人负责其中权限模块）"
+      }
+    ],
+    "temperature": 0.1,
+    "maxTokens": 2200,
+    "json": true
+  },
+  "response": {
+    "text": "{\"matches\":[{\"requirementId\":\"R1\",\"claimId\":null,\"status\":\"missing\",\"reason\":\"简历里既没有学历，也没有总年限——两段经历的起止时间只够推出四年左右。\"},{\"requirementId\":\"R2\",\"claimId\":\"C2\",\"status\":\"weak\",\"reason\":\"简历写了用 Redis 做缓存，但没有 PostgreSQL 的任何痕迹，Node.js 与 TypeScript 也只有「熟悉」两个字。\"},{\"requirementId\":\"R3\",\"claimId\":\"C1\",\"status\":\"weak\",\"reason\":\"有 2.4s 降到 0.8s 这样的量化结论，但没写日订单量级，也没说首屏耗时是怎么测出来的。\"},{\"requirementId\":\"R4\",\"claimId\":null,\"status\":\"missing\",\"reason\":\"简历通篇没有协作类的事实，自我评价里也没有这两项。\"},{\"requirementId\":\"R5\",\"claimId\":\"C1\",\"status\":\"hit\",\"reason\":\"订单系统重构这条主张正好压在这条职责上，有明确的技术动作与前后对比。\"},{\"requirementId\":\"R6\",\"claimId\":\"C2\",\"status\":\"weak\",\"reason\":\"只有 QPS 提升这一个数字，没写稳定性治理做了什么，也没有可复用方案的产出。\"},{\"requirementId\":\"R7\",\"claimId\":null,\"status\":\"missing\",\"reason\":\"简历里没有跨团队协作与需求交付的任何描述。\"}]}",
+    "usage": {
+      "inputTokens": 747,
+      "outputTokens": 377,
+      "cacheReadTokens": 0,
+      "reasoningTokens": 0
+    }
+  }
+}

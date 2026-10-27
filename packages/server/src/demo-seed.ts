@@ -26,16 +26,18 @@ import {
   shortHash,
   stableStringify,
 } from '@crossexam/shared';
-import type { Difficulty, RewriteStyle } from '@crossexam/shared';
+import type { ClaimComparison, Difficulty, RewriteStyle } from '@crossexam/shared';
 import { DEMO_JD, DEMO_JD_TITLE, DEMO_RESUME, DEMO_TITLE } from './demo-content.ts';
 import { DEMO_MODEL, createDemoScriptedClient } from './llm/scripted-demo.ts';
 import type { DemoSeedEntry } from './llm/scripted-demo.ts';
 import { cassettePath, listCassettes } from './llm/cassette.ts';
 import { createReplayClient } from './llm/replay.ts';
-import { closeDatabase, insertJds, insertSession, openDatabase } from './store/index.ts';
+import { closeDatabase, insertJds, insertSession, listClaims, openDatabase } from './store/index.ts';
 import type { StoredLlmMode } from './store/index.ts';
 import { runAndPersist } from './pipeline.ts';
 import type { RunSessionResult } from './orchestrator/run.ts';
+import { acceptRevisions } from './revisions.ts';
+import { compareSessions } from './compare.ts';
 
 type AnyDb = ReturnType<typeof openDatabase>;
 
@@ -52,6 +54,36 @@ export interface DemoRunSummary {
   usageTokens: number;
 }
 
+/**
+ * 「改完再跑一遍」那第二场的结果。
+ *
+ * 为什么要录进演示：C1 这个功能在界面上只有两个入口（采纳改写、再跑一遍），
+ * 而离线演示是评委第一次见到它时唯一能看到的东西。只录第一场的话，
+ * 「判定会变好」就只是文档里的一句话——评委点不出证据。
+ */
+export interface DemoRerun {
+  record: DemoRunSummary;
+  replay: DemoRunSummary;
+  /** 改前 → 改后的简历字数：打印用，也是「确实改了东西」的肉眼证据 */
+  resumeChars: { before: number; after: number };
+  /**
+   * 与界面上「比上次」用的是同一个函数 compareSessions。
+   * 数字对不上就说明演示讲了另一个故事，所以这里只搬运、不重算。
+   */
+  comparison: {
+    headline: string;
+    improved: number;
+    worsened: number;
+    added: number;
+    removed: number;
+    pairs: number;
+    resumeChanged: boolean;
+  } | null;
+  ok: boolean;
+  problems: string[];
+  signature: string;
+}
+
 export interface DemoRun {
   difficulty: Difficulty;
   difficultyLabel: string;
@@ -65,6 +97,8 @@ export interface DemoRun {
   ok: boolean;
   problems: string[];
   signature: string;
+  /** 「改完再跑一遍」的第二场：卡带、自检与对比一起留在这里 */
+  rerun: DemoRerun;
 }
 
 export interface DemoSeedReport {
@@ -90,15 +124,24 @@ export interface DemoSeedReport {
   signature: string;
 }
 
-function newSessionId(db: AnyDb, mode: StoredLlmMode, difficulty: Difficulty, style: RewriteStyle): string {
+function newSessionId(
+  db: AnyDb,
+  mode: StoredLlmMode,
+  difficulty: Difficulty,
+  style: RewriteStyle,
+  /** 第二场用：换成改完的简历，并记下自己是从哪一场改出来的 */
+  rerun?: { resumeText: string; parentSessionId: string },
+): string {
+  const resumeText = rerun === undefined ? DEMO_RESUME : rerun.resumeText;
   const id = insertSession(db, {
     jobTitle: DEMO_TITLE,
     jdText: DEMO_JD,
-    resumeText: DEMO_RESUME,
-    resumeHash: shortHash(DEMO_RESUME, 24),
+    resumeText,
+    resumeHash: shortHash(resumeText, 24),
     llmMode: mode,
     budget: { config: budgetOf(difficulty), totalProbes: 0, claims: {} },
     meta: { source: 'demo-seed', difficulty, style },
+    parentSessionId: rerun === undefined ? null : rerun.parentSessionId,
   });
   // 演示场次也要像 HTTP 建会话那样把 JD 写进 jd 表：编排层读的是 listJds(db, sessionId)，
   // 只写老字段 jdText 等于告诉它「这场没上传岗位要求」，JD 三个阶段会整段被跳过。
@@ -210,31 +253,50 @@ function pruneStaleCassettes(dir: string, keep: ReadonlySet<string>): string[] {
 async function runOne(
   dir: string,
   scripted: ReturnType<typeof createDemoScriptedClient>,
+  rerunScripted: ReturnType<typeof createDemoScriptedClient>,
   difficulty: Difficulty,
   style: RewriteStyle,
 ): Promise<{ run: DemoRun; result: RunSessionResult }> {
   const recordDb = openDatabase({ path: ':memory:' });
   let recordRun: RunSessionResult;
+  let rerunRecordRun: RunSessionResult;
+  let rerunFacts: RerunFacts;
   try {
-    recordRun = await runAndPersist({
+    const firstId = newSessionId(recordDb, 'record', difficulty, style);
+    recordRun = await runAndPersist({ db: recordDb, sessionId: firstId, client: scripted.client, model: 'scripted-demo' });
+    // 第一场跑完就**全部采纳**：演示要展示的是「改完之后」，不是「改到一半」。
+    // 只采纳一部分会让改后的简历随用户勾选而变，而卡带是按提示词指纹寻址的——
+    // 到时候每一份「部分采纳」都得各录一套，成本天文数字。
+    const revised = acceptRevisions(recordDb, firstId, listClaims(recordDb, firstId).map((claim) => claim.id));
+    if (!revised.ok) throw new Error('演示场次的改写全部采纳失败：' + revised.error);
+    const secondId = newSessionId(recordDb, 'record', difficulty, style, {
+      resumeText: revised.view.text,
+      parentSessionId: firstId,
+    });
+    rerunRecordRun = await runAndPersist({
       db: recordDb,
-      sessionId: newSessionId(recordDb, 'record', difficulty, style),
-      client: scripted.client,
+      sessionId: secondId,
+      client: rerunScripted.client,
       model: 'scripted-demo',
     });
+    rerunFacts = { before: DEMO_RESUME.length, after: revised.view.text.length, comparison: compareOf(recordDb, secondId) };
   } finally {
     closeDatabase(recordDb);
   }
 
   const replayDb = openDatabase({ path: ':memory:' });
   let replayRun: RunSessionResult;
+  let rerunReplayRun: RunSessionResult;
   try {
-    replayRun = await runAndPersist({
-      db: replayDb,
-      sessionId: newSessionId(replayDb, 'replay', difficulty, style),
-      client: createReplayClient(dir),
-      model: 'fixture',
+    const firstId = newSessionId(replayDb, 'replay', difficulty, style);
+    replayRun = await runAndPersist({ db: replayDb, sessionId: firstId, client: createReplayClient(dir), model: 'fixture' });
+    const revised = acceptRevisions(replayDb, firstId, listClaims(replayDb, firstId).map((claim) => claim.id));
+    if (!revised.ok) throw new Error('回放场次的改写全部采纳失败：' + revised.error);
+    const secondId = newSessionId(replayDb, 'replay', difficulty, style, {
+      resumeText: revised.view.text,
+      parentSessionId: firstId,
     });
+    rerunReplayRun = await runAndPersist({ db: replayDb, sessionId: secondId, client: createReplayClient(dir), model: 'fixture' });
   } finally {
     closeDatabase(replayDb);
   }
@@ -254,6 +316,30 @@ async function runOne(
   if (replayRun.probes.length === 0) {
     problems.push(label + '一条追问都没问出来：这一组合的演示等于没演示。');
   }
+
+  // 第二场（改完再跑）的同一套自检。它不是「多跑一次」的附加项：
+  // 界面上那个「改完再跑一遍」按钮点下去走的就是这条路，卡带缺一盘，
+  // 评委看到的就是一句「找不到记录」。
+  const rerunProblems: string[] = [];
+  if (signatureOf(rerunRecordRun) !== signatureOf(rerunReplayRun)) {
+    rerunProblems.push(label + '改完再跑那一次的回放结果与合成结果不一致：第二场的卡带与提示词已经脱节。');
+  }
+  if (rerunReplayRun.probes.length === 0) {
+    rerunProblems.push(label + '改完再跑那一次一条追问都没问出来。');
+  }
+  if (rerunFacts.comparison === null) {
+    rerunProblems.push(label + '改完再跑那一次没能和上一场对上：版本链断了，界面上会比不出任何东西。');
+  } else {
+    // 演示的立意是「改完会变好」。变好的条数为 0 不一定是 Bug，
+    // 但**变差**一定是：那说明剧本把改后的简历判得更糟，这个故事讲反了。
+    if (rerunFacts.comparison.improved === 0) {
+      rerunProblems.push(label + '改完再跑那一次一条主张都没变好：演示里最重要的那句话说反了。');
+    }
+    if (rerunFacts.comparison.worsened > 0) {
+      rerunProblems.push(label + '改完再跑那一次有 ' + String(rerunFacts.comparison.worsened) + ' 条主张变差了：改完反而更站不住，剧本写反了。');
+    }
+  }
+
   return {
     run: {
       difficulty,
@@ -263,11 +349,42 @@ async function runOne(
       label,
       record: summarize(recordRun),
       replay: summarize(replayRun),
-      ok: problems.length === 0,
-      problems,
+      ok: problems.length === 0 && rerunProblems.length === 0,
+      problems: problems.concat(rerunProblems),
       signature: signatureOf(recordRun),
+      rerun: {
+        record: summarize(rerunRecordRun),
+        replay: summarize(rerunReplayRun),
+        resumeChars: { before: rerunFacts.before, after: rerunFacts.after },
+        comparison: rerunFacts.comparison,
+        ok: rerunProblems.length === 0,
+        problems: rerunProblems,
+        signature: signatureOf(rerunRecordRun),
+      },
     },
     result: recordRun,
+  };
+}
+
+/** 第二场的对比结果：只搬运 compareSessions 的结论，不在这里重算一遍 */
+interface RerunFacts {
+  before: number;
+  after: number;
+  comparison: DemoRerun['comparison'];
+}
+
+function compareOf(db: AnyDb, sessionId: string): DemoRerun['comparison'] {
+  const view = compareSessions(db, sessionId);
+  if (view === null || view.comparison === null) return null;
+  const comparison: ClaimComparison = view.comparison;
+  return {
+    headline: comparison.headline,
+    improved: comparison.improved.length,
+    worsened: comparison.worsened.length,
+    added: comparison.added.length,
+    removed: comparison.removed.length,
+    pairs: comparison.pairs.length,
+    resumeChanged: view.resumeChanged,
   };
 }
 
@@ -280,13 +397,14 @@ export async function seedDemoCassettes(opts: { dir: string }): Promise<DemoSeed
   const keep = new Set<string>();
   for (const difficulty of DIFFICULTIES) {
     for (const style of REWRITE_STYLES) {
-      // 每一种组合都必须是一个**全新**的脚本客户端：演示脚本的「这条已经问过了」记忆
-      // 挂在客户端实例上（scripted-demo.ts 的 ScriptState），复用一个实例跑第二场时，
+      // 第一场与第二场各用一个**全新**的脚本客户端：演示脚本的「这条已经问过了」记忆
+      // 挂在客户端实例上（scripted-demo.ts 的 ScriptState），共用一个实例时，
       // 它会以为自己已经问遍全场，第二场一条追问都不问——实测温和 10 条、后两档 0 条。
-      const scripted = createDemoScriptedClient(opts.dir);
-      const one = await runOne(opts.dir, scripted, difficulty, style);
+      const scripted = createDemoScriptedClient(opts.dir, 1);
+      const rerunScripted = createDemoScriptedClient(opts.dir, 2);
+      const one = await runOne(opts.dir, scripted, rerunScripted, difficulty, style);
       runs.push(one.run);
-      for (const entry of scripted.entries) {
+      for (const entry of scripted.entries.concat(rerunScripted.entries)) {
         // 同一份提示词（例如 answer 阶段既不含预算也不含风格）在多种组合下指纹相同，
         // 合并时按指纹去重：不去重会让「一共写出 N 盘卡带」这句话变成重复计数。
         if (keep.has(entry.digest)) continue;

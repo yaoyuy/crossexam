@@ -29,6 +29,9 @@ const HELP = [
   '',
   '它会按三种追问强度（温和 / 常规 / 挑刺）× 三种改写风格（保守 / 常规 / 敢改）各跑两遍演示沙盘：第一遍用确定性脚本客户端',
   '边跑边录卡带，第二遍用只读回放客户端重跑并比对签名。任何一档对不上就退出码 1。',
+  '',
+  '每种组合还会全采纳改写建议、然后拿改完的简历再质询一遍（就是界面上的「改完再跑一遍」），',
+  '第二场同样录卡带并回放自检，并把「比上次」的头一句一起打出来——判定没有变好就算失败。',
 ].join(String.fromCharCode(10));
 
 function argValue(name: string): string | null {
@@ -64,6 +67,20 @@ function summaryLine(summary: DemoRunSummary): string {
   ].join(' · ');
 }
 
+/**
+ * 第二场的三行：改了多少、第二场跑成什么样、判定怎么变。
+ *
+ * 这里刻意只打 compareSessions 的 headline（和界面上「比上次」同一句），
+ * 不自己另算一套数字——演示说的话和界面说的话必须是同一句。
+ */
+function rerunLines(rerun: DemoSeedReport['runs'][number]['rerun']): string[] {
+  const out: string[] = [];
+  const head = '改写 ' + rerun.resumeChars.before + ' 字 → ' + rerun.resumeChars.after + ' 字';
+  out.push(head + '，改完再质询一遍：' + summaryLine(rerun.record));
+  out.push('改完再质询一遍（只读回放）：' + summaryLine(rerun.replay));
+  out.push('比上次：' + (rerun.comparison === null ? '（没有生成对比）' : rerun.comparison.headline));
+  return out;
+}
 function purposeLine(entries: DemoSeedReport['entries']): string {
   const counts: Record<string, number> = {};
   for (const entry of entries) counts[entry.purpose] = (counts[entry.purpose] ?? 0) + 1;
@@ -93,6 +110,7 @@ async function main(): Promise<void> {
   for (const run of report.runs) {
     console.log('【' + run.label + '】合成脚本：' + summaryLine(run.record));
     console.log('【' + run.label + '】只读回放：' + summaryLine(run.replay));
+    for (const line of rerunLines(run.rerun)) console.log('【' + run.label + '】' + line);
   }
 
   if (!report.ok) {

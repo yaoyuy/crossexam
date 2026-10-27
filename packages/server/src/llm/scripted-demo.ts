@@ -25,7 +25,14 @@
  */
 
 import { REQUIREMENT_KIND_LABEL, VERDICT_LABEL } from '@crossexam/shared';
-import type { ClaimCategory, CounterKind, MatchStatus, RequirementKind, RewriteStyle, VerdictKind } from '@crossexam/shared';
+import type {
+  ClaimCategory,
+  CounterKind,
+  MatchStatus,
+  RequirementKind,
+  RewriteStyle,
+  VerdictKind,
+} from '@crossexam/shared';
 import { CASSETTE_VERSION, digestFor, writeCassette } from './cassette.ts';
 import type { CassetteEntry } from './cassette.ts';
 import { chunkText } from './replay.ts';
@@ -127,10 +134,12 @@ export const DEMO_PLANS: readonly DemoClaimPlan[] = [
     suggestion: {
       problem: '把日常统计值与压测峰值并列成一次提升，面试官追问压测条件就会露馅。',
       before: 'QPS 从 800 提升到 5000',
-      after: '引入 Redis 缓存后，同一接口在预发环境单机压测下 QPS 由 800 提升到 5000（压测工具与口径见附录）',
+      // before 只圈住「QPS 从 800 提升到 5000」这半句，改完还要接得上前面的「主导引入 Redis 缓存，」，
+      // 所以 after 必须从 QPS 起头——一上来就写「引入 Redis 缓存后…」会与前半句撞车。
+      after: 'QPS 由 800 提升到 5000（预发环境单机压测：提升前是旧接口日常统计值，提升后是新接口压测峰值）',
       afterByStyle: {
-        conservative: 'QPS 从 800 提升到 5000（前后口径不同，不作直接对比）',
-        bold: '主导引入 Redis 缓存：缓存方案与落地由我负责，QPS 从 800 提升到 5000（前后口径不同，仅看量级）',
+        conservative: 'QPS 由 800 提升到 5000（前后口径不同，不作直接对比）',
+        bold: 'QPS 由 800 提升到 5000（缓存方案、压测口径与上线节奏均由我负责；前后口径不同，只比量级不作对比）',
       },
       why: '数字保留，但把口径与场景交代清楚：日常值不做跨口径比较，面试官问起来你能直接把压测条件摊开。',
     },
@@ -241,6 +250,87 @@ export const DEMO_UNANCHORED_DRAFT: DemoClaimDraft = {
   weight: 0.99,
 };
 
+/**
+ * 第二场的剧本：**改完之后**再过一遍，同一条主张会得到什么。
+ *
+ * 这一场存在的理由只有一个：没有第二场，「采纳改写 → 再跑一遍 → 看到判定变了」
+ * 这条链路在离线演示里就是别人说的一句话，而不是评委自己能点出来的东西。
+ * 第一场把它判成「表述过度 / 证据缺失 / 无法回答」的那几条，改完口径之后
+ * 应该站得住——判据也变了：「简历里已经把口径分开写」而不是「模型自己补上了口径」。
+ *
+ * 刻意不写 quote：引文必须正好落在**改完的简历**上，而改完的文本随改写风格档位
+ * 由 applyRevisions 现算。手抄一份只会抄错一个标点，然后整条主张被锚定闸门丢掉，
+ * 表面上看起来像「第二场一条主张都没抽到」。
+ */
+export interface DemoRerunPlan {
+  /** 对应 DEMO_PLANS 里的第 n 条（C1 是站得住的那条，改完还是原句） */
+  claimId: string;
+  text: string;
+  /**
+   * 这条主张改完之后的那一行里，**三个风格档位都有**的一段逐字标记。
+   *
+   * 引文从这里取到行尾。保守档只做减法、敢改档会多写一句，同一句在三档下尾巴不同，
+   * 所以标记必须挑在三档共有的前缀上（「抗压」「技术突破奖」「RBAC 权限模块」这类）。
+   */
+  marker: string;
+  /** 第二场只问一个问题：这一场要短，短才看得出「改完就过了」 */
+  questions: string[];
+  answerText: string;
+  rationale: string;
+  confidence: number;
+}
+
+export const DEMO_RERUN_PLANS: readonly DemoRerunPlan[] = [
+  {
+    claimId: 'C1',
+    // 主张那一行（text）刻意与第一场一字不差：界面上的版本对比按**主张文本**配对，
+    // 这里每改一个字，那一条就从「变好」掉进「这一版新出现的 / 上一版没了」两堆里。
+    // 改的是简历原文（quote 从改完的文本里现取），不是模型给这句话起的摘要。
+    text: '主导订单系统重构，把首屏加载从 2.4s 优化到 0.8s',
+    marker: '主导重构订单系统',
+    questions: ['这条上一版就问过了，口径也补过。这次我只确认一句：0.8s 之后还做过优化吗？'],
+    answerText: '没有了。0.8s 是那一版的终点，后面的工作转向了稳定性治理。',
+    rationale: '上一版已经确认过指标口径与测量环境，这次追问没有出现新的矛盾点，判定维持站得住。',
+    confidence: 0.85,
+  },
+  {
+    claimId: 'C2',
+    text: '引入 Redis 缓存，把接口 QPS 从 800 提升到 5000',
+    marker: '主导引入 Redis 缓存',
+    questions: ['这一版把日常值和压测峰值分开写了。那我按简历这么理解，可以吗？'],
+    answerText: '可以。提升前的 800 是旧接口的日常统计值，5000 是新接口在预发环境单机压测的峰值，简历里就是这么写的。',
+    rationale: '简历已经把两个口径分开陈述，追问确认后与原文一致，不再构成「并列成一次提升」的误导。',
+    confidence: 0.84,
+  },
+  {
+    claimId: 'C3',
+    text: '独立完成 RBAC 权限模块，覆盖 12 个业务线',
+    marker: 'RBAC 权限模块',
+    questions: ['这一版写清了「核心模型与鉴权链路独立完成」。那我确认一下：业务线接入是各团队自己推的？'],
+    answerText: '对。业务线接入是各团队自己做的，我负责核心模型与鉴权链路，简历里这么写就是为了把边界说清楚。',
+    rationale: '改写之后个人贡献边界明确，追问确认与原文一致，不再需要「证据缺失」这档兜底。',
+    confidence: 0.8,
+  },
+  {
+    claimId: 'C4',
+    text: '学习能力强、抗压能力强',
+    marker: '抗压',
+    questions: ['「两周内独立接手陌生模块」和「线上故障值班」这两件，能各说一件具体的吗？'],
+    answerText: '接手的是权限模块的接入层，两周内交付了三条业务线的接入；值班是去年四季度，处理过一次缓存击穿，事后做了复盘。',
+    rationale: '形容词换成了可被追问的事实，追问时能落到具体事例上。',
+    confidence: 0.78,
+  },
+  {
+    claimId: 'C5',
+    text: '参与的项目获得公司年度技术突破奖',
+    marker: '技术突破奖',
+    questions: ['这一版补了评选范围与个人贡献。那我确认：部门推荐、公司评审，你负责其中权限模块？'],
+    answerText: '是。部门推荐上去、公司层面评审，我负责的是其中权限模块的设计与实现。',
+    rationale: '评选范围与个人贡献都写进了原文，追问确认后一致，奖项从「团队光环」变成了可追问的个人成果。',
+    confidence: 0.8,
+  },
+];
+
 /** 演示 JD 里的一条要求：引文逐字取自 DEMO_JD，对照结果预先定好 */
 export interface DemoRequirementDraft {
   text: string;
@@ -346,6 +436,14 @@ export const DEMO_REQUIREMENT_PLANS: readonly DemoRequirementPlan[] = [
 interface ScriptState {
   /** 已经问出去的问题，跨面试官共享：一场面试里同一个问题不重复问 */
   asked: Set<string>;
+  /**
+   * 这是第几场：1 = 原始简历，2 = 采纳改写之后又跑的那一场。
+   *
+   * 为什么要显式记：两场共用同一个客户端实例（卡带要按提示词指纹落进同一个目录），
+   * 而两场的答案、判定、引文全都不一样。靠「提示词里有没有改后的句子」去猜，
+   * 第一场也会被认成第二场——简历原文里本来就有一模一样的半句。
+   */
+  session: 1 | 2;
 }
 
 function planForClaimId(claimId: string): DemoClaimPlan | null {
@@ -372,6 +470,123 @@ function estimateUsage(req: LlmRequest, text: string, reasoning: string): LlmUsa
     cacheReadTokens: 0,
     reasoningTokens: Math.round(reasoning.length / 2),
   };
+}
+
+/** 从 at 开始取到这一行结束 */
+function lineFrom(text: string, at: number): string {
+  const nl = text.indexOf(NL, at);
+  return (nl < 0 ? text.slice(at) : text.slice(at, nl)).trim();
+}
+
+/**
+ * 在每一处「原文引文：」之后的行里找包含标记的那一行，返回从标记起的部分。
+ *
+ * 为什么要先走这一条：判定、追问、回答、反问的提示词里，主张块自己就带着
+ * 「原文引文：…」，而**主张的文字（主张：…）排在它前面**。只按「全提示词第一处标记」
+ * 取，取到的是模型自己写的主张文字，不是简历原文——第二场 C3/C5 就是这么被判成
+ * 「证据缺失」的：模型给的证据没错，是脚本喂给它的那段字不在简历里。
+ */
+function quoteFromAnchorLine(prompt: string, marker: string): string {
+  const label = '原文引文：';
+  let at = prompt.indexOf(label);
+  while (at >= 0) {
+    const line = lineFrom(prompt, at + label.length);
+    const inner = line.indexOf(marker);
+    if (inner >= 0) return line.slice(inner);
+    at = prompt.indexOf(label, at + label.length);
+  }
+  return '';
+}
+
+/**
+ * 从提示词里按「标记」取一段逐字引文：优先取主张块里的原文引文，
+ * 其次只在「## 简历原文」那一段里找。
+ *
+ * 第二场的引文不能手写：改完的简历随改写风格档位而变（保守档只做减法、敢改档会加句子），
+ * 同一句在三个档位下尾巴都不一样，手抄必然有一个档位对不上、整条主张被锚定闸门丢掉。
+ * 取到行尾这个粒度正好等于「简历里那一行」——也就是锚点该落的范围。
+ */
+function quoteFromMarker(prompt: string, marker: string): string {
+  if (marker === '') return '';
+  const anchored = quoteFromAnchorLine(prompt, marker);
+  if (anchored.length > 0) return anchored;
+  const section = prompt.indexOf('## 简历原文');
+  const scope = section < 0 ? prompt : prompt.slice(section);
+  const at = scope.indexOf(marker);
+  return at < 0 ? '' : lineFrom(scope, at);
+}
+
+function rerunPlanForClaimId(claimId: string): DemoRerunPlan | null {
+  for (const plan of DEMO_RERUN_PLANS) if (plan.claimId === claimId) return plan;
+  return null;
+}
+
+function rerunPlanForQuestion(question: string): DemoRerunPlan | null {
+  for (const plan of DEMO_RERUN_PLANS) if (plan.questions.indexOf(question) >= 0) return plan;
+  return null;
+}
+
+/**
+ * 第二场的抽取：把「改完之后那五条」连同它们改后的引文一起交出去。
+ *
+ * 引文按 marker 从提示词里现取，取不到就干脆不交这条——
+ * 交一条锚不到的，只会让观众以为「锚定闸门把好主张也拦了」。
+ */
+function rerunExtractText(prompt: string): string {
+  const claims: DemoClaimDraft[] = [];
+  for (const plan of DEMO_RERUN_PLANS) {
+    const quote = quoteFromMarker(prompt, plan.marker);
+    if (quote.length < 4) continue;
+    const base = planForClaimId(plan.claimId);
+    claims.push({
+      text: plan.text,
+      quote,
+      category: base === null ? 'other' : base.category,
+      weight: base === null ? 0.6 : base.weight,
+    });
+  }
+  // 故意锚不到的那条也留在第二场：它是「AI 没有乱问」的正面证据，
+  // 而第二场恰恰是最容易被怀疑「改写之后是不是什么都能过」的那一场。
+  claims.push(DEMO_UNANCHORED_DRAFT);
+  return JSON.stringify({ claims });
+}
+
+/** 第二场的追问：每条主张一个，问完就收——这一场要短，短才看得出「改完就过了」 */
+function rerunProbeText(prompt: string, state: ScriptState): string {
+  const capMatch = MAX_PROBES_LINE.exec(prompt);
+  const cap = capMatch ? Number(capMatch[1] ?? '2') : 2;
+  const probes: { claimId: string; question: string; quote: string; rationale: string }[] = [];
+  for (const block of claimBlocks(prompt)) {
+    if (probes.length >= cap) break;
+    const plan = rerunPlanForClaimId(block.claimId);
+    if (plan === null) continue;
+    for (const question of plan.questions) {
+      if (state.asked.has(question)) continue;
+      state.asked.add(question);
+      probes.push({ claimId: block.claimId, question, quote: block.quote, rationale: plan.rationale });
+      break;
+    }
+  }
+  return JSON.stringify({ probes });
+}
+
+/**
+ * 第二场的判定：全部站得住，且**每条都带得出可定位的证据**。
+ *
+ * 证据不能省：判「站得住」却给不出引文时，verdict.ts 会按「证据缺失」降级——
+ * 那正是第一场 C5 的剧本。第二场要是也降级，这一整轮演示就白跑了。
+ */
+function rerunVerdictText(prompt: string): string {
+  const claimId = firstClaimId(prompt);
+  const plan = rerunPlanForClaimId(claimId);
+  if (plan === null) throw new Error('演示脚本没有覆盖这条主张的第二场判定：' + claimId);
+  const quote = quoteFromMarker(prompt, plan.marker);
+  return JSON.stringify({
+    kind: 'solid',
+    confidence: plan.confidence,
+    rationale: plan.rationale,
+    evidenceQuotes: quote.length >= 4 ? [quote] : [],
+  });
 }
 
 function extractText(): string {
@@ -485,8 +700,20 @@ function firstClaimId(prompt: string): string {
   return hit ? (hit[1] ?? '') : '';
 }
 
-function answerText(prompt: string): string {
+function answerText(prompt: string, state: ScriptState): string {
   const question = lineAfter(prompt, '## 面试官的问题');
+  if (state.session === 2) {
+    const plan = rerunPlanForQuestion(question);
+    if (plan === null) throw new Error('演示脚本没有覆盖这个问题的第二场回答：' + question);
+    const quote = quoteFromMarker(prompt, plan.marker);
+    // 援引原文也要给：第二场每一条主张的答案都该落在改完的那句话上，
+    // 答得对却说不出依据，在界面上看起来像「模型自己编了一段」。
+    return JSON.stringify({
+      answered: true,
+      text: plan.answerText,
+      citedQuotes: quote.length >= 4 ? [quote] : [],
+    });
+  }
   const plan = planForQuestion(question);
   if (plan === null) throw new Error('演示脚本没有覆盖这个问题：' + question);
   return JSON.stringify({
@@ -679,6 +906,13 @@ interface DemoCounterPlan {
   quote: string;
   /** JD 的引文写 JD，主张的引文写 RESUME，真正的 sourceId 在运行时解析 */
   from: 'JD' | 'RESUME';
+  /**
+   * 第二场用：这条反问要挂在哪条主张上。
+   *
+   * 第一场靠「引文在哪条主张的原文引文里」反查编号；第二场的引文是改后的句子，
+   * 与第一场那句已经不一样了，反查必然落空。所以第二场直接写编号。
+   */
+  claimId?: string;
 }
 
 export const DEMO_COUNTER_PLANS: readonly DemoCounterPlan[] = [
@@ -701,6 +935,7 @@ export const DEMO_COUNTER_PLANS: readonly DemoCounterPlan[] = [
   {
     kind: 'growth',
     from: 'RESUME',
+    claimId: 'C1',
     quote: '主导重构订单系统，首屏加载从 2.4s 降到 0.8s。',
     text: '这条写的是「主导重构」。想问清楚：方向是你自己判断要做的，还是上面定了方向、你负责落地？我该怎么把边界写清楚才不显得夸大？',
     reason: '「主导」是简历里最容易被追着问的词，先问清口径，回来才能把话说准。',
@@ -709,6 +944,7 @@ export const DEMO_COUNTER_PLANS: readonly DemoCounterPlan[] = [
   {
     kind: 'process',
     from: 'RESUME',
+    claimId: 'C3',
     quote: '独立完成 RBAC 权限模块，覆盖 12 个业务线。',
     text: '「独立完成」加「覆盖 12 个业务线」，想问一下：这个模块上线后是谁在维护？12 条业务线的接入是你一条条推动的吗？',
     reason: '规模与「独立完成」放在一起最容易让人怀疑边界，问清楚才改得准。',
@@ -727,9 +963,31 @@ function claimIdForQuote(prompt: string, quote: string): string | null {
   return match === null ? null : match[0];
 }
 
-function counterText(prompt: string): string {
+function counterText(prompt: string, state: ScriptState): string {
   const counters: Record<string, string>[] = [];
   for (const plan of DEMO_COUNTER_PLANS) {
+    if (state.session === 2) {
+      // 第二场：引文与编号都按主张现取，只留下「这条主张还在」的那几句。
+      // 改完的简历里同一句已经不是原样了，用第一场的引文去比只会一条都问不出来。
+      if (plan.claimId === undefined) {
+        if (prompt.indexOf(plan.quote) < 0) continue;
+        counters.push({ text: plan.text, kind: plan.kind, reason: plan.reason, reply: plan.reply, quote: plan.quote, sourceId: 'J1' });
+        continue;
+      }
+      const rerun = rerunPlanForClaimId(plan.claimId);
+      if (rerun === null || prompt.indexOf('[' + plan.claimId + ']') < 0) continue;
+      const quote = quoteFromMarker(prompt, rerun.marker);
+      if (quote.length < 4) continue;
+      counters.push({
+        text: plan.text,
+        kind: plan.kind,
+        reason: plan.reason,
+        reply: plan.reply,
+        quote,
+        sourceId: plan.claimId,
+      });
+      continue;
+    }
     if (prompt.indexOf(plan.quote) < 0) continue;
     const sourceId = plan.from === 'JD' ? 'J1' : claimIdForQuote(prompt, plan.quote);
     if (sourceId === null) continue;
@@ -738,8 +996,21 @@ function counterText(prompt: string): string {
   return JSON.stringify({ counters });
 }
 
-function reasoningFor(req: LlmRequest): string {
+function rerunVerdictReasoning(prompt: string): string {
+  const claimId = firstClaimId(prompt);
+  const plan = rerunPlanForClaimId(claimId);
+  if (plan === null) return '';
+  const parts: string[] = [];
+  parts.push('这一版的主张是：' + plan.text + '。');
+  parts.push('和上一版比，这一版把口径写进了简历原文，不再靠临场补充。');
+  parts.push('追问只有一个，回答与原文对得上，没有出现新的矛盾点。');
+  parts.push('所以判「' + VERDICT_LABEL['solid'] + '」，置信度 ' + String(Math.round(plan.confidence * 100)) + '%。');
+  return parts.join('');
+}
+
+function reasoningFor(req: LlmRequest, state: ScriptState): string {
   const prompt = req.messages[0]?.content ?? '';
+  if (state.session === 2) return req.purpose === 'verdict' ? rerunVerdictReasoning(prompt) : '';
   if (req.purpose === 'answer') return answerReasoning(prompt);
   if (req.purpose === 'verdict') return verdictReasoning(prompt);
   return '';
@@ -747,15 +1018,16 @@ function reasoningFor(req: LlmRequest): string {
 
 function respond(req: LlmRequest, state: ScriptState): string {
   const user = req.messages[0]?.content ?? '';
-  if (req.purpose === 'extract') return extractText();
-  if (req.purpose === 'probe') return probeText(user, state);
-  if (req.purpose === 'answer') return answerText(user);
-  if (req.purpose === 'verdict') return verdictText(user);
+  const second = state.session === 2;
+  if (req.purpose === 'extract') return second ? rerunExtractText(user) : extractText();
+  if (req.purpose === 'probe') return second ? rerunProbeText(user, state) : probeText(user, state);
+  if (req.purpose === 'answer') return answerText(user, state);
+  if (req.purpose === 'verdict') return second ? rerunVerdictText(user) : verdictText(user);
   if (req.purpose === 'suggest') return suggestText(user, req.system);
   if (req.purpose === 'jd-extract') return jdExtractText(user);
   if (req.purpose === 'jd-merge') return jdMergeText(user);
   if (req.purpose === 'jd-match') return jdMatchText(user);
-  if (req.purpose === 'counter') return counterText(user);
+  if (req.purpose === 'counter') return counterText(user, state);
   throw new Error('演示脚本没有覆盖这个阶段：' + req.purpose);
 }
 
@@ -776,13 +1048,20 @@ export interface DemoScriptedClient {
  * 它与真实录制模式（live.ts 的 record 包装）的差别只在文本从哪儿来：
  * 那边来自模型，这边来自上面的确定性脚本；指纹与落盘走的是同一条路。
  */
-export function createDemoScriptedClient(dir: string): DemoScriptedClient {
-  const state: ScriptState = { asked: new Set<string>() };
+/**
+ * 造一个脚本客户端。
+ *
+ * 一个实例可以连着跑两场（原始简历、改完再跑），两场的卡带**落进同一个目录**：
+ * 界面上的离线演示第二场正是用同一个 fixtures/llm 回放的。
+ * 所以「现在是第几场」由调用方显式声明，不由提示词内容推断。
+ */
+export function createDemoScriptedClient(dir: string, session: 1 | 2 = 1): DemoScriptedClient {
+  const state: ScriptState = { asked: new Set<string>(), session };
   const entries: DemoSeedEntry[] = [];
 
   function produce(req: LlmRequest): LlmResult {
     const text = respond(req, state);
-    const reasoning = reasoningFor(req);
+    const reasoning = reasoningFor(req, state);
     const digest = digestFor(req);
     const usage = estimateUsage(req, text, reasoning);
     const entry: CassetteEntry = {
