@@ -174,6 +174,55 @@ export function movedSpans(applied: readonly Revision[]): Revision[] {
 }
 
 /**
+ * 并排对照：把「改前」与「改后」按原文顺序摆成几行，行与行上下对齐。
+ *
+ * 只多做一件事：把改动之间那几段**没动过的原文**也摆进来当上下文行，
+ * 读者才看得出这句改动落在简历的什么位置，而不是一串孤立的句子。
+ * 上下文行两侧相同，超长时按方向截断（改动之前的留尾巴、之后的留开头）。
+ */
+export const SIDE_CONTEXT_CHARS = 24;
+
+export interface SideRow {
+  /** same = 没动过的上下文；changed = 一条改动 */
+  kind: 'same' | 'changed';
+  left: string;
+  right: string;
+  /** 改动行的 claimId；上下文行是 null */
+  claimId: string | null;
+}
+
+function clipSide(text: string, side: 'head' | 'tail', limit: number): string {
+  // 不用正则：简历里的换行只是段落分隔，压成空格就够，正则反而要多一层转义。
+  const flat = text.split(String.fromCharCode(10)).join(' ').trim();
+  if (flat.length <= limit) return flat;
+  return side === 'tail' ? '…' + flat.slice(-limit) : flat.slice(0, limit) + '…';
+}
+
+export function sideBySide(
+  resumeText: string,
+  applied: readonly Revision[],
+  contextChars: number = SIDE_CONTEXT_CHARS,
+): SideRow[] {
+  const rows: SideRow[] = [];
+  let cursor = 0;
+  for (const item of applied) {
+    const gap = resumeText.slice(cursor, item.start);
+    if (gap.length > 0) {
+      const shown = clipSide(gap, 'tail', contextChars);
+      rows.push({ kind: 'same', left: shown, right: shown, claimId: null });
+    }
+    rows.push({ kind: 'changed', left: item.before, right: item.after, claimId: item.claimId });
+    cursor = item.end;
+  }
+  const tail = resumeText.slice(cursor);
+  if (tail.length > 0) {
+    const shown = clipSide(tail, 'head', contextChars);
+    rows.push({ kind: 'same', left: shown, right: shown, claimId: null });
+  }
+  return rows;
+}
+
+/**
  * 改完之后还剩哪些问题没有处理。
  *
  * 给界面用：用户采纳了三条、还有五条没理，要能一眼看出「还没改完」，
