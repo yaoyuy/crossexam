@@ -8,9 +8,10 @@
  * 所以它只读数据库里的事实，不做任何润色或补写。
  */
 
-import { CLAIM_CATEGORY_LABEL, COUNTER_KIND_LABEL, COUNTER_SOURCE_LABEL, DIFFICULTY_LABEL, MATCH_LABEL, PERSONA_PRESETS, REQUIREMENT_KIND_LABEL, REWRITE_STYLE_LABEL, VERDICT_LABEL, categoryLine, shortfallPlan, sideBySide } from '@crossexam/shared';
+import { CLAIM_CATEGORY_LABEL, COUNTER_KIND_LABEL, COUNTER_SOURCE_LABEL, DIFFICULTY_LABEL, MATCH_LABEL, PERSONA_PRESETS, REQUIREMENT_KIND_LABEL, REWRITE_STYLE_LABEL, VERDICT_LABEL, categoryLine, shiftDetail, shortfallPlan, sideBySide } from '@crossexam/shared';
 import type { Anchor, Revision, Verdict, VerdictKind } from '@crossexam/shared';
 import type { ProbeRow } from './store/index.ts';
+import type { CompareView } from './compare.ts';
 import type { SessionView } from './pipeline.ts';
 
 const NL = String.fromCharCode(10);
@@ -18,6 +19,88 @@ const NL = String.fromCharCode(10);
 function interviewerName(role: string): string {
   const preset = PERSONA_PRESETS[role as keyof typeof PERSONA_PRESETS];
   return preset === undefined ? role : preset.persona.name;
+}
+
+const NUMERALS = '一二三四五六七八九';
+const H2 = '## ';
+
+/** 把二级标题里的中文序号往后推一位：'## 一、主张与判定' → '## 二、主张与判定' */
+function bumpNumeral(text: string): string {
+  if (!text.startsWith(H2)) return text;
+  const body = text.slice(H2.length);
+  const at = NUMERALS.indexOf(body.slice(0, 1));
+  if (at < 0) return text;
+  return H2 + NUMERALS.charAt(at + 1) + body.slice(1);
+}
+
+function renumber(text: string, on: boolean): string {
+  return on && text.startsWith('## ') ? bumpNumeral(text) : text;
+}
+
+/**
+ * 「比上次」一节：改完再跑一遍，判定到底怎么变了。
+ *
+ * 为什么放在「主张与判定」之前：这一节回答的是¤这一版有没有用¤，
+ * 那是读者翻报告时的第一个问题；单场的判定列表回答不了它。
+ * 没有上一版、上一版被删、上一版根本没跑完，三种情况都要说清是哪一种——
+ * 空着一节会让人以为对比功能坏了。
+ */
+function compareLines(compare: CompareView): string[] {
+  if (compare.first) return [];
+  const out: string[] = [];
+  out.push('## 比上次');
+  out.push('');
+  if (compare.parentMissing) {
+    out.push('这一场是从 ' + (compare.parentSessionId ?? '(未知)') + ' 改完再跑出来的，但那一场已经被删掉了，对比做不了。');
+    out.push('');
+    return out;
+  }
+  const comparison = compare.comparison;
+  const parent = compare.parent;
+  if (comparison === null || parent === null) {
+    out.push('这一场是从 ' + (compare.parentSessionId ?? '(未知)') + ' 改完再跑出来的，但那一场没有跑完，没有判定可以拿来对比。');
+    out.push('');
+    return out;
+  }
+  out.push('> 上一版：' + parent.id + '（' + parent.createdAt + '，' + parent.jobTitle + '）');
+  out.push('');
+  out.push(comparison.headline);
+  out.push('');
+  if (compare.resumeChanged) {
+    out.push('- 简历内容：改过了（两份的指纹不同）');
+  } else {
+    out.push('- 简历内容：与上一版完全相同（判定若有变化，是模型这一场看到的追问不同，不是你改了简历）');
+  }
+  out.push('');
+  if (comparison.improved.length > 0) {
+    out.push('### 变好的 ' + String(comparison.improved.length) + ' 条');
+    out.push('');
+    for (const pair of comparison.improved) out.push('- ' + pair.next.id + ' · ' + pair.next.text + '：' + shiftDetail(pair));
+    out.push('');
+  }
+  if (comparison.worsened.length > 0) {
+    out.push('### 变差的 ' + String(comparison.worsened.length) + ' 条');
+    out.push('');
+    for (const pair of comparison.worsened) out.push('- ' + pair.next.id + ' · ' + pair.next.text + '：' + shiftDetail(pair));
+    out.push('');
+  }
+  if (comparison.added.length > 0) {
+    out.push('### 这一版新出现的主张（' + String(comparison.added.length) + ' 条）');
+    out.push('');
+    for (const claim of comparison.added) {
+      out.push('- ' + claim.id + ' · ' + claim.text + '（' + (claim.verdict === null ? '未判定' : VERDICT_LABEL[claim.verdict]) + '）');
+    }
+    out.push('');
+  }
+  if (comparison.removed.length > 0) {
+    out.push('### 上一版有、这一版没了的主张（' + String(comparison.removed.length) + ' 条）');
+    out.push('');
+    for (const claim of comparison.removed) {
+      out.push('- ' + claim.id + ' · ' + claim.text + '（上一版判定：' + (claim.verdict === null ? '未判定' : VERDICT_LABEL[claim.verdict]) + '）');
+    }
+    out.push('');
+  }
+  return out;
 }
 
 function anchorLine(anchor: Anchor): string {
@@ -261,7 +344,7 @@ function sideCell(text: string): string {
   return text.split(String.fromCharCode(10)).join(' ').split('|').join(pipe);
 }
 
-export function renderReport(view: SessionView, applied: readonly Revision[] = []): string {
+export function renderReport(view: SessionView, applied: readonly Revision[] = [], compare: CompareView | null = null): string {
   const s = view.session;
   const out: string[] = [];
   const used = s.budget.totalProbes;
@@ -291,7 +374,13 @@ export function renderReport(view: SessionView, applied: readonly Revision[] = [
     out.push('');
   }
 
-  out.push('## 一、主张与判定');
+  // 「比上次」插在「主张与判定」之前：它是读者翻报告时的第一个问题（这一版有没有用），
+  // 单场的判定列表回答不了。它在场时后面所有章节编号整体 +1。
+  const compared = compare === null ? [] : compareLines(compare);
+  for (const line of compared) out.push(line);
+  const shift = compared.length > 0;
+
+  out.push(renumber('## 一、主张与判定', shift));
   out.push('');
   if (view.claims.length === 0) out.push('（本次没有抽到可被追问的主张）');
   for (const claim of view.claims) {
@@ -324,13 +413,13 @@ export function renderReport(view: SessionView, applied: readonly Revision[] = [
     out.push('');
   }
 
-  for (const line of shortfallLines(view)) out.push(line);
+  for (const line of shortfallLines(view)) out.push(renumber(line, shift));
 
-  for (const line of supplementLines(view)) out.push(line);
+  for (const line of supplementLines(view)) out.push(renumber(line, shift));
 
-  for (const line of requirementLines(view)) out.push(line);
+  for (const line of requirementLines(view)) out.push(renumber(line, shift));
 
-  out.push('## 三、追问实录');
+  out.push(renumber('## 三、追问实录', shift));
   out.push('');
   for (const claim of view.claims) {
     out.push('### ' + claim.id + ' ' + claim.text);
@@ -339,9 +428,9 @@ export function renderReport(view: SessionView, applied: readonly Revision[] = [
     out.push('');
   }
 
-  for (const line of counterLines(view)) out.push(line);
+  for (const line of counterLines(view)) out.push(renumber(line, shift));
 
-  out.push('## 五、简历修改建议');
+  out.push(renumber('## 五、简历修改建议', shift));
   out.push('');
   const advice = view.suggestions.filter((item) => item.status === 'suggested' && item.suggestion !== null);
   if (advice.length === 0) out.push('（没有被判定为需要改写的条目）');
@@ -358,10 +447,12 @@ export function renderReport(view: SessionView, applied: readonly Revision[] = [
     out.push('');
   }
 
-  for (const line of sideBySideLines(view, applied)) out.push(line);
+  for (const line of sideBySideLines(view, applied)) out.push(renumber(line, shift));
 
-  // 章节编号跟着上一节走：没采纳过就没有「六、改前改后对照」，复现方式就还是六
-  out.push('## ' + (applied.length > 0 ? '七' : '六') + '、复现方式');
+  // 章节编号跟着上一节走：没采纳过就没有「改前改后对照」，复现方式的编号跟着减一；
+  // 有「比上次」时整体再 +1。叠两次太绕，所以直接把三档写成表，别在字符串里算。
+  const reproNumeral = !shift ? (applied.length > 0 ? '七' : '六') : applied.length > 0 ? '八' : '七';
+  out.push('## ' + reproNumeral + '、复现方式');
   out.push('');
   out.push('- 本次跑法：' + s.llmMode);
   out.push('- 事件条数：' + String(view.events.length) + '（全部落本地 SQLite，可按 seq 重放）');

@@ -732,7 +732,8 @@ export function createApp(opts: AppOptions): Hono {
     const id = c.req.param('id');
     const view = assembleSession(db, id);
     if (view === null) return c.json({ error: '会话不存在' }, 404);
-    return c.body(renderReport(view, revisedOf(db, id)?.applied ?? []), 200, {
+    // 对比一并交给渲染器：报告是被带走的产物，看不出「这一版比上一版怎么样」，它就只是单场记录。
+    return c.body(renderReport(view, revisedOf(db, id)?.applied ?? [], compareSessions(db, id)), 200, {
       'content-type': 'text/markdown; charset=utf-8',
       'content-disposition': 'attachment; filename="' + reportFileName(view) + '"',
     });
@@ -748,7 +749,7 @@ export function createApp(opts: AppOptions): Hono {
     const view = assembleSession(db, id);
     if (view === null) return c.json({ error: '会话不存在' }, 404);
     const print = c.req.query('print') === '1';
-    return c.body(renderReportHtml(view, { print, applied: revisedOf(db, id)?.applied ?? [] }), 200, {
+    return c.body(renderReportHtml(view, { print, applied: revisedOf(db, id)?.applied ?? [], compare: compareSessions(db, id) }), 200, {
       'content-type': 'text/html; charset=utf-8',
       'content-disposition': 'inline; filename="' + reportHtmlFileName(view) + '"',
     });
@@ -759,7 +760,7 @@ export function createApp(opts: AppOptions): Hono {
     const id = c.req.param('id');
     const view = assembleSession(db, id);
     if (view === null) return c.json({ error: '会话不存在' }, 404);
-    return c.body(renderReportHtml(view, { applied: revisedOf(db, id)?.applied ?? [] }), 200, {
+    return c.body(renderReportHtml(view, { applied: revisedOf(db, id)?.applied ?? [], compare: compareSessions(db, id) }), 200, {
       'content-type': 'application/msword; charset=utf-8',
       'content-disposition': 'attachment; filename="' + reportDocFileName(view) + '"',
     });

@@ -227,3 +227,52 @@ describe('改完再跑一遍的对比接口', () => {
     expect(view.session.parentSessionId).toBe(firstId);
   });
 });
+
+
+describe('报告里的「比上次」', () => {
+  it('第一版报告里没有这一节，章节编号也不动', async () => {
+    const t = rig();
+    const created = await createSession(t, { resumeText: RESUME, jobTitle: '后端工程师' });
+    const id = ((await created.json()) as { id: string }).id;
+    await runSession(t, id);
+    const md = await (await t.app.request('/api/sessions/' + id + '/report.md')).text();
+    expect(md).not.toContain('## 比上次');
+    expect(md).toContain('一、主张与判定');
+  });
+
+  it('第二版报告里，比上次排在主张与判定之前，且后面章节整体 +1', async () => {
+    const t = rig();
+    t.next('overstated');
+    const first = await createSession(t, { resumeText: RESUME, jobTitle: '后端工程师' });
+    const firstId = ((await first.json()) as { id: string }).id;
+    await runSession(t, firstId);
+
+    t.next('solid');
+    const second = await createSession(t, { resumeText: RESUME, jobTitle: '后端工程师', parentSessionId: firstId });
+    const secondId = ((await second.json()) as { id: string }).id;
+    await runSession(t, secondId);
+
+    const md = await (await t.app.request('/api/sessions/' + secondId + '/report.md')).text();
+    expect(md).toContain('## 比上次');
+    expect(md.indexOf('## 比上次')).toBeLessThan(md.indexOf('二、主张与判定'));
+    expect(md).not.toContain('一、主张与判定');
+    expect(md).toContain('站得住 0 → 1 条');
+    expect(md).toContain('七、复现方式');
+
+    const html = await (await t.app.request('/api/sessions/' + secondId + '/report.html')).text();
+    expect(html).toContain('<h2>比上次</h2>');
+    expect(html).toContain('七、复现方式');
+  });
+
+  it('同一份简历再跑一遍：报告直说简历没改，别把模型波动说成改好了', async () => {
+    const t = rig();
+    const first = await createSession(t, { resumeText: RESUME, jobTitle: '后端工程师' });
+    const firstId = ((await first.json()) as { id: string }).id;
+    await runSession(t, firstId);
+    const second = await createSession(t, { resumeText: RESUME, jobTitle: '后端工程师', parentSessionId: firstId });
+    const secondId = ((await second.json()) as { id: string }).id;
+    await runSession(t, secondId);
+    const md = await (await t.app.request('/api/sessions/' + secondId + '/report.md')).text();
+    expect(md).toContain('与上一版完全相同');
+  });
+});
