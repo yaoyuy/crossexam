@@ -849,6 +849,14 @@ export function reportDocUrl(id: string): string {
   return '/api/sessions/' + encodeURIComponent(id) + '/report.doc';
 }
 
+/**
+ * 整场打成一个单文件 HTML（附件下载）。
+ * 里面没有外链、没有图片、没有统计脚本——发给别人，他断网双击也能看完整场。
+ */
+export function bundleUrl(id: string): string {
+  return '/api/sessions/' + encodeURIComponent(id) + '/bundle.html';
+}
+
 /* ---------------------------------------------- 采纳改写与改完的简历导出 */
 
 /** 会话当前那一版改完的简历；没采纳过就是 null（不是空串：没采纳过和改成了空是两件事） */
