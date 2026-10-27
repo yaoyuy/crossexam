@@ -267,3 +267,38 @@ describe('撤销改写', () => {
     expect(((await res.json()) as { cleared: boolean }).cleared).toBe(false);
   });
 });
+describe('报告里的改前改后对照', () => {
+  it('没采纳过时报告里没有这一节，章节编号也不占位', async () => {
+    const t = rig();
+    const id = await ranSession(t);
+    const md = await (await t.app.request('/api/sessions/' + id + '/report.md')).text();
+    expect(md.indexOf('改前改后对照')).toBe(-1);
+    expect(md).toContain('## 六、复现方式');
+    const html = await (await t.app.request('/api/sessions/' + id + '/report.html')).text();
+    expect(html.indexOf('class="side"')).toBe(-1);
+  });
+
+  it('采纳之后左右两列都在：改动行与它前后的上下文行', async () => {
+    const t = rig();
+    const id = await ranSession(t);
+    await accept(t, id, ['C1']);
+    const md = await (await t.app.request('/api/sessions/' + id + '/report.md')).text();
+    expect(md).toContain('## 六、改前改后对照（本版采纳了 1 处改写）');
+    expect(md).toContain('| 上下文 |');
+    expect(md).toContain('| C1 |');
+    expect(md).toContain(AFTER);
+    expect(md).toContain('## 七、复现方式');
+    const html = await (await t.app.request('/api/sessions/' + id + '/report.html')).text();
+    expect(html).toContain('<h2>六、改前改后对照（本版采纳了 1 处改写）</h2>');
+    expect(html).toContain('class="side"');
+    expect(html).toContain('<td class="before">');
+  });
+
+  it('Word 版报告带的是同一节：三条导出只算一遍', async () => {
+    const t = rig();
+    const id = await ranSession(t);
+    await accept(t, id, ['C1']);
+    const doc = await (await t.app.request('/api/sessions/' + id + '/report.doc')).text();
+    expect(doc).toContain('改前改后对照');
+  });
+});
