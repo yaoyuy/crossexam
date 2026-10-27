@@ -52,6 +52,7 @@ import { extractResumeFromFile, ImportError, IMPORT_ACCEPT } from '../import/ind
 import type { ImportErrorCode } from '../import/index.ts';
 import { compareSessions } from '../compare.ts';
 import { overviewSessions } from '../overview.ts';
+import { growthChainOf } from '../growth.ts';
 import { renderReport, reportFileName } from '../report.ts';
 import { renderReportHtml, reportDocFileName, reportHtmlFileName } from '../report-html.ts';
 import { bundleFileName, renderBundleHtml } from '../bundle.ts';
@@ -719,6 +720,16 @@ export function createApp(opts: AppOptions): Hono {
    */
   app.get('/api/sessions/:id/compare', (c) => {
     const view = compareSessions(db, c.req.param('id'));
+    if (view === null) return c.json({ error: '会话不存在' }, 404);
+    return c.json(view);
+  });
+
+  /**
+   * 成长档案：这一场所在那条版本链上，每一版的主张轨迹。
+   * 只有一版时也是 200（那是正常状态），界面自己决定要不要展开。
+   */
+  app.get('/api/sessions/:id/growth', (c) => {
+    const view = growthChainOf(db, c.req.param('id'));
     if (view === null) return c.json({ error: '会话不存在' }, 404);
     return c.json(view);
   });
