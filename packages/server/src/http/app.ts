@@ -53,10 +53,19 @@ import type { ImportErrorCode } from '../import/index.ts';
 import { compareSessions } from '../compare.ts';
 import { overviewSessions } from '../overview.ts';
 import { growthChainOf } from '../growth.ts';
+import { tailorFor } from '../tailor.ts';
 import { renderReport, reportFileName } from '../report.ts';
 import { renderReportHtml, reportDocFileName, reportHtmlFileName } from '../report-html.ts';
 import { bundleFileName, renderBundleHtml } from '../bundle.ts';
-import { resumeDocFileName, resumeHtmlFileName, renderResumeHtml, resumeTextFileName } from '../resume-export.ts';
+import {
+  renderResumeHtml,
+  resumeDocFileName,
+  resumeHtmlFileName,
+  resumeTextFileName,
+  tailoredDocFileName,
+  tailoredHtmlFileName,
+  tailoredTextFileName,
+} from '../resume-export.ts';
 import { acceptRevisions, discardRevisions, removeSupplementFor, revisedOf, saveSupplementFor } from '../revisions.ts';
 import {
   deleteInterviewer,
@@ -903,6 +912,82 @@ export function createApp(opts: AppOptions): Hono {
     return c.body(html, 200, {
       'content-type': 'application/msword; charset=utf-8',
       'content-disposition': 'attachment; filename="' + resumeDocFileName(view) + '"',
+    });
+  });
+
+
+  /**
+   * 一岗一版：按某一份 JD 把这份简历筛一版。
+   *
+   * 只读、只筛、不改：留下的每一行都能说清是因为对上了哪条要求，去掉的每一行也能说清为什么。
+   * 不传 jd 就用第一份；这一场没有 JD 时明确拒绝，而不是悄悄返回原文冒充「这一版」。
+   */
+  app.get('/api/sessions/:id/tailor', (c) => {
+    const id = c.req.param('id');
+    const view = assembleSession(db, id);
+    if (view === null) return c.json({ error: '会话不存在：' + id }, 404);
+    const asked = textField(c.req.query('jd'));
+    const jdId = asked === '' ? view.jds[0]?.id ?? '' : asked;
+    if (jdId === '') return c.json({ error: '这一场没有可对照的岗位要求，先在投料台填一份 JD。' }, 400);
+    const tailored = tailorFor(db, view, jdId);
+    if (tailored === null) return c.json({ error: '这一场里没有这份岗位要求：' + jdId }, 404);
+    return c.json(tailored);
+  });
+
+  /** 按岗位筛出来的一版纯文本：复制去投，或者再喂给别的工具 */
+  app.get('/api/sessions/:id/tailored.txt', (c) => {
+    const id = c.req.param('id');
+    const view = assembleSession(db, id);
+    if (view === null) return c.json({ error: '会话不存在：' + id }, 404);
+    const asked = textField(c.req.query('jd'));
+    const jdId = asked === '' ? view.jds[0]?.id ?? '' : asked;
+    const tailored = jdId === '' ? null : tailorFor(db, view, jdId);
+    if (tailored === null) return c.json({ error: '这份岗位要求不在这一场里：' + jdId }, 404);
+    return c.body(tailored.text, 200, {
+      'content-type': 'text/plain; charset=utf-8',
+      'content-disposition': 'attachment; filename="' + tailoredTextFileName(view) + '"',
+    });
+  });
+
+  /** 同一份 HTML 通道：?print=1 打开即调打印（另存为 PDF），与另外几份导出完全同源 */
+  app.get('/api/sessions/:id/tailored.html', (c) => {
+    const id = c.req.param('id');
+    const view = assembleSession(db, id);
+    if (view === null) return c.json({ error: '会话不存在：' + id }, 404);
+    const asked = textField(c.req.query('jd'));
+    const jdId = asked === '' ? view.jds[0]?.id ?? '' : asked;
+    const tailored = jdId === '' ? null : tailorFor(db, view, jdId);
+    if (tailored === null) return c.json({ error: '这份岗位要求不在这一场里：' + jdId }, 404);
+    const html = renderResumeHtml(view, revisedOf(db, id), {
+      print: c.req.query('print') === '1',
+      tailored: {
+        text: tailored.text,
+        jdTitle: tailored.jdTitle,
+        keptSegments: tailored.keptSegments,
+        droppedSegments: tailored.droppedSegments,
+      },
+    });
+    return c.body(html, 200, {
+      'content-type': 'text/html; charset=utf-8',
+      'content-disposition': 'inline; filename="' + tailoredHtmlFileName(view) + '"',
+    });
+  });
+
+  /** Word：HTML + .doc 后缀，与报告、简历走同一条老路 */
+  app.get('/api/sessions/:id/tailored.doc', (c) => {
+    const id = c.req.param('id');
+    const view = assembleSession(db, id);
+    if (view === null) return c.json({ error: '会话不存在：' + id }, 404);
+    const asked = textField(c.req.query('jd'));
+    const jdId = asked === '' ? view.jds[0]?.id ?? '' : asked;
+    const tailored = jdId === '' ? null : tailorFor(db, view, jdId);
+    if (tailored === null) return c.json({ error: '这份岗位要求不在这一场里：' + jdId }, 404);
+    const html = renderResumeHtml(view, revisedOf(db, id), {
+      tailored: { text: tailored.text, jdTitle: tailored.jdTitle, keptSegments: tailored.keptSegments, droppedSegments: tailored.droppedSegments },
+    });
+    return c.body(html, 200, {
+      'content-type': 'application/msword; charset=utf-8',
+      'content-disposition': 'attachment; filename="' + tailoredDocFileName(view) + '"',
     });
   });
 

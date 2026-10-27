@@ -110,6 +110,11 @@ export interface ResumeHtmlOptions {
   print?: boolean;
   /** 标出改过的段落，并在末尾附一份改动清单：给用户自己核对用的版本 */
   marks?: boolean;
+  /**
+   * 按岗位筛过的一版：正文用它，抬头写明是按哪份岗位、留了几段去了几段。
+   * 筛过的一版不做改动标记——它没有改动，只有取舍。
+   */
+  tailored?: { text: string; jdTitle: string; keptSegments: number; droppedSegments: number } | null;
 }
 
 /**
@@ -120,8 +125,10 @@ export function renderResumeHtml(
   revised: RevisedView | null,
   options: ResumeHtmlOptions = {},
 ): string {
-  const text = revised === null ? view.session.resumeText : revised.text;
-  const marks = options.marks === true && revised !== null;
+  const tailored = options.tailored ?? null;
+  const text = tailored !== null ? tailored.text : revised === null ? view.session.resumeText : revised.text;
+  // 筛过的一版没有「改动」可标：它的每句话都是原文，只是有些行没进这一版。
+  const marks = options.marks === true && revised !== null && tailored === null;
   const title = view.session.jobTitle === '' ? '简历' : view.session.jobTitle;
   const out: string[] = [];
   out.push('<!doctype html>');
@@ -131,9 +138,13 @@ export function renderResumeHtml(
   out.push('<style>' + STYLE + '</style>');
   out.push('</head><body><div class="page">');
   out.push('<h1>' + esc(title) + '</h1>');
-  out.push('<p class="sub">' + (revised === null
-    ? '原文导出于 CrossExam 质询室'
-    : '依据质询结果修订（' + String(revised.applied.length) + ' 处改动）') + '</p>');
+  const subtitle = tailored !== null
+    ? '按《' + esc(tailored.jdTitle) + '》筛出的一版：留下 ' + String(tailored.keptSegments) +
+      ' 段、去掉 ' + String(tailored.droppedSegments) + ' 段；原文一个字都没有改'
+    : revised === null
+      ? '原文导出于 CrossExam 质询室'
+      : '依据质询结果修订（' + String(revised.applied.length) + ' 处改动）';
+  out.push('<p class="sub">' + subtitle + '</p>');
   out.push('<div class="body">' + (marks ? markedBody(text, revised.spans) : esc(text)) + '</div>');
   if (marks && revised !== null) for (const block of changeList(view, revised)) out.push(block);
   out.push('</div>');
@@ -163,4 +174,17 @@ export function resumeDocFileName(view: SessionView): string {
 
 export function resumeTextFileName(view: SessionView): string {
   return resumeBaseName(view) + '.txt';
+}
+
+/** 按岗位筛过的一版：三个文件名都带 -tailored，下载下来不会和另外三份混在一起 */
+export function tailoredTextFileName(view: SessionView): string {
+  return resumeBaseName(view) + '-tailored.txt';
+}
+
+export function tailoredHtmlFileName(view: SessionView): string {
+  return resumeBaseName(view) + '-tailored.html';
+}
+
+export function tailoredDocFileName(view: SessionView): string {
+  return resumeBaseName(view) + '-tailored.doc';
 }
