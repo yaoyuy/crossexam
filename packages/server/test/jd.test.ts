@@ -160,6 +160,7 @@ afterEach(() => {
 /** 只列这个文件真正读的字段：接口形状由 http.test.ts 负责全量盯住 */
 interface ViewLike {
   notices: string[];
+  claims: { id: string; verdict: string | null }[];
   probes: Probe[];
   jds: { id: string; ordinal: number; title: string; text: string }[];
   requirements: Requirement[];
@@ -279,6 +280,29 @@ describe('岗位要求（多 JD）', () => {
     const html = await (await t.app.request('/api/sessions/' + created.id + '/report.html')).text();
     expect(html).toContain('岗位要求对照');
     expect(html).toContain(R1_TEXT);
+  });
+  it('报告里有「按类别看短板」：同一份判定换个角度摆，且能对回逐条判定', async () => {
+    const t = rig();
+    const created = await jdSession(t, TWO_JDS);
+    await run(t, created.id);
+    const view = await viewOf(t, created.id);
+
+    const md = await (await t.app.request('/api/sessions/' + created.id + '/report.md')).text();
+    expect(md).toContain('### 按类别看短板');
+    // 报告不许自己造一个视角：条数必须与逐条判定对得上
+    const judged = view.claims.filter((claim) => claim.verdict !== null);
+    expect(judged.length).toBeGreaterThan(0);
+    const weak = judged.filter((claim) => claim.verdict !== 'solid');
+    if (weak.length === 0) {
+      expect(md).toContain(String(view.claims.length) + ' 条主张全部站得住');
+    } else {
+      expect(md).toContain('已判的 ' + String(judged.length) + ' 条里有 ' + String(weak.length) + ' 条还欠证据');
+      expect(md).toContain('最该先补的 ' + String(Math.min(weak.length, 3)) + ' 处');
+      expect(md).toContain('（追问 ');
+    }
+
+    const html = await (await t.app.request('/api/sessions/' + created.id + '/report.html')).text();
+    expect(html).toContain('按类别看短板');
   });
 
   it('模型漏掉的、指错主张的对照，由代码补成「简历里没写」', async () => {
