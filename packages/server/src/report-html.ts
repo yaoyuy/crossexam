@@ -9,7 +9,7 @@
  * 事实只有一个来源；多写一个薄呈现层，好过让服务端去依赖一个工具目录。
  */
 
-import { CLAIM_CATEGORY_LABEL, COUNTER_KIND_LABEL, COUNTER_SOURCE_LABEL, MATCH_LABEL, PERSONA_PRESETS, REQUIREMENT_KIND_LABEL, VERDICT_LABEL, categoryLine, shortfallPlan, sideBySide } from '@crossexam/shared';
+import { CLAIM_CATEGORY_LABEL, COUNTER_KIND_LABEL, COUNTER_SOURCE_LABEL, DIFFICULTY_LABEL, MATCH_LABEL, PERSONA_PRESETS, REQUIREMENT_KIND_LABEL, REWRITE_STYLE_LABEL, VERDICT_LABEL, categoryLine, shortfallPlan, sideBySide } from '@crossexam/shared';
 import type { Anchor, Revision, Verdict, VerdictKind } from '@crossexam/shared';
 import type { ProbeRow } from './store/index.ts';
 import type { SessionView } from './pipeline.ts';
@@ -145,6 +145,10 @@ function metaRows(view: SessionView): string[] {
     ['简历指纹', s.resumeHash],
     ['跑法', s.llmMode + '，模型调用 ' + String(view.llm.calls) + ' 次（其中离线回放 ' + String(view.llm.replayedCalls) + ' 次）'],
     ['Token', '输入 ' + String(view.llm.inputTokens) + ' / 输出 ' + String(view.llm.outputTokens) + ' / 缓存命中 ' + String(view.llm.cacheReadTokens) + ' / 推理 ' + String(view.llm.reasoningTokens)],
+    // 两个档位都进抬头上：这份报告是被带走的产物，看不出「这一场问多深、改多狠」，
+    // 两份报告之间的差异就成了不可解释的差异。
+    ['追问强度', DIFFICULTY_LABEL[view.difficulty] + '（每主张 ' + String(s.budget.config.maxRoundsPerClaim) + ' 轮 · 每人每主张 ' + String(s.budget.config.maxProbesPerInterviewerPerClaim) + ' 次 · 全场 ' + String(s.budget.config.maxTotalProbes) + ' 次）'],
+    ['改写风格', REWRITE_STYLE_LABEL[view.style]],
     ['追问预算', '已用 ' + String(s.budget.totalProbes) + ' 次，上限 ' + String(s.budget.config.maxTotalProbes) + ' 次；主张 ' + String(view.claims.length) + ' 条'],
     ['岗位要求', view.jds.length === 0 ? '未上传（面试官按各自的经验追问）' : String(view.jds.length) + ' 份 JD，抽出 ' + String(view.requirements.length) + ' 条要求（答得上 ' + String(view.requirementSummary.hit) + ' · 答得含糊 ' + String(view.requirementSummary.weak) + ' · 简历里没写 ' + String(view.requirementSummary.missing) + '）'],
     ['反问', view.counters.length === 0 ? '这一场没有生成反问' : String(view.counters.length) + ' 句（每句都带简历或 JD 原文依据）'],

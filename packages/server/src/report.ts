@@ -8,7 +8,7 @@
  * 所以它只读数据库里的事实，不做任何润色或补写。
  */
 
-import { CLAIM_CATEGORY_LABEL, COUNTER_KIND_LABEL, COUNTER_SOURCE_LABEL, MATCH_LABEL, PERSONA_PRESETS, REQUIREMENT_KIND_LABEL, VERDICT_LABEL, categoryLine, shortfallPlan, sideBySide } from '@crossexam/shared';
+import { CLAIM_CATEGORY_LABEL, COUNTER_KIND_LABEL, COUNTER_SOURCE_LABEL, DIFFICULTY_LABEL, MATCH_LABEL, PERSONA_PRESETS, REQUIREMENT_KIND_LABEL, REWRITE_STYLE_LABEL, VERDICT_LABEL, categoryLine, shortfallPlan, sideBySide } from '@crossexam/shared';
 import type { Anchor, Revision, Verdict, VerdictKind } from '@crossexam/shared';
 import type { ProbeRow } from './store/index.ts';
 import type { SessionView } from './pipeline.ts';
@@ -277,6 +277,10 @@ export function renderReport(view: SessionView, applied: readonly Revision[] = [
     '- Token：输入 ' + String(view.llm.inputTokens) + ' / 输出 ' + String(view.llm.outputTokens) +
       ' / 缓存命中 ' + String(view.llm.cacheReadTokens) + ' / 推理 ' + String(view.llm.reasoningTokens),
   );
+  // 两个档位都写在抬头上：它们是这一场的输入，不看这两个数字就没法判断
+  // 「同样是 5 条建议，为什么这次改得这么凶」——换档就是换了一场沙盘。
+  out.push('- 追问强度：' + DIFFICULTY_LABEL[view.difficulty] + '（预算 ' + String(view.session.budget.config.maxRoundsPerClaim + '/' + view.session.budget.config.maxProbesPerInterviewerPerClaim + '/' + view.session.budget.config.maxTotalProbes) + '）');
+  out.push('- 改写风格：' + REWRITE_STYLE_LABEL[view.style]);
   out.push('- 追问预算：已用 ' + String(used) + ' 次，上限 ' + String(cap) + ' 次；主张 ' + String(view.claims.length) + ' 条');
   out.push('');
 
