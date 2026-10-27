@@ -771,6 +771,26 @@ const postRerunSessions = (await sessions()).length;
 check('这一场是新的一场，不是把上一场覆盖掉', postRerunSessions === preRerunSessions + 1, String(preRerunSessions) + ' → ' + String(postRerunSessions));
 const rerunCards = await countCards();
 check('新一场的判定全变成了站得住', rerunCards === 5 && compareAfter.indexOf('变差') < 0, String(rerunCards) + ' 张卡 / 变差 0 条');
+// P12 ②：成长档案。这一场是第二版，所以打开时必须能连出轨迹——
+// 「改完再跑一遍」只给一句话结论，每一版各自判了什么要看这里。
+const growthEntry = await hasShot('compare-growth');
+check('第二版的「比上次」栏多一颗「看全部版本」', growthEntry === 'yes', growthEntry);
+await clickShot('compare-growth');
+const growthText = await waitFor(async () => { const t = await textOf('growth'); return t.indexOf('条主张轨迹') >= 0 ? t : ''; }, '成长档案画出轨迹', 15000);
+check('成长档案把这条版本链连起来', growthText.indexOf('2 版') >= 0 && growthText.indexOf('已经改站住') >= 0, growthText.replace(/\n/g, ' / ').slice(0, 90));
+const growthVersions = await evalJs('document.querySelectorAll(' + JSON.stringify('[data-shot=growth-versions] li') + ').length');
+check('每一版一格，两版都在', growthVersions === 2, String(growthVersions) + ' 格');
+const fixedText = await textOf('growth-fixed');
+check('已经改站住的那几条摆在明面上', fixedText.indexOf('已经改站住') >= 0 && fixedText.indexOf('站得住') >= 0, fixedText.replace(/\n/g, ' / ').slice(0, 70));
+const trailsBefore = await evalJs('document.querySelectorAll(' + JSON.stringify('[data-shot=growth-all] [data-shot=growth-trail]') + ').length');
+check('全部轨迹默认收着，不跟结论抢地方', trailsBefore === 0, String(trailsBefore) + ' 条');
+await clickShot('growth-toggle');
+const trailsAfter = await evalJs('document.querySelectorAll(' + JSON.stringify('[data-shot=growth-all] [data-shot=growth-trail]') + ').length');
+check('展开全部轨迹，条数与这一版的主张数对得上', trailsAfter === 5, String(trailsAfter) + ' 条');
+await clickShot('growth-close');
+await sleep(200);
+const growthClosed = await hasShot('growth');
+check('关掉之后覆盖层收干净', growthClosed === 'no', growthClosed);
 const contractBadge = await evalJs('(() => { const b = document.querySelector(String.fromCharCode(91) + "data-shot=" + String.fromCharCode(34) + "contract-toggle" + String.fromCharCode(34) + String.fromCharCode(93) + ""); b.click(); return b.textContent; })()');
 const badgeText = await waitFor(async () => { const t = await bodyText(); return t.indexOf('与运行时一致') >= 0 ? t : ''; }, '契约对账徽章', 8000);
 check('跑完后契约能与运行时对账', badgeText.indexOf('与运行时一致') >= 0, String(contractBadge).slice(0, 30));
@@ -886,11 +906,13 @@ await evalJs('(() => { const bs = Array.from(document.querySelectorAll("button[t
 const afterOne = await waitSessionsBelow(before - 1, 10000);
 check('点 × 能删掉一场', afterOne.length === before - 1, String(before) + ' → ' + String(afterOne.length));
 const delCount = () => evalJs('document.querySelectorAll("button[title=" + String.fromCharCode(34) + "删除这一场" + String.fromCharCode(34) + "]").length');
+// 一行一行删到空。连点两下删除曾经会留下一条幽灵会话（两次刷新的响应乱序回来，
+// 先发的那份把已删的行又写回列表），所以 App 里给刷新加了序号闸门，这里断言的就成了真话。
 for (let i = 0; i < 6; i += 1) {
   const beforeRows = await delCount();
   if (beforeRows === 0) break;
   await evalJs('(() => { const bs = Array.from(document.querySelectorAll("button[title=" + String.fromCharCode(34) + "删除这一场" + String.fromCharCode(34) + "]")); if (bs.length > 0) bs[0].click(); return bs.length; })()');
-  await waitFor(async () => { const n = await delCount(); return n < beforeRows ? 'ok' : ''; }, '列表少一行', 8000);
+  await waitFor(async () => { const n = await delCount(); return n < beforeRows ? 'ok' : ''; }, '列表少一行', 12000);
 }
 const finalList = await sessions();
 check('可以把历史清空', finalList.length === 0, String(finalList.length) + ' 场');
