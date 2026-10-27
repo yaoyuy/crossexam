@@ -484,6 +484,64 @@ export interface CompareView {
   resumeChanged: boolean;
   comparison: CompareSummary | null;
 }
+
+/**
+ * 成长档案的接口契约（P12 · ②）。
+ *
+ * 刻意与服务端 growth.ts 重复声明而不 import：web 包不引 @crossexam/shared，
+ * 因为它依赖 node:crypto，进浏览器会崩（同 api.ts 头部那条注释）。
+ * 漂移由服务端 packages/server/test/growth.test.ts 的接口返回体看守——它是同一份事实的
+ * 唯一作者，界面这边只负责照着画。
+ */
+export interface GrowthPoint {
+  sessionId: string;
+  createdAt: string;
+  jobTitle: string;
+  version: number;
+  judged: number;
+  solid: number;
+  weak: number;
+  probes: number | null;
+}
+
+export interface TrailStep {
+  sessionId: string;
+  version: number;
+  claimId: string;
+  text: string;
+  verdict: VerdictKind | null;
+  shift: ShiftKind | null;
+}
+
+export interface ClaimTrail {
+  key: string;
+  firstVersion: number;
+  lastVersion: number;
+  versions: number;
+  text: string;
+  verdict: VerdictKind | null;
+  presentInLatest: boolean;
+  everSolid: boolean;
+  persistent: boolean;
+  steps: TrailStep[];
+}
+
+export interface GrowthView {
+  sessionId: string;
+  rootId: string;
+  broken: boolean;
+  brokenAt: string | null;
+  window: number;
+  order: string[];
+  versions: GrowthPoint[];
+  trails: ClaimTrail[];
+  persistent: ClaimTrail[];
+  fixed: ClaimTrail[];
+  single: number;
+  headline: string;
+  trailNote: string | null;
+}
+
 export interface ContractPersona {
   name: string;
   role: string;
@@ -751,6 +809,10 @@ export function getSession(id: string): Promise<SessionView> {
 /** 跟上一版比。第一场也回 200（first 为真），不是 404。 */
 export function fetchCompare(id: string): Promise<CompareView> {
   return getJson<CompareView>('/api/sessions/' + encodeURIComponent(id) + '/compare');
+}
+
+export function fetchGrowth(id: string): Promise<GrowthView> {
+  return getJson<GrowthView>('/api/sessions/' + encodeURIComponent(id) + '/growth');
 }
 
 export function fetchStats(sessionId?: string): Promise<LlmStats> {

@@ -14,7 +14,7 @@ import type { CompareView } from '../api.ts';
 import { compareFactsOf, SHIFT_TONE } from '../compare.ts';
 import { Badge, Pane } from './Bits.tsx';
 
-export function CompareBar(props: { view: CompareView | null }) {
+export function CompareBar(props: { view: CompareView | null; onOpenGrowth?: (() => void) | null }) {
   const facts = compareFactsOf(props.view);
   const [open, setOpen] = useState(false);
   const rowCount = facts === null ? 0 : facts.rows.length;
@@ -38,6 +38,17 @@ export function CompareBar(props: { view: CompareView | null }) {
       subtitle={facts.status}
       actions={
         <>
+          {props.view !== null && props.view.first === false && props.onOpenGrowth != null ? (
+            <button
+              type="button"
+              className="chip cursor-pointer transition-colors hover:border-ember-500 hover:text-ink-100"
+              onClick={props.onOpenGrowth}
+              title="这一条版本链上每一版都判了什么"
+              data-shot="compare-growth"
+            >
+              看全部版本
+            </button>
+          ) : null}
           {improved === 0 ? null : <Badge tone="solid">变好 {improved}</Badge>}
           {worsened === 0 ? null : <Badge tone="danger">变差 {worsened}</Badge>}
           <button
