@@ -12,18 +12,33 @@
  *    人话，界面直接显示。悄悄少改一条是最坏的结果：用户以为改好了。
  */
 
-import { applyRevisions, movedSpans, pendingClaimIds, revisionOf, reviseDigest } from '@crossexam/shared';
+import {
+  SUPPLEMENT_LIMITS,
+  applyRevisions,
+  movedSpans,
+  normalizeSupplement,
+  pendingClaimIds,
+  revisionOf,
+  reviseDigest,
+  supplementDigest,
+  supplementProblem,
+  supplementRevision,
+} from '@crossexam/shared';
 import type { Revision, RevisionSkip } from '@crossexam/shared';
 import {
   clearRevisions as clearRevisionRows,
+  deleteSupplement,
   getRevisedResume,
   getSession,
   insertRevision,
   listClaims,
   listRevisions,
+  listSupplements,
   saveRevisedResume,
+  saveSupplement,
   withTransaction,
 } from './store/index.ts';
+import type { SupplementRow } from './store/index.ts';
 import type { Db } from './store/index.ts';
 
 /** 改完的简历 + 三份清单。界面要能回答「确认了几条、还剩几条、哪几条改不动」。 */
@@ -91,6 +106,9 @@ export function acceptRevisions(db: Db, sessionId: string, claimIds: readonly st
     if (wanted.indexOf(id) < 0) wanted.push(id);
   }
 
+  // 补充说明和改写建议走同一条路：都是「这一次要落到简历上的改动」。
+  // 一条主张可以两者都有（把原句改准 + 补一句新事实），所以这里允许同一个 claimId 出现两条。
+  const supplements = new Map(listSupplements(db, sessionId).map((row) => [row.claimId, row]));
   const candidates: Revision[] = [];
   const early: RevisionSkip[] = [];
   for (const id of wanted) {
@@ -99,18 +117,30 @@ export function acceptRevisions(db: Db, sessionId: string, claimIds: readonly st
       early.push({ claimId: id, reason: '这条主张不在这份简历里' });
       continue;
     }
-    if (claim.suggestion === null) {
-      early.push({ claimId: id, reason: '这条主张没有改写建议' });
+    const supplement = supplements.get(id);
+    if (claim.suggestion === null && supplement === undefined) {
+      early.push({ claimId: id, reason: '这条主张既没有改写建议，也没有补充说明' });
       continue;
     }
-    candidates.push(revisionOf(id, claim.suggestion));
+    if (claim.suggestion !== null) candidates.push(revisionOf(id, claim.suggestion));
+    if (supplement !== undefined) {
+      candidates.push(supplementRevision(id, session.resumeText, claim.anchor, supplement.text));
+    }
   }
 
   // 一律基于**原文**重算，不读上一版的文本：这就是「采纳记录是集合不是叠加」。
   const result = applyRevisions(session.resumeText, candidates);
-  const accepted = result.applied.map((item) => item.claimId);
-  const suggested = claims.filter((claim) => claim.suggestion !== null).map((claim) => claim.id);
-  const pending = pendingClaimIds(suggested, accepted);
+  // 一条主张可能同时落下「替换型」与「插入型」两条改动，但 accepted 回答的是
+  // 「哪几条主张被采纳了」，所以要去重——否则一条主张会被数成两处。
+  const accepted: string[] = [];
+  for (const item of result.applied) {
+    if (!accepted.includes(item.claimId)) accepted.push(item.claimId);
+  }
+  // 「待定」= 有东西可改但这次没勾：改写建议与补充说明都算
+  const optional = claims
+    .filter((claim) => claim.suggestion !== null || supplements.has(claim.id))
+    .map((claim) => claim.id);
+  const pending = pendingClaimIds(optional, accepted);
 
   // 跳过理由按用户点名的顺序排：界面是照采纳列表逐条提示的
   const skipped: RevisionSkip[] = [];
@@ -143,4 +173,48 @@ export function discardRevisions(db: Db, sessionId: string): boolean {
   return had;
 }
 
+/* ------------------------------------------- 补充说明：用户自己写的一句新事实 */
+
+export type SupplementResult =
+  | { ok: true; row: SupplementRow }
+  | { ok: false; code: 400 | 404; error: string };
+
+/**
+ * 记下一句补充说明。三条检查按顺序问：会话在不在、主张在不在、这句话能不能用。
+ *
+ * 只校验长度与空白，不润色：这句话是用户写的事实，把它改成 AI 腔等于替用户编了一遍。
+ */
+export function saveSupplementFor(db: Db, sessionId: string, claimId: string, rawText: string): SupplementResult {
+  const session = getSession(db, sessionId);
+  if (session === null) return { ok: false, code: 404, error: '会话不存在：' + sessionId };
+
+  const claim = listClaims(db, sessionId).find((item) => item.id === claimId);
+  if (claim === undefined) return { ok: false, code: 404, error: '这条主张不在这份简历里：' + claimId };
+
+  const problem = supplementProblem(rawText);
+  if (problem !== null) return { ok: false, code: 400, error: problem };
+
+  const existing = listSupplements(db, sessionId);
+  const already = existing.some((row) => row.claimId === claimId);
+  if (!already && existing.length >= SUPPLEMENT_LIMITS.maxPerSession) {
+    return {
+      ok: false,
+      code: 400,
+      error: '一场最多补 ' + String(SUPPLEMENT_LIMITS.maxPerSession) + ' 句。想再补，先删掉用不上的。',
+    };
+  }
+
+  const text = normalizeSupplement(rawText);
+  saveSupplement(db, { sessionId, claimId, text, digest: supplementDigest(text) });
+  const row = listSupplements(db, sessionId).find((item) => item.claimId === claimId);
+  if (row === undefined) return { ok: false, code: 404, error: '补充说明没有写进去，请重试。' };
+  return { ok: true, row };
+}
+
+/** 删掉一条补充说明。返回是否真的删掉了。 */
+export function removeSupplementFor(db: Db, sessionId: string, claimId: string): boolean {
+  return deleteSupplement(db, sessionId, claimId);
+}
+
+export type { SupplementRow };
 export type { RevisionSkip };

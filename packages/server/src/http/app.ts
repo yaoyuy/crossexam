@@ -48,7 +48,7 @@ import type { ImportErrorCode } from '../import/index.ts';
 import { renderReport, reportFileName } from '../report.ts';
 import { renderReportHtml, reportDocFileName, reportHtmlFileName } from '../report-html.ts';
 import { resumeDocFileName, resumeHtmlFileName, renderResumeHtml, resumeTextFileName } from '../resume-export.ts';
-import { acceptRevisions, discardRevisions, revisedOf } from '../revisions.ts';
+import { acceptRevisions, discardRevisions, removeSupplementFor, revisedOf, saveSupplementFor } from '../revisions.ts';
 import {
   deleteInterviewer,
   deleteSession,
@@ -743,6 +743,32 @@ export function createApp(opts: AppOptions): Hono {
     if (getSession(db, id) === null) return c.json({ error: '会话不存在：' + id }, 404);
     const cleared = discardRevisions(db, id);
     return c.json({ ok: true, cleared, revised: null });
+  });
+
+  /**
+   * 记一句补充说明：面试官说「简历里没写」时，求职者当场补一句真话。
+   *
+   * 它不是改写——简历上没有原句可改——所以单独一张表；采纳时作为插入型改动
+   * 落在该主张锚点所在那一行的行尾，与改写建议共用同一套重叠判定与位移重算。
+   */
+  app.post('/api/sessions/:id/supplements', async (c) => {
+    const id = c.req.param('id');
+    const body = await readBody(c);
+    const claimId = textField(body['claimId']);
+    if (claimId === '') return c.json({ error: '要指明这是哪一条主张的补充说明。' }, 400);
+    const result = saveSupplementFor(db, id, claimId, textField(body['text']));
+    if (!result.ok) return c.json({ error: result.error }, result.code);
+    return c.json({ supplement: result.row }, 201);
+  });
+
+  /** 删掉一条补充说明：改主意是正常的；下次确认采纳时这一行就不再加进去 */
+  app.delete('/api/sessions/:id/supplements/:claimId', (c) => {
+    const id = c.req.param('id');
+    const claimId = c.req.param('claimId');
+    if (getSession(db, id) === null) return c.json({ error: '会话不存在：' + id }, 404);
+    const removed = removeSupplementFor(db, id, claimId);
+    if (!removed) return c.json({ error: '这条主张还没有补充说明：' + claimId }, 404);
+    return c.json({ ok: true, removed });
   });
 
   /** 改完（或没改过）的简历纯文本：复制粘贴、再喂给别的工具都靠它 */

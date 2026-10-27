@@ -191,6 +191,7 @@ function claimSection(view: SessionView): string[] {
     out.push('</ul>');
   }
   for (const line of shortfallSection(view)) out.push(line);
+  for (const line of supplementSection(view)) out.push(line);
   return out;
 }
 
@@ -215,6 +216,27 @@ function shortfallOf(view: SessionView): ReturnType<typeof shortfallPlan> {
     };
   });
   return shortfallPlan(claims);
+}
+
+/**
+ * 「你补的证据」（HTML 版）：与 Markdown 报告读同一份数据、同一个口径。
+ */
+function supplementSection(view: SessionView): string[] {
+  if (view.supplements.length === 0) return [];
+  const out: string[] = [];
+  out.push('<h3>你补的证据（' + String(view.supplements.length) + ' 句）</h3>');
+  out.push('<p>这几句是你自己写的事实，不是模型生成的。采纳之后它们会作为新的一行，加在对应主张那一行的下面。</p>');
+  out.push('<ul class="facts">');
+  for (const row of view.supplements) {
+    const claim = view.claims.find((item) => item.id === row.claimId);
+    out.push(
+      '<li><span class="id">' + esc(row.claimId) + '</span>' +
+        (claim === undefined ? '' : ' ' + esc(claim.text)) +
+        '<br>你补的：' + esc(row.text) + '</li>',
+    );
+  }
+  out.push('</ul>');
+  return out;
 }
 
 function shortfallSection(view: SessionView): string[] {

@@ -48,6 +48,7 @@ import {
   listJds,
   listProbes,
   listRequirementMatches,
+  listSupplements,
   listRequirements,
   llmStats,
   recordLlmCall,
@@ -59,7 +60,16 @@ import {
   updateSessionStatus,
   withTransaction,
 } from './store/index.ts';
-import type { ClaimRow, Db, EventRow, LlmStats, ProbeRow, SessionRow, SessionStatus } from './store/index.ts';
+import type {
+  ClaimRow,
+  Db,
+  EventRow,
+  LlmStats,
+  ProbeRow,
+  SessionRow,
+  SessionStatus,
+  SupplementRow,
+} from './store/index.ts';
 
 /** 阶段 → 会话状态：刷新页面也能看出跑到哪一步了 */
 const STAGE_STATUS: Record<string, SessionStatus> = {
@@ -295,6 +305,8 @@ export interface SessionView {
   difficulty: Difficulty;
   /** 这场沙盘当时用的意图契约。表里只存了指纹，全文是按同样输入重算出来的 */
   contracts: ContractView[];
+  /** 用户当场补的那几句真话（简历上没有原句的那些事实） */
+  supplements: SupplementRow[];
 }
 
 /**
@@ -489,5 +501,6 @@ export function assembleSession(db: Db, sessionId: string): SessionView | null {
     requirementNotes: requirementNotes(jds, requirements, requirementMatches),
     requirementSummary: matchSummary(requirementMatches),
     difficulty: difficultyOf(session.meta['difficulty']),
+    supplements: listSupplements(db, sessionId),
   };
 }

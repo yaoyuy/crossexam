@@ -119,6 +119,28 @@ function shortfallLines(view: SessionView): string[] {
   out.push('');
   return out;
 }
+/**
+ * 「你补的证据」：用户当场写下的那几句真话。
+ *
+ * 单独列出来而不是并进上面那份名单，是因为来源不同：上面每一条都是模型判的，
+ * 这几条是人写的。报告要能一眼看出哪些结论来自沙盘、哪些事实来自本人。
+ * 一句都没有时整节不出现（没补过就没这回事）。
+ */
+function supplementLines(view: SessionView): string[] {
+  if (view.supplements.length === 0) return [];
+  const out: string[] = [];
+  out.push('### 你补的证据（' + String(view.supplements.length) + ' 句）');
+  out.push('');
+  out.push('这几句是你自己写的事实，不是模型生成的。简历原文没有被改动——采纳之后它们会作为新的一行，加在对应主张那一行的下面。');
+  out.push('');
+  for (const row of view.supplements) {
+    const claim = view.claims.find((item) => item.id === row.claimId);
+    out.push('- ' + row.claimId + (claim === undefined ? '' : ' · ' + claim.text));
+    out.push('  > 你补的：' + row.text);
+  }
+  out.push('');
+  return out;
+}
 function requirementLines(view: SessionView): string[] {
   const out: string[] = [];
   out.push('## 二、岗位要求对照');
@@ -236,6 +258,8 @@ export function renderReport(view: SessionView): string {
   }
 
   for (const line of shortfallLines(view)) out.push(line);
+
+  for (const line of supplementLines(view)) out.push(line);
 
   for (const line of requirementLines(view)) out.push(line);
 

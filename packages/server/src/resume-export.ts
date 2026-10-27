@@ -74,6 +74,15 @@ function changeList(view: SessionView, revised: RevisedView): string[] {
     for (const item of revised.applied) {
       const claim = view.claims.find((row) => row.id === item.claimId);
       const why = claim === undefined || claim.suggestion === null ? '' : claim.suggestion.why;
+      // 插入型（补充说明）：原文里没有「改前」那一句，硬写一个空的 before 会让人以为删掉了什么
+      if (item.before.length === 0) {
+        out.push(
+          '<li><div class="after">新增一行：' + esc(item.after.replace(/^[\r\n]+/, '')) + '</div>' +
+            '<div class="why">这条主张在简历里没有原句可改，这句是你自己补的事实。</div>' +
+            '</li>',
+        );
+        continue;
+      }
       out.push(
         '<li><div class="before">' + esc(item.before) + '</div>' +
           '<div class="after">' + esc(item.after) + '</div>' +
