@@ -406,6 +406,9 @@ async function main() {
     await cdp.shot(opts.out, '07-verdicts.png', bottom('claims'));
     await cdp.shot(opts.out, '08-resume-focus.png', "(" + pane('claims') + ".querySelector('button.quote') ?? { click: () => undefined }).click(), " + pane('claims') + '.scrollTop = ' + pane('claims') + '.scrollHeight * 0.55');
     await cdp.shot(opts.out, '09-history.png', bottom('intake'));
+    // P10 · A3：按类别看短板。同一份判定的另一种摆法——左边过程面板滚到这一块，
+    // 拍下结论句、每个类别欠几条、以及最该先补的那几条（它们点一下就能跳回简历原文）。
+    await cdp.shot(opts.out, '20-shortfall.png', "document.querySelector('[data-shot=\"shortfall\"]').scrollIntoView({ block: 'center' })");
 
     // P8：岗位要求对照 + 右栏并排的 JD 原文。点一条要求的引文，右栏 JD 原文会滚到那一段并高亮。
     // 「证据锚定」这一版多出来的那一半必须看得见——只截一张「有这一栏」的图不够，要截「点得动、跳得过去」的图。
