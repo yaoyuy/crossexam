@@ -59,6 +59,22 @@ function scripted(): ScriptedClient {
     if (req.purpose === 'answer') return ANSWER;
     if (req.purpose === 'verdict') return VERDICT;
     if (req.purpose === 'suggest') return JSON.stringify({ suggestions: [] });
+    // 反问环节：HTTP 层这两组都刻意让反问走通，这样 notices 仍然为空，
+    // 「没有需要提醒的事」这条断言才还是它本来的意思。
+    if (req.purpose === 'counter') {
+      return JSON.stringify({
+        counters: [
+          {
+            text: '这个岗位日常的排期是怎么定的？',
+            kind: 'process',
+            reason: '简历上写了具体的性能数字，排期方式值得问清楚。',
+            reply: '两周一个迭代，上线前留两天缓冲。',
+            quote: QUOTE,
+            sourceId: 'C1',
+          },
+        ],
+      });
+    }
     return new Error('脚本化模型没有为 purpose=' + req.purpose + ' 准备返回值');
   });
 }
@@ -70,6 +86,7 @@ interface RunSummary {
   verdicts: { claimId: string; kind: string; confidence: number }[];
   suggestions: number;
   rejectedClaims: number;
+  counters: number;
   notices: string[];
   usage: { outputTokens: number };
 }
@@ -169,10 +186,11 @@ describe('HTTP 层', () => {
     expect(summary.probes).toBe(2);
     expect(summary.verdicts[0]?.kind).toBe('solid');
     expect(summary.rejectedClaims).toBe(0);
+    expect(summary.counters).toBe(1);
     // 站得住的主张不需要改写，于是没有需要提醒的事
     expect(summary.notices).toEqual([]);
-    // 6 次调用 = 抽取 1 + 追问 2 + 作答 2 + 判定 1（改写阶段只对有问题的主张调用）
-    expect(summary.usage.outputTokens).toBe(120);
+    // 7 次调用 = 抽取 1 + 追问 2 + 作答 2 + 判定 1 + 反问 1（改写阶段只对有问题的主张调用）
+    expect(summary.usage.outputTokens).toBe(140);
     expect(t.client.countPurpose('probe')).toBe(2);
     expect(t.client.countPurpose('suggest')).toBe(0);
   });
@@ -184,16 +202,16 @@ describe('HTTP 层', () => {
 
     const all = await t.app.request('/api/sessions/' + id + '/events');
     const everything = (await all.json()) as { events: { seq: number; kind: string }[] };
-    // 16 条 = 抽取 2 + 每轮（阶段、追问、阶段、作答、预算）5 x 2 + 判定 2 + 改写 2
-    expect(everything.events).toHaveLength(16);
-    expect(everything.events.map((e) => e.seq)).toEqual(Array.from({ length: 16 }, (_, i) => i + 1));
+    // 18 条 = 上面 16 条 + 反问（阶段、反问）2 条
+    expect(everything.events).toHaveLength(18);
+    expect(everything.events.map((e) => e.seq)).toEqual(Array.from({ length: 18 }, (_, i) => i + 1));
     expect(everything.events[0]?.kind).toBe('stage');
     expect(everything.events[1]?.kind).toBe('claims');
 
     const tail = await t.app.request('/api/sessions/' + id + '/events?from=7');
     const rest = (await tail.json()) as { from: number; events: { seq: number }[] };
     expect(rest.from).toBe(7);
-    expect(rest.events).toHaveLength(9);
+    expect(rest.events).toHaveLength(11);
     expect(rest.events.every((e) => e.seq > 7)).toBe(true);
   });
 
@@ -288,12 +306,13 @@ describe('HTTP 层', () => {
     expect(text).toContain('"channel":"probe:tech"');
     expect(text).toContain('"channel":"answer:P1"');
     expect(text).toContain('"channel":"verdict:C1"');
+    expect(text).toContain('"channel":"counter"');
     expect(text).toContain('"kind":"reasoning"');
 
     // 关键回归：走 SSE（也就是走流式）不改变落库的事件条数——分片不进事件表
     const events = await t.app.request('/api/sessions/' + id + '/events');
     const rows = (await events.json()) as { events: unknown[] };
-    expect(rows.events).toHaveLength(16);
+    expect(rows.events).toHaveLength(18);
   });
 
   it('中途失败也走 SSE，前端能拿到 fatal 而不是转圈到天荒地老', async () => {
@@ -321,9 +340,9 @@ describe('HTTP 层', () => {
     await t.app.request('/api/sessions/' + id + '/run?stream=0&panel=tech', { method: 'POST' });
     const res = await t.app.request('/api/stats?session=' + id);
     const stats = (await res.json()) as { calls: number; replayedCalls: number; outputTokens: number };
-    expect(stats.calls).toBe(6);
+    expect(stats.calls).toBe(7);
     expect(stats.replayedCalls).toBe(0);
-    expect(stats.outputTokens).toBe(120);
+    expect(stats.outputTokens).toBe(140);
   });
 
   it('没有的接口给出中文 404，不吐栈', async () => {
@@ -663,6 +682,22 @@ describe('面试官库与自定义契约', () => {
       if (req.purpose === 'answer') return ANSWER;
       if (req.purpose === 'verdict') return VERDICT;
       if (req.purpose === 'suggest') return JSON.stringify({ suggestions: [] });
+    // 反问环节：HTTP 层这两组都刻意让反问走通，这样 notices 仍然为空，
+    // 「没有需要提醒的事」这条断言才还是它本来的意思。
+    if (req.purpose === 'counter') {
+      return JSON.stringify({
+        counters: [
+          {
+            text: '这个岗位日常的排期是怎么定的？',
+            kind: 'process',
+            reason: '简历上写了具体的性能数字，排期方式值得问清楚。',
+            reply: '两周一个迭代，上线前留两天缓冲。',
+            quote: QUOTE,
+            sourceId: 'C1',
+          },
+        ],
+      });
+    }
       return new Error('脚本化模型没有为 purpose=' + req.purpose + ' 准备返回值');
     });
     return { db, client, app: createApp({ db, client, cassetteDir: '.tmp/fixtures', panelSize: extra.panelSize }) };
