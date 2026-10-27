@@ -70,6 +70,7 @@ function rig(): Rig {
     if (req.purpose === 'answer') return ANSWER;
     if (req.purpose === 'verdict') return VERDICT;
     if (req.purpose === 'suggest') return SUGGEST;
+    if (req.purpose === 'counter') return JSON.stringify({ counters: [] });
     return new Error('脚本化模型没有为 purpose=' + req.purpose + ' 准备返回值');
   });
   return { db, app: createApp({ db, client, cassetteDir: '.tmp/fixtures' }) };

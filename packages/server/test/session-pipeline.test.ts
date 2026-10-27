@@ -71,6 +71,7 @@ function purposeRouter(): (req: { purpose: string }) => string {
     answer: ANSWER,
     verdict: VERDICT,
     suggest: JSON.stringify({ suggestions: [] }),
+    counter: JSON.stringify({ counters: [] }),
   };
   return (req) => map[req.purpose] ?? JSON.stringify({});
 }
@@ -123,19 +124,20 @@ describe('会话执行器', () => {
     const events = listEvents(db, sessionId);
     expect(events.map((e) => e.kind)).toEqual([
       'stage', 'claims', 'stage', 'probes', 'stage', 'answers', 'budget', 'stage', 'verdicts', 'stage', 'suggestions',
+      'stage', 'counter',
     ]);
-    expect(events.map((e) => e.seq)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
-    expect(listEvents(db, sessionId, 7)).toHaveLength(4);
+    expect(events.map((e) => e.seq)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]);
+    expect(listEvents(db, sessionId, 7)).toHaveLength(6);
   });
 
   it('每次模型调用落一行账，"到底联没联网"变成可查询的事实', async () => {
     await runAndPersist({ db, sessionId, client: scripted(), ...RUN_OPTS });
     const stats = llmStats(db, sessionId);
-    expect(stats.calls).toBe(4);
+    expect(stats.calls).toBe(5);
     expect(stats.replayedCalls).toBe(0);
-    expect(stats.liveCalls).toBe(4);
-    expect(stats.outputTokens).toBe(80);
-    expect(stats.distinctDigests).toBe(4);
+    expect(stats.liveCalls).toBe(5);
+    expect(stats.outputTokens).toBe(100);
+    expect(stats.distinctDigests).toBe(5);
   });
 
   it('回放出来的客户端会被记成 replayed，不冒充真实调用', async () => {
@@ -148,7 +150,7 @@ describe('会话执行器', () => {
     const result = await runAndPersist({ db, sessionId, client: replayish, ...RUN_OPTS });
     expect(result.claims).toHaveLength(1);
     const stats = llmStats(db, sessionId);
-    expect(stats.replayedCalls).toBe(4);
+    expect(stats.replayedCalls).toBe(5);
     expect(stats.liveCalls).toBe(0);
   });
 
@@ -162,8 +164,8 @@ describe('会话执行器', () => {
     expect(view.verdicts[0]?.verdict.kind).toBe('solid');
     expect(view.verdicts[0]?.verdict.rationale).toContain('测量方法');
     expect(view.rounds).toBe(1);
-    expect(view.usage.outputTokens).toBe(80);
-    expect(view.llm.calls).toBe(4);
+    expect(view.usage.outputTokens).toBe(100);
+    expect(view.llm.calls).toBe(5);
     expect(assembleSession(db, 'nope')).toBeNull();
   });
 
@@ -182,7 +184,7 @@ describe('会话执行器', () => {
     await runAndPersist({ db, sessionId, client: scripted(), ...RUN_OPTS });
 
     const events = listEvents(db, sessionId);
-    expect(events.map((e) => e.seq)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+    expect(events.map((e) => e.seq)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]);
     expect(events.filter((e) => e.kind === 'claims')).toHaveLength(1);
     expect(listClaims(db, sessionId)).toHaveLength(1);
     expect(getSession(db, sessionId)?.status).toBe('done');

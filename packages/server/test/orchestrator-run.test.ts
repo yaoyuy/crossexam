@@ -112,6 +112,23 @@ function router(opts: RouterOptions = {}): ScriptedHandler {
       });
     }
 
+    // 反问环节：跑完沙盘轮到求职者提问。这里返回一条锚在简历原话上的反问，
+    // 让测试也走一遍「反问必须带依据」这条路。
+    if (req.purpose === 'counter') {
+      return JSON.stringify({
+        counters: [
+          {
+            text: '团队平时怎么排迭代？上线前会留多少缓冲？',
+            kind: 'process',
+            reason: '简历上写了三个项目都按期上线，排期方式值得问清楚。',
+            reply: '两周一个迭代，上线前留两天缓冲。',
+            quote: '首屏从 2.4s 降到 0.8s',
+            sourceId: 'C1',
+          },
+        ],
+      });
+    }
+
     return new Error('脚本化模型没有为 purpose=' + req.purpose + ' 准备返回值');
   };
 }
@@ -154,6 +171,11 @@ describe('完整沙盘', function () {
 
     expect(result.suggestions).toHaveLength(2);
     expect(result.suggestions[0]?.before).toBe('主导重构订单系统');
+
+    // P10-A4：反问也是这一场的产物，而且依据必须锚回材料。
+    expect(result.counters).toHaveLength(1);
+    expect(result.counters[0]?.source).toBe('resume');
+    expect(result.counters[0]?.anchor.quote).toBe('首屏从 2.4s 降到 0.8s');
     expect(result.usage.inputTokens).toBeGreaterThan(0);
     expect(result.usage.outputTokens).toBeGreaterThan(0);
   });
@@ -167,9 +189,10 @@ describe('完整沙盘', function () {
       'stage', 'answers', 'budget',
       'stage', 'verdicts',
       'stage', 'suggestions',
+      'stage', 'counter',
     ]);
     const stages = events.filter((e): e is Extract<RunEvent, { type: 'stage' }> => e.type === 'stage');
-    expect(stages.map((s) => s.stage)).toEqual(['extract', 'probe', 'answer', 'verdict', 'suggest']);
+    expect(stages.map((s) => s.stage)).toEqual(['extract', 'probe', 'answer', 'verdict', 'suggest', 'counter']);
     expect(stages[1]?.round).toBe(1);
   });
 
