@@ -73,7 +73,7 @@ npm run preview        # 构建前端 + 起服务，默认 http://127.0.0.1:8787
 
 ### 为什么不需要 API Key
 
-默认运行在`回放`模式：仓库里带着 56 盘已录制的模型响应（`fixtures/llm/*.json`），
+默认运行在`回放`模式：仓库里带着 149 盘已录制的模型响应（`fixtures/llm/*.json`），
 按**提示词指纹**寻址。所以任何一台机器、任何一个时间点，跑出来的都是同一场质询——
 这是「过程可复现」的技术底座，也是评委不用配任何东西就能验收的原因。
 卡带里的一部分是合成演示数据（`model` 字段写着 `scripted-demo`），不是真实模型输出；
@@ -123,8 +123,8 @@ cp .env.example .env   # 填 LLM_BASE_URL / LLM_API_KEY / LLM_MODEL（任何 Ope
 | `npm run verify` | **提交门禁**：类型检查 + 测试 + 真进程冒烟 + 构建 |
 | `npm run smoke` | 真起一个服务进程打接口（含 SSE 收尾检查） |
 | `npm run shots` | 真浏览器（Edge/Chrome + CDP）截 24 张图，控制台有报错即失败 |
-| `npm run e2e:ui` | 真浏览器把每个功能点一遍（121 项断言 + 零控制台报错），红了退出码 1 |
-| `npm run seed:demo` | 重新合成 56 盘离线演示卡带（改了提示词就必须重跑） |
+| `npm run e2e:ui` | 真浏览器把每个功能点一遍（132 项断言 + 零控制台报错），红了退出码 1 |
+| `npm run seed:demo` | 重新合成 149 盘离线演示卡带（改了提示词就必须重跑） |
 | `npm run repro` | 干净目录复现预演，逐步计时并与 10 分钟上限比对 |
 | `npm run export:prompt` | 导出 AI 协同的 Prompt 链快照到 `docs/prompt-chain/` |
 | `npm run docs:pdf` | 从 `docs/tech/*.md` 重新生成技术文档 PDF（超过 30 页直接失败） |

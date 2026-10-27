@@ -231,7 +231,7 @@ export const DEFAULT_BUDGET: BudgetConfig = {
 而预算改了，契约指纹跟着变，界面会如实显示「当前指纹 cf9c6457」（挑刺档），换个档再换回来又回到原指纹。
 档位随会话落库（`session.meta.difficulty`），重开一场历史会话仍看得出这一场问得多狠（决策 D46）。
 
-代价很具体：契约是卡带指纹的输入，档位一变指纹就变，所以离线演示按三档各录了一份卡带（56 盘里占 3 份）。
+代价很具体：契约是卡带指纹的输入，档位一变指纹就变，所以离线演示按三档各录了一份卡带（149 盘里占 3 份）。
 这与「改提示词必须重录」是同一条规则，只是这次变的输入来自界面而不是代码。
 
 ### 2.5.5 编排层的收尾条件
@@ -359,7 +359,7 @@ while (rounds < maxRounds && probeableClaims(budget, panel).length > 0) { ... }
 | 环节 | 做法 | 为什么 |
 | --- | --- | --- |
 | 选谁思考 | 装配层 `withStageModels(inner, routes)`，按 `req.purpose` 换模型 | 判定才需要「停下来想」；追问一轮十几次调用，全交给思考模型会把一场从十几秒拉成几分钟（ADR-0005） |
-| 换模型不发卡带 | `LlmRequest.model` 与 `channel` 一样不参与指纹 | 已录好的 56 盘演示卡带不必重录 |
+| 换模型不发卡带 | `LlmRequest.model` 与 `channel` 一样不参与指纹 | 已录好的 149 盘演示卡带不必重录 |
 | 没有 Key 也看得见 | 合成脚本把 `reasoning` 写进卡带（同一个通道） | 离线演示也要能证明「思考可视化」是产品能力，不是联网才有的彩蛋；卡带 `model` 固定 `scripted-demo`，一眼可辨 |
 
 实测（2026-10-26，示例简历，`CROSSEXAM_REASONING_MODEL=deepseek-reasoner` 只路由 verdict）：
