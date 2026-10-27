@@ -1367,3 +1367,10 @@ C2 要在历史栏顶上加一句话结论，并把「哪些类别总被打回�
 **门禁与实测**：`npm run verify` exit 0 —— 71 个测试文件 / 732 条断言 + 冒烟 9 项 + 48 modules（CSS 30.46 kB / JS 355.23 kB，gzip 107.97 kB）
 + **性能预算 14 项全绿**（起服 285 ms、整场回放 93 ms、打包 22 KB、JS gzip 105 kB）；
 `npm run seed:demo` 跑完 `git status --porcelain fixtures/llm` 为空，默认组合 `64aa0be85503`。
+
+**复现计时刷新（同日重测）**：`npm run repro` EXIT 0，干净目录 **89.2 s**
+（clone 34.6 s · install 27.8 s · verify 23.4 s · 起服跑完一场并下载报告 0.7 s）。比上一条基线（70.8 s）多出的部分
+几乎全在 install（15.0 → 27.8 s，本地镜像当次偏慢）——install 与 clone 本来就随镜像和磁盘缓存波动，
+所以文档记的是「最近一次实测值 + 34–121 s 区间」，不是精确到 0.1 秒的承诺。五处耗时表
+（`README.md` / `docs/tech/04-reproducibility.md` / `tools/repro/README.md` / `docs/release-checklist.md` / `task_plan.md`）
+与 `docs/video/script.md` 的核对表已同步；技术文档 PDF 重出为 **29 页 / 2119 KB**（上限 30，余量 1 页）。
