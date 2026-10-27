@@ -188,6 +188,8 @@ export function App() {
   const streamingRef = useRef(false);
   // 正在删的会话 id：界面上先把行摘掉、请求还在路上，这段时间里再点同一行不再发第二次请求
   const deletingRef = useRef<Set<string>>(new Set());
+  // 历史列表刷新的序号，用来丢掉乱序回来的旧结果（连点两下删除就能撞上）
+  const sessionsSeq = useRef(0);
   const paceRef = useRef(pace);
 
   useEffect(() => {
@@ -195,16 +197,22 @@ export function App() {
   }, [pace]);
 
   const refreshSessions = useCallback(async () => {
+    // 这两份结果可能**乱序**回来：删掉 A 的刷新已经发出、删掉 B 的刷新后发先到，
+    // 先发的那一份会把 A 那行塞回列表，界面上就多一条点不动的幽灵会话（点它只会得到 404）。
+    // 用一个只增的序号当闸门：写入前对一次号，号变了就丢掉这一份。
+    const seq = (sessionsSeq.current += 1);
     try {
-      setSessions(await listSessions(20));
+      const list = await listSessions(20);
+      if (sessionsSeq.current === seq) setSessions(list);
     } catch {
       // 历史列表拉不到不影响主流程，界面照样能跑新的质询
     }
     try {
-      setOverview(await fetchOverview());
+      const view = await fetchOverview();
+      if (sessionsSeq.current === seq) setOverview(view);
     } catch {
       // 统计取不到就把那块收起来（null），不影响别的功能
-      setOverview(null);
+      if (sessionsSeq.current === seq) setOverview(null);
     }
   }, []);
 
@@ -504,6 +512,9 @@ export function App() {
       // 就会发出两个 DELETE。所以在路上就把这个 id 记下来，重入直接返回。
       if (deletingRef.current.has(id)) return;
       deletingRef.current.add(id);
+      // 乐观摘掉这一行，同时把号一推：此刻还在路上的那一次刷新已经不认识这一版列表了，
+      // 不能让它的结果把这一行又写回来。
+      sessionsSeq.current += 1;
       setSessions((current) => current.filter((item) => item.id !== id));
       try {
         await deleteSession(id);
