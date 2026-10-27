@@ -25,6 +25,7 @@
     "smoke": "node tools/smoke/smoke.mjs",
     "shots": "node tools/ui-shots/shots.mjs",
     "e2e:ui": "node tools/ui-e2e/e2e.mjs",
+    "stats": "node tools/stats/lines.mjs",
     "repro": "node tools/repro/repro-check.mjs",
     "export:prompt": "node tools/dsh-export/bin/dsh-export.mjs",
     "seed:demo": "node packages/server/src/bin/seed-demo.ts",
