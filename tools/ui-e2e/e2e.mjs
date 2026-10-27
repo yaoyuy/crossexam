@@ -791,6 +791,57 @@ await clickShot('growth-close');
 await sleep(200);
 const growthClosed = await hasShot('growth');
 check('关掉之后覆盖层收干净', growthClosed === 'no', growthClosed);
+
+// P12 ③：一岗一版。筛的对象是「这份简历 × 这个岗位」——对得上的行留下，对不上的行去掉，
+// 一个字都不改。断言分三层：界面上的条数与接口一致、右栏正文与接口正文逐字相同、
+// 导出的三件套真能拿到同一份文本（而且不含任何外链，断网也能交）。
+const tailorSession = (await sessions())[0];
+const tailorDetail = await (await fetch('http://127.0.0.1:' + PORT + '/api/sessions/' + tailorSession.id)).json();
+const tailorJdId = tailorDetail.jds[0].id;
+const tailorEntry = await hasShot('jd-tailor');
+check('岗位原文那一栏给出「按这个岗位出一版」', tailorEntry === 'yes', tailorEntry);
+await clickShot('jd-tailor');
+const tailorPane = await waitFor(async () => { const t = await textOf('tailor'); return t.indexOf('留下') >= 0 ? t : ''; }, '一岗一版出结论', 15000);
+const tailorView = await (await fetch('http://127.0.0.1:' + PORT + '/api/sessions/' + tailorSession.id + '/tailor?jd=' + tailorJdId)).json();
+check('界面上的条数与接口算出来的一致',
+  tailorPane.indexOf('留下 ' + String(tailorView.keptClaims.length) + ' 条主张') >= 0 &&
+    tailorPane.indexOf('去掉 ' + String(tailorView.droppedClaims.length) + ' 条') >= 0,
+  String(tailorView.keptClaims.length) + ' 留下 / ' + String(tailorView.droppedClaims.length) + ' 去掉');
+const droppedShown = await hasShot('tailor-dropped');
+check('去掉哪几条写在明面上（去掉的就是对不上这个岗位的）',
+  (tailorView.droppedClaims.length === 0) === (droppedShown === 'no'),
+  String(tailorView.droppedClaims.length) + ' 条 / 界面 ' + droppedShown);
+const paneTailored = await evalJs('document.querySelector("[data-shot=resume]").innerText');
+check('右栏切到按岗位筛的那一版，标题写明是筛出来的',
+  paneTailored.indexOf('这一版（按岗位筛）') >= 0 && paneTailored.indexOf('留下 ' + String(tailorView.keptSegments) + ' 段') >= 0,
+  paneTailored.replace(/\n/g, ' / ').slice(0, 90));
+const paneText = await evalJs('(() => { const el = document.querySelector("[data-shot=resume] .resume-text"); return el === null ? "" : el.innerText; })()');
+const squeeze = (s) => String(s).replace(/\s+/g, '');
+check('右栏正文与接口返回的正文逐字相同（筛的时候没有偷偷改字）',
+  String(paneText).length > 0 && squeeze(paneText) === squeeze(tailorView.text),
+  String(String(paneText).length) + ' 字 / 接口 ' + String(tailorView.text.length) + ' 字');
+const tailorHrefs = await evalJs('(() => { const pick = (n) => { const a = document.querySelector("[data-shot=" + n + "]"); return a === null ? "" : a.getAttribute("href") || ""; }; return { txt: pick("tailor-txt"), pdf: pick("tailor-pdf"), doc: pick("tailor-doc") }; })()');
+const tailorHref = (key) => String((tailorHrefs ?? {})[key] ?? '');
+check('这一版有 txt / PDF / Word 三个导出入口',
+  tailorHref('txt').indexOf('/tailored.txt') >= 0 && tailorHref('pdf').indexOf('/tailored.html') >= 0 && tailorHref('doc').indexOf('/tailored.doc') >= 0,
+  JSON.stringify(tailorHrefs));
+const tailorTxtRes = await fetch('http://127.0.0.1:' + PORT + tailorHref('txt'));
+const tailorTxt = await tailorTxtRes.text();
+check('导出的 txt 就是筛出来的那一版', tailorTxtRes.status === 200 && squeeze(tailorTxt) === squeeze(tailorView.text), String(tailorTxt.length) + ' 字');
+const tailorDocRes = await fetch('http://127.0.0.1:' + PORT + tailorHref('doc'));
+const tailorDoc = await tailorDocRes.text();
+check('导出的 Word 是 application/msword 附件',
+  tailorDocRes.status === 200 && String(tailorDocRes.headers.get('content-type')).indexOf('msword') >= 0 && String(tailorDocRes.headers.get('content-disposition')).indexOf('tailored') >= 0,
+  String(tailorDoc.length) + ' 字符');
+const tailorHtmlRes = await fetch('http://127.0.0.1:' + PORT + tailorHref('pdf'));
+const tailorHtml = await tailorHtmlRes.text();
+check('导出的 PDF 入口给的是可打印 HTML，且整份档案没有一条外链',
+  tailorHtmlRes.status === 200 && tailorHtml.indexOf('window.print') >= 0 && tailorHtml.indexOf('http://') < 0 && tailorHtml.indexOf('https://') < 0,
+  String(tailorHtml.length) + ' 字符');
+await clickShot('resume-show-original');
+const backOriginal = await waitFor(async () => { const t = await evalJs('document.querySelector("[data-shot=resume]").innerText'); return t.indexOf('按岗位筛') < 0 ? t : ''; }, '切回原文', 8000);
+check('看完筛过的这一版能切回原文（同一栏的第三种视图，不是新开一栏）',
+  backOriginal.indexOf('简历原文') >= 0, backOriginal.replace(/\n/g, ' / ').slice(0, 60));
 const contractBadge = await evalJs('(() => { const b = document.querySelector(String.fromCharCode(91) + "data-shot=" + String.fromCharCode(34) + "contract-toggle" + String.fromCharCode(34) + String.fromCharCode(93) + ""); b.click(); return b.textContent; })()');
 const badgeText = await waitFor(async () => { const t = await bodyText(); return t.indexOf('与运行时一致') >= 0 ? t : ''; }, '契约对账徽章', 8000);
 check('跑完后契约能与运行时对账', badgeText.indexOf('与运行时一致') >= 0, String(contractBadge).slice(0, 30));
