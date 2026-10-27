@@ -9,9 +9,10 @@
  * 事实只有一个来源；多写一个薄呈现层，好过让服务端去依赖一个工具目录。
  */
 
-import { CLAIM_CATEGORY_LABEL, COUNTER_KIND_LABEL, COUNTER_SOURCE_LABEL, DIFFICULTY_LABEL, MATCH_LABEL, PERSONA_PRESETS, REQUIREMENT_KIND_LABEL, REWRITE_STYLE_LABEL, VERDICT_LABEL, categoryLine, shortfallPlan, sideBySide } from '@crossexam/shared';
+import { CLAIM_CATEGORY_LABEL, COUNTER_KIND_LABEL, COUNTER_SOURCE_LABEL, DIFFICULTY_LABEL, MATCH_LABEL, PERSONA_PRESETS, REQUIREMENT_KIND_LABEL, REWRITE_STYLE_LABEL, VERDICT_LABEL, categoryLine, shiftDetail, shortfallPlan, sideBySide } from '@crossexam/shared';
 import type { Anchor, Revision, Verdict, VerdictKind } from '@crossexam/shared';
 import type { ProbeRow } from './store/index.ts';
+import type { CompareView } from './compare.ts';
 import type { SessionView } from './pipeline.ts';
 
 const NL = String.fromCharCode(10);
@@ -81,6 +82,61 @@ function esc(text: string): string {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+const NUMERALS = '一二三四五六七八九';
+const H2 = '## ';
+
+/** 只认 '## 一、xxx' 这种二级标题：h3 的小节不编号，{ } 里的内容也不动 */
+function bumpNumeral(text: string): string {
+  if (!text.startsWith(H2)) return text;
+  const body = text.slice(H2.length);
+  const at = NUMERALS.indexOf(body.slice(0, 1));
+  if (at < 0) return text;
+  return H2 + NUMERALS.charAt(at + 1) + body.slice(1);
+}
+
+/** 有「比上次」时后面所有章节编号整体 +1：两种渲染器共用同一条规则，免得两边章节号对不上 */
+function renumber(text: string, on: boolean): string {
+  return on && text.startsWith('## ') ? bumpNumeral(text) : text;
+}
+
+/**
+ * 「比上次」一节（HTML 版）：与 Markdown 报告同一句话、同一份数据。
+ * 三种情况分得开——是第一版、上一版被删、上一版没跑完——空着一节会被当成功能坏了。
+ */
+function compareSection(compare: CompareView): string[] {
+  if (compare.first) return [];
+  const out: string[] = ['<h2>比上次</h2>'];
+  if (compare.parentMissing) {
+    out.push('<p>这一场是从 ' + esc(compare.parentSessionId ?? '(未知)') + ' 改完再跑出来的，但那一场已经被删掉了，对比做不了。</p>');
+    return out;
+  }
+  const comparison = compare.comparison;
+  const parent = compare.parent;
+  if (comparison === null || parent === null) {
+    out.push('<p>这一场是从 ' + esc(compare.parentSessionId ?? '(未知)') + ' 改完再跑出来的，但那一场没有跑完，没有判定可以拿来对比。</p>');
+    return out;
+  }
+  out.push('<p class="tagline">上一版：' + esc(parent.id) + '（' + esc(parent.createdAt) + '，' + esc(parent.jobTitle) + '）</p>');
+  out.push('<p><strong>' + esc(comparison.headline) + '</strong></p>');
+  out.push('<ul class="facts">');
+  out.push('<li>简历内容：' + (compare.resumeChanged ? '改过了（两份的指纹不同）' : '与上一版完全相同（判定若有变化，是这一场看到的追问不同，不是你改了简历）') + '</li>');
+  out.push('</ul>');
+  const groups: [string, string[]][] = [
+    ['变好的', comparison.improved.map((pair) => pair.next.id + ' · ' + pair.next.text + '：' + shiftDetail(pair))],
+    ['变差的', comparison.worsened.map((pair) => pair.next.id + ' · ' + pair.next.text + '：' + shiftDetail(pair))],
+    ['这一版新出现的', comparison.added.map((claim) => claim.id + ' · ' + claim.text + '（' + (claim.verdict === null ? '未判定' : VERDICT_LABEL[claim.verdict]) + '）')],
+    ['上一版有、这一版没了的', comparison.removed.map((claim) => claim.id + ' · ' + claim.text + '（上一版判定：' + (claim.verdict === null ? '未判定' : VERDICT_LABEL[claim.verdict]) + '）')],
+  ];
+  for (const group of groups) {
+    if (group[1].length === 0) continue;
+    out.push('<h3>' + esc(group[0]) + '（' + String(group[1].length) + ' 条）</h3>');
+    out.push('<ul class="facts">');
+    for (const item of group[1]) out.push('<li>' + esc(item) + '</li>');
+    out.push('</ul>');
+  }
+  return out;
 }
 
 function interviewerName(role: string): string {
@@ -425,10 +481,11 @@ function sideSection(view: SessionView, applied: readonly Revision[]): string[] 
   return out;
 }
 
-function reproSection(view: SessionView, hasSide: boolean): string[] {
+function reproSection(view: SessionView, hasSide: boolean, shifted: boolean): string[] {
   const s = view.session;
+  const numeral = !shifted ? (hasSide ? '七' : '六') : hasSide ? '八' : '七';
   return [
-    '<h2>' + (hasSide ? '七' : '六') + '、复现方式</h2>',
+    '<h2>' + numeral + '、复现方式</h2>',
     '<ul class="facts">',
     '<li>本次跑法：' + esc(s.llmMode) + '</li>',
     '<li>事件条数：' + String(view.events.length) + '（全部落本地 SQLite，可按 seq 重放）</li>',
@@ -443,6 +500,8 @@ export interface ReportHtmlOptions {
   print?: boolean;
   /** 已采纳的改写：给了才有「改前改后对照」这一节，没给就整段不出现 */
   applied?: readonly Revision[];
+  /** 上一版对比：第一版传 null 或 first=true 时「比上次」整节不出现 */
+  compare?: CompareView | null;
 }
 
 export function renderReportHtml(view: SessionView, options: ReportHtmlOptions = {}): string {
@@ -462,13 +521,18 @@ export function renderReportHtml(view: SessionView, options: ReportHtmlOptions =
     for (const notice of view.notices) out.push('<li>' + esc(notice) + '</li>');
     out.push('</ul></div>');
   }
-  for (const block of claimSection(view)) out.push(block);
-  for (const block of requirementSection(view)) out.push(block);
-  for (const block of transcriptSection(view)) out.push(block);
-  for (const block of counterSection(view)) out.push(block);
-  for (const block of adviceSection(view)) out.push(block);
-  for (const block of sideSection(view, options.applied ?? [])) out.push(block);
-  for (const block of reproSection(view, (options.applied ?? []).length > 0)) out.push(block);
+  // 「比上次」插在「主张与判定」之前（读者翻报告的第一个问题是这一版有没有用），
+  // 它在场时后面所有章节编号整体 +1：两个渲染器共用同一条 renumber 规则。
+  const compared = options.compare === null || options.compare === undefined ? [] : compareSection(options.compare);
+  for (const block of compared) out.push(block);
+  const shift = compared.length > 0;
+  for (const block of claimSection(view)) out.push(renumber(block, shift));
+  for (const block of requirementSection(view)) out.push(renumber(block, shift));
+  for (const block of transcriptSection(view)) out.push(renumber(block, shift));
+  for (const block of counterSection(view)) out.push(renumber(block, shift));
+  for (const block of adviceSection(view)) out.push(renumber(block, shift));
+  for (const block of sideSection(view, options.applied ?? [])) out.push(renumber(block, shift));
+  for (const block of reproSection(view, (options.applied ?? []).length > 0, shift)) out.push(block);
   out.push('<div class="footer">本报告由本地服务生成（简历与报告都没有离开这台机器）。报告是事实的转述：结论只来自数据库里的事件与判定，不做润色、不补写。</div>');
   out.push('</div>');
   if (options.print === true) {
