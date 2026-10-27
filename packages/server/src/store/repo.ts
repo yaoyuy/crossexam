@@ -746,7 +746,7 @@ export function clearRevisions(db: Db, sessionId: string): void {
 export function insertRevision(db: Db, sessionId: string, revision: Revision, ordinal: number, at: string = nowIso()): void {
   db.prepare(
     'INSERT INTO revision (session_id, claim_id, ordinal, start, end, before, after, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)' +
-      ' ON CONFLICT(session_id, claim_id) DO UPDATE SET ordinal = excluded.ordinal, start = excluded.start,' +
+      ' ON CONFLICT(session_id, ordinal) DO UPDATE SET claim_id = excluded.claim_id, start = excluded.start,' +
       ' end = excluded.end, before = excluded.before, after = excluded.after, created_at = excluded.created_at',
   ).run(sessionId, revision.claimId, ordinal, revision.start, revision.end, revision.before, revision.after, at);
 }
@@ -791,6 +791,73 @@ export function saveRevisedResume(
 export function getRevisedResume(db: Db, sessionId: string): RevisedResumeRow | null {
   const row = db.prepare('SELECT * FROM revised_resume WHERE session_id = ?').get(sessionId) as RevisedResumeDbRow | undefined;
   return row === undefined ? null : mapRevisedResume(row);
+}
+
+/* ------------------------------------------- 补充说明（v8）：用户当场补的那句真话 */
+
+/** 一句补充说明。claimId 是它挂在哪条主张上，text 是用户自己写的（不经模型） */
+export interface SupplementRow {
+  sessionId: string;
+  claimId: string;
+  text: string;
+  digest: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface SupplementDbRow {
+  session_id: string;
+  claim_id: string;
+  text: string;
+  digest: string;
+  created_at: string;
+  updated_at: string;
+}
+
+function mapSupplement(row: SupplementDbRow): SupplementRow {
+  return {
+    sessionId: row.session_id,
+    claimId: row.claim_id,
+    text: row.text,
+    digest: row.digest,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+/** 一条主张一句：再补一次就是覆盖（用户改主意比留两句更像真实操作） */
+export function saveSupplement(
+  db: Db,
+  input: { sessionId: string; claimId: string; text: string; digest: string; at?: string },
+): void {
+  const at = input.at ?? nowIso();
+  db.prepare(
+    'INSERT INTO supplement (session_id, claim_id, text, digest, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)' +
+      ' ON CONFLICT(session_id, claim_id) DO UPDATE SET text = excluded.text, digest = excluded.digest,' +
+      ' updated_at = excluded.updated_at',
+  ).run(input.sessionId, input.claimId, input.text, input.digest, at, at);
+}
+
+export function listSupplements(db: Db, sessionId: string): SupplementRow[] {
+  const rows = asRows<SupplementDbRow>(
+    db.prepare('SELECT * FROM supplement WHERE session_id = ? ORDER BY claim_id').all(sessionId),
+  );
+  return rows.map(mapSupplement);
+}
+
+export function getSupplement(db: Db, sessionId: string, claimId: string): SupplementRow | null {
+  const row = db.prepare('SELECT * FROM supplement WHERE session_id = ? AND claim_id = ?').get(sessionId, claimId) as
+    | SupplementDbRow
+    | undefined;
+  return row === undefined ? null : mapSupplement(row);
+}
+
+/** 返回是否真的删掉了一行——删不存在的东西不该被当成成功 */
+export function deleteSupplement(db: Db, sessionId: string, claimId: string): boolean {
+  const result = db.prepare('DELETE FROM supplement WHERE session_id = ? AND claim_id = ?').run(sessionId, claimId) as {
+    changes?: number;
+  };
+  return (result.changes ?? 0) > 0;
 }
 
 /* ------------------------------------------------------- 岗位要求（多 JD 驱动） */

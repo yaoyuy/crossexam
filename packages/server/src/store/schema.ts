@@ -31,7 +31,7 @@
 
 import type { Db } from './db.ts';
 
-export const SCHEMA_VERSION = 7;
+export const SCHEMA_VERSION = 8;
 
 const SESSION_TABLE =
   'CREATE TABLE IF NOT EXISTS session (' +
@@ -176,8 +176,32 @@ const REVISION_TABLE =
   '  before TEXT NOT NULL,' +
   '  after TEXT NOT NULL,' +
   '  created_at TEXT NOT NULL,' +
+  '  PRIMARY KEY (session_id, ordinal)' +
+  ')';
+
+/**
+ * v5 当时 revision 的形态：主键还是 (session_id, claim_id)。
+ *
+ * v8 换成 (session_id, ordinal)，因为一条主张现在可能同时落下两条改动：
+ * 一条替换型（改写建议）+ 一条插入型（补充说明）。旧主键会让第二条把第一条覆盖掉，
+ * 而用户看到的将是「两条都勾了，只改了一处」。迁移必须从**当时**的形态出发，
+ * 所以这个形状冻结在这里，不跟着 REVISION_TABLE 走。
+ */
+const REVISION_TABLE_V5 =
+  'CREATE TABLE IF NOT EXISTS revision (' +
+  '  session_id TEXT NOT NULL REFERENCES session(id) ON DELETE CASCADE,' +
+  '  claim_id TEXT NOT NULL,' +
+  '  ordinal INTEGER NOT NULL,' +
+  '  start INTEGER NOT NULL,' +
+  '  end INTEGER NOT NULL,' +
+  '  before TEXT NOT NULL,' +
+  '  after TEXT NOT NULL,' +
+  '  created_at TEXT NOT NULL,' +
   '  PRIMARY KEY (session_id, claim_id)' +
   ')';
+
+/** 按主张查改写：v8 之后一条主张可以有多条改动，主键不再具备这个查询能力 */
+const REVISION_INDEX = 'CREATE INDEX IF NOT EXISTS revision_by_claim ON revision(session_id, claim_id)';
 
 const REVISED_RESUME_TABLE =
   'CREATE TABLE IF NOT EXISTS revised_resume (' +
@@ -242,6 +266,26 @@ const REQUIREMENT_MATCH_TABLE =
   '  FOREIGN KEY (session_id, requirement_id) REFERENCES requirement(session_id, id) ON DELETE CASCADE' +
   ')'
 
+/**
+ * 补充说明（v8）：用户当场补的那句真话。
+ *
+ * 为什么不存进 revision 表就算了：revision 记的是「原文档某一段被改成了什么」，
+ * 而补充说明在原文里**没有对应的那一段**（start === end）。它是用户输入的新事实，
+ * 与模型给的改写建议是两种来源，分开存才能回答「这句是人写的还是模型写的」。
+ *
+ * 不存插入坐标：坐标由该主张的锚点在采纳时现算（insertionPointAfter），
+ * 存两份坐标只会给「两份不一致」留机会。
+ */
+const SUPPLEMENT_TABLE =
+  'CREATE TABLE IF NOT EXISTS supplement (' +
+  '  session_id TEXT NOT NULL REFERENCES session(id) ON DELETE CASCADE,' +
+  '  claim_id TEXT NOT NULL,' +
+  '  text TEXT NOT NULL,' +
+  '  digest TEXT NOT NULL,' +
+  '  created_at TEXT NOT NULL,' +
+  '  updated_at TEXT NOT NULL,' +
+  '  PRIMARY KEY (session_id, claim_id)' +
+  ')';
 const JD_INDEX = 'CREATE INDEX IF NOT EXISTS jd_by_session ON jd(session_id, ordinal)';
 const REQUIREMENT_INDEX = 'CREATE INDEX IF NOT EXISTS requirement_by_session ON requirement(session_id, ordinal)';
 
@@ -262,12 +306,14 @@ function schemaStatements(options: { probeTurnUnique: boolean }): readonly strin
     LLM_CALL_INDEX_SESSION,
     INTERVIEWER_TABLE,
     REVISION_TABLE,
+    REVISION_INDEX,
     REVISED_RESUME_TABLE,
     JD_TABLE,
     JD_INDEX,
     REQUIREMENT_TABLE,
     REQUIREMENT_INDEX,
     REQUIREMENT_MATCH_TABLE,
+    SUPPLEMENT_TABLE,
   ];
 }
 
@@ -380,7 +426,7 @@ function migrateV5(db: Db): void {
   rebuild(
     db,
     () => {
-      db.exec(REVISION_TABLE);
+      db.exec(REVISION_TABLE_V5);
       db.exec(REVISED_RESUME_TABLE);
     },
     5,
@@ -433,6 +479,34 @@ function migrateV7(db: Db): void {
   );
 }
 
+/**
+ * v7 → v8：补充说明落库，并让一条主张能落下两条改动。
+ *
+ * 两件事一起做，因为它们本来是一件事的两面：
+ *   - 新增 supplement 表：用户当场补的那句真话（简历上没有原句可改，只能新增一行）；
+ *   - 重建 revision 表：主键从 (session_id, claim_id) 换成 (session_id, ordinal)，
+ *     否则同一条主张的「替换 + 插入」两条改动会在落库时互相覆盖。
+ *
+ * 老库里既有的改写一条都不丢：列没变，只是主键换了。
+ */
+function migrateV8(db: Db): void {
+  rebuild(
+    db,
+    () => {
+      db.exec('ALTER TABLE revision RENAME TO revision_v5');
+      db.exec(REVISION_TABLE);
+      db.exec(REVISION_INDEX);
+      db.exec(
+        'INSERT INTO revision (session_id, claim_id, ordinal, start, end, before, after, created_at)' +
+          ' SELECT session_id, claim_id, ordinal, start, end, before, after, created_at FROM revision_v5',
+      );
+      db.exec('DROP TABLE revision_v5');
+      db.exec(SUPPLEMENT_TABLE);
+    },
+    8,
+  );
+}
+
 /** 版本号 → 升级动作。只写「从上一版升上来」的那一步，不写全量建表。 */
 const MIGRATIONS: Record<number, (db: Db) => void> = {
   2: migrateV2,
@@ -441,6 +515,7 @@ const MIGRATIONS: Record<number, (db: Db) => void> = {
   5: migrateV5,
   6: migrateV6,
   7: migrateV7,
+  8: migrateV8,
 };
 
 export class SchemaVersionError extends Error {
