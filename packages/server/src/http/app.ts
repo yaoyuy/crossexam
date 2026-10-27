@@ -192,6 +192,7 @@ export interface RunSummary {
   verdicts: RunSessionResult['verdicts'];
   suggestions: number;
   rejectedClaims: number;
+  counters: number;
   notices: string[];
   usage: RunSessionResult['usage'];
 }
@@ -204,6 +205,7 @@ function summaryOf(result: RunSessionResult): RunSummary {
     verdicts: result.verdicts,
     suggestions: result.suggestions.length,
     rejectedClaims: result.rejectedClaims.length,
+    counters: result.counters.length,
     notices: result.notices,
     usage: result.usage,
   };

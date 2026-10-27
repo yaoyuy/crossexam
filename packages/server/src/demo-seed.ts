@@ -32,6 +32,7 @@ export interface DemoRunSummary {
   claims: number;
   probes: number;
   suggestions: number;
+  counters: number;
   rejectedClaims: number;
   /** 判定种类 -> 条数，例如 { solid: 1, overstated: 1 } */
   verdicts: Record<string, number>;
@@ -95,6 +96,7 @@ function summarize(result: RunSessionResult): DemoRunSummary {
     claims: result.claims.length,
     probes: result.probes.length,
     suggestions: result.suggestions.length,
+    counters: result.counters.length,
     rejectedClaims: result.rejectedClaims.length,
     verdicts,
     notices: result.notices,
@@ -146,6 +148,13 @@ function signatureOf(result: RunSessionResult): string {
       claimId: suggestion.claimId,
       before: suggestion.before,
       after: suggestion.after,
+    })),
+    counters: result.counters.map((item) => ({
+      id: item.id,
+      kind: item.kind,
+      source: item.source,
+      text: item.text,
+      quote: item.anchor.quote,
     })),
     notices: result.notices,
     budget: result.budget,
@@ -273,7 +282,7 @@ export async function seedDemoCassettes(opts: { dir: string }): Promise<DemoSeed
   }
   // 逐阶段点名：编排层对单个阶段的失败是逐项容错的，
   // 脚本抛错时合成跑照样"成功"，只有到回放才炸。所以生成端必须自己点名。
-  const required = ['extract', 'jd-extract', 'jd-merge', 'jd-match', 'probe', 'answer', 'verdict', 'suggest'];
+  const required = ['extract', 'jd-extract', 'jd-merge', 'jd-match', 'probe', 'answer', 'verdict', 'suggest', 'counter'];
   const missing = required.filter((purpose) => !entries.some((entry) => entry.purpose === purpose));
   if (missing.length > 0) {
     problems.push(

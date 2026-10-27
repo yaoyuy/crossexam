@@ -25,7 +25,7 @@
  */
 
 import { REQUIREMENT_KIND_LABEL, VERDICT_LABEL } from '@crossexam/shared';
-import type { ClaimCategory, MatchStatus, RequirementKind, VerdictKind } from '@crossexam/shared';
+import type { ClaimCategory, CounterKind, MatchStatus, RequirementKind, VerdictKind } from '@crossexam/shared';
 import { CASSETTE_VERSION, digestFor, writeCassette } from './cassette.ts';
 import type { CassetteEntry } from './cassette.ts';
 import { chunkText } from './replay.ts';
@@ -620,6 +620,83 @@ function jdMatchText(prompt: string): string {
   return JSON.stringify({ matches });
 }
 
+/**
+ * 演示用的反问计划。
+ *
+ * 两条纪律与 DEMO_REQUIREMENT_PLANS 一样：
+ * 1. quote 必须逐字存在于材料里。sourceId 是 'JD' 时取自 DEMO_JD，
+ *    是 'RESUME' 时由claimIdForQuote 从提示词里反查主张编号——写错一个字，
+ *    groundCounters 会把它当锚不到丢掉，演示场次的反问会莫名少一句。
+ * 2. 四句刻意分散在四个 kind 上（业务 / 团队 / 成长 / 流程），
+ *    让评委一眼看出反问不是随机凑数，而是按取向分组的。
+ */
+interface DemoCounterPlan {
+  text: string;
+  kind: CounterKind;
+  reason: string;
+  reply: string;
+  quote: string;
+  /** JD 的引文写 JD，主张的引文写 RESUME，真正的 sourceId 在运行时解析 */
+  from: 'JD' | 'RESUME';
+}
+
+export const DEMO_COUNTER_PLANS: readonly DemoCounterPlan[] = [
+  {
+    kind: 'business',
+    from: 'JD',
+    quote: '有日订单百万级系统的性能优化经验，能给出量化的优化结论',
+    text: '这个岗位强调百万级订单量下的量化结论。我写的是首屏从 2.4s 降到 0.8s，却没写订单量级。想请教：这个量级在你们的业务里算大吗？我该把哪一段的日订单量补上？',
+    reason: '这是硬性要求里最弱的一条，而回答它正好能把「只有耗时对比、没有量级」这个缺口补实。',
+    reply: '量级是我们初筛的第一眼：百万级和十万级要用的手段完全不同。把订单量、峰值 QPS 和测量方法一起写出来，数字不大也比只有一个耗时对比可信。',
+  },
+  {
+    kind: 'team',
+    from: 'JD',
+    quote: '与产品、前端紧密协作，推动需求高质量交付',
+    text: '岗位职责里写着要和产品、前端紧密协作，而我的简历里一条协作事实都没有。想问：你们怎么判断一个人有没有真的推动过跨团队的事？',
+    reason: '这条职责在简历里完全没有对应事实，问出来能听清团队的判断口径，回来才知道该补什么。',
+    reply: '看具体动作：谁提的方案、谁去对齐、分歧最后怎么收敛。写清「我推动了什么、结果是什么」，比写一个奖项有用。',
+  },
+  {
+    kind: 'growth',
+    from: 'RESUME',
+    quote: '主导重构订单系统，首屏加载从 2.4s 降到 0.8s。',
+    text: '这条写的是「主导重构」。想问清楚：方向是你自己判断要做的，还是上面定了方向、你负责落地？我该怎么把边界写清楚才不显得夸大？',
+    reason: '「主导」是简历里最容易被追着问的词，先问清口径，回来才能把话说准。',
+    reply: '主导意味着方向是你判断的、资源是你协调的；如果只是执行，写「负责落地」更稳，面试时也不会被追着打。',
+  },
+  {
+    kind: 'process',
+    from: 'RESUME',
+    quote: '独立完成 RBAC 权限模块，覆盖 12 个业务线。',
+    text: '「独立完成」加「覆盖 12 个业务线」，想问一下：这个模块上线后是谁在维护？12 条业务线的接入是你一条条推动的吗？',
+    reason: '规模与「独立完成」放在一起最容易让人怀疑边界，问清楚才改得准。',
+    reply: '我们会在意上线之后那一段：谁接的需求、谁做的排障。把「上线后维护了多久」写进去，比写覆盖了几个业务线更站得住。',
+  },
+];
+
+/** 从提示词里反查这段引文属于哪条主张：提示词按 [Cn] 分段渲染原文引文。 */
+function claimIdForQuote(prompt: string, quote: string): string | null {
+  const at = prompt.indexOf('原文引文：' + quote);
+  if (at < 0) return null;
+  const head = prompt.slice(0, at);
+  const found = head.lastIndexOf('[C');
+  if (found < 0) return null;
+  const match = /^C[0-9]+/.exec(head.slice(found + 1));
+  return match === null ? null : match[0];
+}
+
+function counterText(prompt: string): string {
+  const counters: Record<string, string>[] = [];
+  for (const plan of DEMO_COUNTER_PLANS) {
+    if (prompt.indexOf(plan.quote) < 0) continue;
+    const sourceId = plan.from === 'JD' ? 'J1' : claimIdForQuote(prompt, plan.quote);
+    if (sourceId === null) continue;
+    counters.push({ text: plan.text, kind: plan.kind, reason: plan.reason, reply: plan.reply, quote: plan.quote, sourceId });
+  }
+  return JSON.stringify({ counters });
+}
+
 function reasoningFor(req: LlmRequest): string {
   const prompt = req.messages[0]?.content ?? '';
   if (req.purpose === 'answer') return answerReasoning(prompt);
@@ -637,6 +714,7 @@ function respond(req: LlmRequest, state: ScriptState): string {
   if (req.purpose === 'jd-extract') return jdExtractText(user);
   if (req.purpose === 'jd-merge') return jdMergeText(user);
   if (req.purpose === 'jd-match') return jdMatchText(user);
+  if (req.purpose === 'counter') return counterText(user);
   throw new Error('演示脚本没有覆盖这个阶段：' + req.purpose);
 }
 
