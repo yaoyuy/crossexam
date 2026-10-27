@@ -7,10 +7,11 @@
 
 ```
 npm run verify
-  1/4 typecheck   tsc --noEmit（根 + shared + server + web）
-  2/4 test        71 个测试文件 / 732 条断言
-  3/4 smoke       9 项真进程冒烟
-  4/4 build       vite 8.3.5 / 48 modules / CSS 30.46 kB / JS 355.23 kB（gzip 107.97 kB）
+  1/5 typecheck   tsc --noEmit（根 + shared + server + web）
+  2/5 test        71 个测试文件 / 732 条断言
+  3/5 smoke       9 项真进程冒烟
+  4/5 build       vite 8.3.5 / 48 modules / CSS 30.46 kB / JS 355.23 kB（gzip 107.97 kB）
+  5/5 budget      14 项性能预算（起服 285 ms / 整场回放 93 ms / 打包 22 KB / JS gzip 105 kB）
   exit 0
 ```
 
@@ -218,7 +219,7 @@ P10 之后 e2e 从 88 项涨到 **117 项**；P11 的 B2 加了 4 项、B1 加�
 
 ## 5.7 本章要点
 
-- 门禁四道：类型、逻辑、**产品能跑**、能构建。第三道不可替代。
+- 门禁五道：类型、逻辑、**产品能跑**、能构建、够快。第三道不可替代，第五道让「沉默的性能退化」变成红灯。
 - 界面点测 157 项全绿；真浏览器 26 张截图、控制台 0 报错；另有 78 项一次性全接口验收（脚本未进仓库，见 5.3）；
   报告三种形态另有真机验收（`.tmp/report-check.mjs`，12/12）：HTML 经 Edge 打印得到 438305 B / 6 页 PDF，界面三个按钮分别指向 `.md` / `.html?print=1` / `.doc`。
 - 真模型跑得通：20 s、10 条主张、18 次追问，追问质量可直接引用于演示视频。

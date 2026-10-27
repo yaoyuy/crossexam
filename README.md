@@ -125,8 +125,9 @@ cp .env.example .env   # 填 LLM_BASE_URL / LLM_API_KEY / LLM_MODEL（任何 Ope
 | `npm run launch` | 零门槛启动器：查 Node → 缺什么装什么 → 起服务 → 开浏览器（与双击 `启动.cmd` 等价） |
 | `npm run preview` | 构建前端并起一个端口的完整产品 |
 | `npm run dev` | 前后端热更新（两个进程，开发用） |
-| `npm run verify` | **提交门禁**：类型检查 + 测试 + 真进程冒烟 + 构建 |
+| `npm run verify` | **提交门禁（五道）**：类型检查 + 测试 + 真进程冒烟 + 构建 + 性能预算 |
 | `npm run smoke` | 真起一个服务进程打接口（含 SSE 收尾检查） |
+| `npm run budget` | 性能预算：起服 / 整场回放 / 报告 / 打包的耗时与体积上界，14 项（已含在 `verify` 里） |
 | `npm run shots` | 真浏览器（Edge/Chrome + CDP）截 26 张图，控制台有报错即失败 |
 | `npm run stats` | 量一遍代码规模与测试密度（技术文档 3.7.1 那张表就是它的输出） |
 | `npm run e2e:ui` | 真浏览器把每个功能点一遍（157 项断言 + 零控制台报错），红了退出码 1 |

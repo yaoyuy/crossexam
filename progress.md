@@ -1349,3 +1349,21 @@ C2 要在历史栏顶上加一句话结论，并把「哪些类别总被打回�
 
 **门禁与实测**：`npm run verify` exit 0；`npm run e2e:ui` **157/157** 且控制台 0 报错
 （实测：留下 2 条主张 / 去掉 3 条 / 留下 12 段 / 去掉 3 段，原文 465 字 → 这一版 319 字）。
+
+## Session 35（P13：CI 与性能预算）
+
+**做了什么**：把门禁从「本地一遍」扩成「换台机器一遍 + 够快一遍」。
+
+- `tools/ui-e2e/e2e.mjs`：删掉两处写死的路径——卡带目录从模块位置反推仓库根（`fileURLToPath(new URL('../..', import.meta.url))`），
+  浏览器改成候选列表 + `CROSSEXAM_BROWSER` 环境变量覆盖。
+- 新建 `.github/workflows/ci.yml`：`gate`（ubuntu-latest：`npm ci` → `npm run verify` → `npm run seed:demo` 后
+  `git diff --exit-code -- fixtures/llm` 的**卡带漂移门禁** → `npm run stats` 只打印）与 `browser`（windows-latest：`npm run build` → `npm run e2e:ui`）。
+- 新建 `tools/perf/budget.mjs`（14 项上界：起服 / 健康检查 / 建档 / 整场回放 / 会话详情 / 报告 Markdown / 单文件打包的耗时与体积 /
+  打包无外链 / 历史列表 / 前端 JS 与 CSS 的 gzip 体积），接入 `npm run budget`，并把 `verify` 改成五步——budget 排在 build 之后，因为量的是构建产物。
+
+**为什么这么设计**：本地全绿不等于别处能跑（F77）；用来拦「变坏」的阈值只能按数量级定，按最近一次实测定会让冷热差变成随机红灯（F78）。
+漂移门禁用「重跑 + `git diff`」而不是另写比对工具，是因为 seed 本身就是逐字节确定的，多一套比对就多一份会脱节的事。
+
+**门禁与实测**：`npm run verify` exit 0 —— 71 个测试文件 / 732 条断言 + 冒烟 9 项 + 48 modules（CSS 30.46 kB / JS 355.23 kB，gzip 107.97 kB）
++ **性能预算 14 项全绿**（起服 285 ms、整场回放 93 ms、打包 22 KB、JS gzip 105 kB）；
+`npm run seed:demo` 跑完 `git status --porcelain fixtures/llm` 为空，默认组合 `64aa0be85503`。
