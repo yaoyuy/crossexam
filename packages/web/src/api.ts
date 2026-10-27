@@ -82,6 +82,36 @@ export interface RejectedRequirement {
   reason: string;
 }
 
+/** 反问的类别：问的是团队、技术栈、成长、业务还是流程 */
+export type CounterKind = 'team' | 'tech' | 'growth' | 'business' | 'process';
+
+/** 反问的依据来自哪里：岗位要求还是简历原话 */
+export type CounterSource = 'jd' | 'resume';
+
+/**
+ * 一句可以反问 HR 的话。
+ * anchor 一定非空：锚不上材料的反问在服务端就被丢掉了，不会走到界面上。
+ * reply 是沙盘模拟出来的，不是真 HR 在答——界面必须把这点说清楚。
+ */
+export interface CounterQuestion {
+  id: string;
+  ordinal: number;
+  text: string;
+  kind: CounterKind;
+  reason: string;
+  reply: string;
+  source: CounterSource;
+  anchor: Anchor;
+  /** source 是 jd 时才有值 */
+  jdId: string | null;
+}
+
+/** 锚不回材料、被丢掉的反问：留在界面上说明「这句为什么没留下来」 */
+export interface RejectedCounter {
+  text: string;
+  reason: string;
+}
+
 /** 简历对一条要求的回答程度。missing 不生成追问——没写过的经历，逼问没有意义。 */
 export type MatchStatus = 'hit' | 'weak' | 'missing';
 
@@ -209,6 +239,7 @@ export type RunEvent =
       matches: RequirementMatch[];
       summary: MatchSummary;
     }
+  | { type: 'counter'; counters: CounterQuestion[]; rejected: RejectedCounter[] }
   | { type: 'suggestions'; suggestions: SuggestOutcome[]; errors: SuggestError[] }
   | { type: 'error'; fatal: boolean; message: string };
 
@@ -219,6 +250,7 @@ export interface RunSummary {
   verdicts: Verdict[];
   suggestions: number;
   rejectedClaims: number;
+  counters: number;
   notices: string[];
   usage: Usage;
 }
@@ -324,6 +356,10 @@ export interface SessionView {
   requirementSummary: MatchSummary;
   /** 用户当场补的那些真话。采纳之后它们会作为新的一行加进简历 */
   supplements: SessionSupplement[];
+  /** 跑完给出的反问清单；没有可依据的材料时是空数组 */
+  counters: CounterQuestion[];
+  /** 锚不回材料、没上桌的反问 */
+  counterRejected: RejectedCounter[];
   /** 这一场问得有多狠。旧会话可能没有，界面按默认档处理。 */
   difficulty?: string;
 }

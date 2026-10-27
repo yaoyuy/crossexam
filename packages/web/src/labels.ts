@@ -5,7 +5,14 @@ import type { ClaimCategory, InterviewerRole, MatchStatus, VerdictKind } from '@
  * 报告、接口、界面必须用同一套词，否则「站得住」在报告里写一套、界面上写另一套。
  * domain.ts 只依赖类型与常量，没有 node: 依赖，所以能被浏览器端打包。
  */
-export { CLAIM_CATEGORY_LABEL, MATCH_LABEL, REQUIREMENT_KIND_LABEL, VERDICT_LABEL } from '@crossexam/shared/domain.ts';
+export {
+  CLAIM_CATEGORY_LABEL,
+  COUNTER_KIND_LABEL,
+  COUNTER_SOURCE_LABEL,
+  MATCH_LABEL,
+  REQUIREMENT_KIND_LABEL,
+  VERDICT_LABEL,
+} from '@crossexam/shared/domain.ts';
 
 /** 判定徽章的配色语义：绿=过了，黄=说过头了，红=站不住，灰=没答上来 */
 export const VERDICT_TONE: Record<VerdictKind, 'solid' | 'warn' | 'danger' | 'muted'> = {
@@ -112,6 +119,7 @@ export const STAGE_LABEL: Record<string, string> = {
   answer: '求职者作答',
   verdict: '给出判定',
   suggest: '反推改写',
+  counter: '轮到你反问',
 };
 
 export const STAGE_HINT: Record<string, string> = {
@@ -123,6 +131,7 @@ export const STAGE_HINT: Record<string, string> = {
   answer: '求职者 Agent 只依据简历作答，答不上来就承认',
   verdict: '对照追问与作答，逐条判定这条主张站不站得住',
   suggest: '把站不住的主张改写成经得起追问的表述',
+  counter: '按简历与岗位要求，生成几句你可以反问 HR 的话',
 };
 
 export const CLAIM_CATEGORY_ORDER: ClaimCategory[] = [
@@ -154,6 +163,7 @@ export function channelLabel(channel: string, nameOf?: (id: string) => string): 
   if (channel === 'extract') return '正在抽取主张';
   if (channel === 'jd-merge') return '正在归并岗位要求';
   if (channel === 'jd-match') return '正在对照岗位要求';
+  if (channel === 'counter') return '正在生成反问';
   const cut = channel.indexOf(':');
   if (cut <= 0) return channel;
   const stage = channel.slice(0, cut);

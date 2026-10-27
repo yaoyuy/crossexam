@@ -57,6 +57,7 @@ import { IntakePanel } from './components/IntakePanel.tsx';
 import { InterviewerStudio } from './components/InterviewerStudio.tsx';
 import type { ImportNote, IntakeDraft } from './components/IntakePanel.tsx';
 import { JdPane } from './components/JdPane.tsx';
+import { CounterBoard } from './components/CounterBoard.tsx';
 import { RequirementBoard } from './components/RequirementBoard.tsx';
 import { ResumePane } from './components/ResumePane.tsx';
 import { StageRail } from './components/StageRail.tsx';
@@ -870,10 +871,10 @@ export function App() {
         </aside>
 
         {/*
-          中栏放两栏结论：上面是「谁被追问、追出了什么」（主张与追问），
-          下面是「岗位要求对上了几条」（要求对照）。两栏都能点，点的都是同一份原文。
+          中栏放三栏结论：谁被追问、追出了什么（主张与追问）／岗位要求对上了几条（要求对照）／
+          你还能反问什么（轮到你了）。三栏都能点，点的都是同一份原文。
         */}
-        <div className="grid min-h-0 gap-3 xl:grid-rows-[minmax(0,3fr)_minmax(0,2fr)]">
+        <div className="grid min-h-0 gap-3 xl:grid-rows-[minmax(0,3fr)_minmax(0,2fr)_minmax(0,2fr)]">
           <ClaimBoard
             state={sandbox}
             onFocus={(anchor) => dispatch({ type: 'focus', anchor })}
@@ -897,6 +898,13 @@ export function App() {
             claimText={claimTextOf}
             onFocusJd={handleFocusJd}
             onFocusClaim={handleFocusClaim}
+          />
+          <CounterBoard
+            counters={sandbox.counters}
+            rejected={sandbox.counterRejected}
+            jds={shownJds}
+            onFocus={(anchor) => dispatch({ type: 'focus', anchor })}
+            onFocusJd={handleFocusJd}
           />
         </div>
 
