@@ -17,8 +17,10 @@ import type {
   Difficulty,
   IntentContract,
   JobDescription,
+  CounterQuestion,
   MatchSummary,
   RejectedClaim,
+  RejectedCounter,
   RejectedRequirement,
   Requirement,
   RequirementMatch,
@@ -39,11 +41,13 @@ import {
   clearRunArtifacts,
   getSession,
   insertClaims,
+  insertCounters,
   insertJds,
   insertProbe,
   insertRequirementMatches,
   insertRequirements,
   listClaims,
+  listCounters,
   listEvents,
   listJds,
   listProbes,
@@ -256,6 +260,8 @@ export function persistResult(db: Db, sessionId: string, result: RunSessionResul
     }
     insertRequirements(db, sessionId, result.requirements);
     insertRequirementMatches(db, sessionId, result.requirementMatches);
+    // 反问是最后一步的产物，整批替换：上一轮留下的一律清掉。
+    insertCounters(db, sessionId, result.counters);
 
     saveSessionBudget(db, sessionId, result.budgetState);
     saveSessionMeta(db, sessionId, {
@@ -307,6 +313,10 @@ export interface SessionView {
   contracts: ContractView[];
   /** 用户当场补的那几句真话（简历上没有原句的那些事实） */
   supplements: SupplementRow[];
+  /** 轮到求职者问的那几句（Q1..Qn），每句都挂着依据所在的原文区间 */
+  counters: CounterQuestion[];
+  /** 想反问、但依据锚不回材料的句子（带丢弃理由） */
+  counterRejected: RejectedCounter[];
 }
 
 /**
@@ -502,5 +512,7 @@ export function assembleSession(db: Db, sessionId: string): SessionView | null {
     requirementSummary: matchSummary(requirementMatches),
     difficulty: difficultyOf(session.meta['difficulty']),
     supplements: listSupplements(db, sessionId),
+    counters: listCounters(db, sessionId),
+    counterRejected: lastPayload<RejectedCounter>(events, 'counter', 'rejected'),
   };
 }

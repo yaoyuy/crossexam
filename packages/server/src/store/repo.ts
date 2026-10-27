@@ -15,6 +15,9 @@ import type {
   BudgetState,
   Claim,
   ClaimCategory,
+  CounterKind,
+  CounterQuestion,
+  CounterSource,
   IntentContract,
   JobDescription,
   MatchStatus,
@@ -992,5 +995,78 @@ export function listRequirementMatches(db: Db, sessionId: string): RequirementMa
       .all(sessionId),
   );
   return rows.map(mapRequirementMatch);
+}
+/* --------------------------------------------------------------- 反问（v9） */
+
+interface CounterDbRow {
+  session_id: string;
+  id: string;
+  ordinal: number;
+  text: string;
+  kind: string;
+  reason: string;
+  reply: string;
+  source: string;
+  jd_id: string | null;
+  quote: string;
+  start: number;
+  end: number;
+  exact: number;
+  created_at: string;
+}
+
+function mapCounter(row: CounterDbRow): CounterQuestion {
+  return {
+    id: row.id,
+    ordinal: toInt(row.ordinal),
+    text: row.text,
+    kind: row.kind as CounterKind,
+    reason: row.reason,
+    reply: row.reply,
+    source: row.source as CounterSource,
+    anchor: anchorOf(row.quote, row.start, row.end, row.exact),
+    jdId: row.jd_id,
+  };
+}
+
+/**
+ * 反问整批替换（先清后写），姿势与 insertRequirements 一致。
+ *
+ * items 是空数组时也要清一次：这一轮一条都没锚上，得把上一轮留下的清掉，
+ * 否则重跑会把两轮的反问摞在一起，界面上读起来像这一场问了两次。
+ */
+export function insertCounters(db: Db, sessionId: string, counters: readonly CounterQuestion[]): void {
+  db.prepare('DELETE FROM counter WHERE session_id = ?').run(sessionId);
+  const stmt = db.prepare(
+    'INSERT INTO counter (session_id, id, ordinal, text, kind, reason, reply, source, jd_id, quote, start, end, exact, created_at)' +
+      ' VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+  );
+  const at = nowIso();
+  for (const item of counters) {
+    stmt.run(
+      sessionId,
+      item.id,
+      item.ordinal,
+      item.text,
+      item.kind,
+      item.reason,
+      item.reply,
+      item.source,
+      item.jdId,
+      item.anchor.quote,
+      item.anchor.start,
+      item.anchor.end,
+      bit(item.anchor.exact),
+      at,
+    );
+  }
+}
+
+/** 按 Q1..Qn 读回来：反问是给人顺着读的，ORDER BY id 会把 Q10 排到 Q2 前面。 */
+export function listCounters(db: Db, sessionId: string): CounterQuestion[] {
+  const rows = asRows<CounterDbRow>(
+    db.prepare('SELECT * FROM counter WHERE session_id = ? ORDER BY ordinal').all(sessionId),
+  );
+  return rows.map(mapCounter);
 }
 
