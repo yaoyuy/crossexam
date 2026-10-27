@@ -5,6 +5,8 @@
  * 好处有两个：一是直播（SSE）和翻看历史（事件表）走同一条代码路径，
  * 界面不会出现「看着一样、其实两套逻辑」的偏差；二是可以直接对着事件序列做单测。
  */
+import { shortfallPlan } from '@crossexam/shared/shortfall.ts';
+import type { ShortfallPlan } from '@crossexam/shared/shortfall.ts';
 import { asStreamChunk, EMPTY_USAGE } from './api.ts';
 import type {
   Anchor,
@@ -537,6 +539,24 @@ export function categoryCounts(claims: ClaimView[]): CategoryTally[] {
     tally.set(item.claim.category, (tally.get(item.claim.category) ?? 0) + 1);
   }
   return [...tally.entries()].map(([category, count]) => ({ category, count }));
+}
+
+
+/**
+ * 按类别看短板（P10 · A3）：把界面上的判定折成「最该改哪儿」。
+ *
+ * 只做字段搬运，排序与文案都在 shared/shortfall.ts 里——报告与界面读同一份，
+ * 不各排一遍，免得出现「报告说最该补 C3、界面排第一的是 C5」。
+ */
+export function shortfallOf(state: SandboxState): ShortfallPlan {
+  return shortfallPlan(
+    state.claims.map((item) => ({
+      id: item.claim.id,
+      text: item.claim.text,
+      category: item.claim.category,
+      verdict: item.verdict === null ? null : item.verdict.verdict.kind,
+    })),
+  );
 }
 
 /** 全部锚点：用于在简历原文上画「被追问过的位置」 */

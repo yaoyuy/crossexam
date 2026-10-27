@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { channelLabel, personaBlurbOf, personaLabelOf, STAGE_HINT, STAGE_LABEL, VERDICT_LABEL } from '../labels.ts';
+import { CLAIM_CATEGORY_LABEL, channelLabel, personaBlurbOf, personaLabelOf, STAGE_HINT, STAGE_LABEL, VERDICT_LABEL } from '../labels.ts';
+import { categoryLine } from '@crossexam/shared/shortfall.ts';
 import type { ContractView, HealthInfo } from '../api.ts';
 import { consistencyNote, contractLines } from '../contract.ts';
 import type { SandboxState } from '../state.ts';
-import { liveChannels, progressOf, readableStreamText, tailText, totalProbes, verdictCounts } from '../state.ts';
+import { liveChannels, progressOf, readableStreamText, shortfallOf, tailText, totalProbes, verdictCounts } from '../state.ts';
 import { Chip, Dots, ErrorNotes, Pane, Stat } from './Bits.tsx';
 
 /** 每位面试官一个固定的名字颜色，界面上扫一眼就知道这条追问是谁问的 */
@@ -35,12 +36,15 @@ export function StageRail(props: {
   panel: string[];
   health: HealthInfo | null;
   contracts: ContractView[] | null;
+  /** 点一下短板名单里的主张，右栏简历滚到它的原文位置 */
+  onFocusClaim?: (claimId: string) => void;
 }) {
   const state = props.state;
   const [openContract, setOpenContract] = useState<string | null>(null);
   const [openPrompt, setOpenPrompt] = useState<string | null>(null);
   const progress = progressOf(state);
   const counts = verdictCounts(state);
+  const plan = shortfallOf(state);
   const live = liveChannels(state);
   const panel = state.interviewers.length > 0 ? state.interviewers : props.panel;
 
@@ -246,6 +250,50 @@ export function StageRail(props: {
               </span>
             ))}
           </div>
+        </div>
+      )}
+      {plan.judged === 0 ? null : (
+        <div className="flex flex-col gap-2" data-shot="shortfall">
+          <h3 className="text-[11px] font-semibold uppercase tracking-wide text-ink-400">按类别看短板</h3>
+          <p className="text-[12px] leading-relaxed text-ink-300">{plan.headline}</p>
+          <ul className="flex flex-col gap-1">
+            {plan.stats.map((item) => (
+              <li
+                key={item.category}
+                data-shot={'shortfall-cat-' + item.category}
+                className={
+                  'rounded-lg border px-2.5 py-1.5 text-[12px] ' +
+                  (item.weak > 0 ? 'border-amber-ink/40 text-amber-ink' : 'border-ink-800 text-ink-400')
+                }
+              >
+                {categoryLine(item)}
+              </li>
+            ))}
+          </ul>
+          {plan.weakest.length === 0 ? null : (
+            <div className="flex flex-col gap-1">
+              <p className="text-[11px] text-ink-500">
+                最该先补的 {plan.weakest.length} 处（点一下在简历原文里定位）：
+              </p>
+              {plan.weakest.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  data-shot={'shortfall-' + item.id}
+                  title="在简历原文里定位这条主张"
+                  onClick={() => props.onFocusClaim?.(item.id)}
+                  className="rounded-lg border border-ink-800 bg-ink-850/60 px-2.5 py-1.5 text-left text-[12px] leading-relaxed text-ink-300 hover:border-ember-500/50"
+                >
+                  <span className="font-semibold text-ember-300">{item.id}</span>
+                  {' · '}
+                  {item.verdict === null ? '未判定' : VERDICT_LABEL[item.verdict]}
+                  {' · '}
+                  {CLAIM_CATEGORY_LABEL[item.category]}
+                  <span className="mt-0.5 block truncate text-ink-500">{item.text}</span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
