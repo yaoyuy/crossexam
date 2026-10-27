@@ -14,14 +14,18 @@ import {
   deleteSession,
   getClaim,
   getSession,
+  getSupplement,
   insertClaims,
   insertProbe,
+  insertRevision,
   insertSession,
   latestSession,
   listClaims,
   listEvents,
   listProbes,
+  listRevisions,
   listSessions,
+  saveSupplement,
   llmStats,
   recordLlmCall,
   saveAnswer,
@@ -218,7 +222,7 @@ describe('建表与迁移', function () {
     }
   });
 
-  it('v6 老库升到 v7：追问表补上第二条锚，老追问仍然读得回', function () {
+  it('v6 老库一路升到最新：追问表补上第二条锚，老改写不丢、补充说明能用', function () {
     const legacy = openDatabase({ path: ':memory:', skipMigrate: true });
     try {
       legacy.exec(
@@ -247,6 +251,13 @@ describe('建表与迁移', function () {
       legacy.exec('CREATE INDEX IF NOT EXISTS probe_by_claim ON probe(session_id, claim_id, round)');
       legacy.exec('CREATE TABLE event (session_id TEXT NOT NULL, seq INTEGER NOT NULL, kind TEXT NOT NULL, payload_json TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY (session_id, seq))');
       legacy.exec('CREATE TABLE llm_call (id TEXT PRIMARY KEY, session_id TEXT, digest TEXT NOT NULL, purpose TEXT NOT NULL, model TEXT NOT NULL, replayed INTEGER NOT NULL, input_tokens INTEGER NOT NULL, output_tokens INTEGER NOT NULL, cache_read_tokens INTEGER NOT NULL, reasoning_tokens INTEGER NOT NULL, elapsed_ms INTEGER NOT NULL, created_at TEXT NOT NULL)');
+      // v5 起的 revision 表：主键是 (session_id, claim_id)，v8 要把它换成 (session_id, ordinal)
+      legacy.exec(
+        'CREATE TABLE revision (session_id TEXT NOT NULL REFERENCES session(id) ON DELETE CASCADE,' +
+          ' claim_id TEXT NOT NULL, ordinal INTEGER NOT NULL, start INTEGER NOT NULL, end INTEGER NOT NULL,' +
+          ' before TEXT NOT NULL, after TEXT NOT NULL, created_at TEXT NOT NULL,' +
+          ' PRIMARY KEY (session_id, claim_id))',
+      );
       legacy.exec('PRAGMA user_version = 6');
       legacy
         .prepare('INSERT INTO session VALUES (?,?,?,?,?,?,?,?,?,?,?)')
@@ -257,6 +268,9 @@ describe('建表与迁移', function () {
       legacy
         .prepare('INSERT INTO probe VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
         .run('sess-v6', 'P1', 'C1', 'tech', 1, '老问题？', '老理由', null, '主导重构订单系统', 0, 8, 1, '老答案', 'simulated', null, 'solid', '2026-10-26T00:00:00.000Z');
+      legacy
+        .prepare('INSERT INTO revision VALUES (?,?,?,?,?,?,?,?)')
+        .run('sess-v6', 'C1', 0, 0, 8, '主导重构订单系统', '主导重构订单系统（日订单 30 万）', '2026-10-26T00:00:00.000Z');
 
       expect(migrate(legacy)).toBe(SCHEMA_VERSION);
       const probes = listProbes(legacy, 'sess-v6');
@@ -279,6 +293,24 @@ describe('建表与迁移', function () {
       expect(back?.requirementId).toBe('R1');
       expect(back?.jdAnchor?.quote).toBe('5 年以上后端研发经验');
       expect(back?.jdAnchor?.exact).toBe(true);
+
+      // v8：老改写一条不丢，而且同一条主张现在能落下两条改动
+      const revisions = listRevisions(legacy, 'sess-v6');
+      expect(revisions).toHaveLength(1);
+      expect(revisions[0]?.after).toBe('主导重构订单系统（日订单 30 万）');
+      insertRevision(legacy, 'sess-v6', revisions[0]!, 0, '2026-10-27T00:00:00.000Z');
+      insertRevision(
+        legacy,
+        'sess-v6',
+        { claimId: 'C1', start: 8, end: 8, before: '', after: String.fromCharCode(10) + '补一句：日订单 30 万。' },
+        1,
+        '2026-10-27T00:00:00.000Z',
+      );
+      expect(listRevisions(legacy, 'sess-v6')).toHaveLength(2);
+
+      // v8 新增的补充说明表：迁移之后立刻就能写能读
+      saveSupplement(legacy, { sessionId: 'sess-v6', claimId: 'C1', text: '日订单 30 万。', digest: 'd1' });
+      expect(getSupplement(legacy, 'sess-v6', 'C1')?.text).toBe('日订单 30 万。');
     } finally {
       closeDatabase(legacy);
     }
