@@ -6,8 +6,9 @@
  *
  * 零依赖：只用 Node 自带的 fetch / WebSocket 与系统里的 Edge（或 Chrome）。
  */import { spawn, spawnSync } from 'node:child_process';
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const PORT = 8811;
@@ -53,7 +54,17 @@ process.on('exit', cleanup);
 process.on('SIGINT', () => { cleanup(); process.exit(130); });
 const OUT = flagValue('--out') || '.tmp/ui-e2e';
 const PROFILE = '.tmp/edge-ui-e2e-' + String(Date.now());
-const EDGE = 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe';
+// 浏览器路径不写死成一台机器的位置：CI（windows-latest）与本机装的不是同一个目录，
+// 也有人只装了 Chrome。按顺序找第一个存在的；都找不到时仍然给出一条候选，让报错能照做。
+const BROWSERS = [
+  'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+  'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
+  '/usr/bin/microsoft-edge',
+  '/usr/bin/google-chrome',
+  '/usr/bin/chromium',
+  process.env['CROSSEXAM_BROWSER'] ?? '',
+];
+const EDGE = BROWSERS.find((path) => path !== '' && existsSync(path)) ?? BROWSERS[0];
 const CUSTOM_RESUME = '王小明\n数据工程师 · 杭州\n- 主导搭建实时数仓，把延迟从 15 分钟降到 30 秒。\n- 熟悉 Flink / Kafka / ClickHouse，做过一次全链路压测。';
 
 const results = [];
@@ -71,7 +82,8 @@ const env = Object.assign({}, process.env, {
   CROSSEXAM_MODE: 'replay',
   CROSSEXAM_PORT: String(PORT),
   CROSSEXAM_DB: '.tmp/e2e/db/e2e.db',
-  CROSSEXAM_FIXTURES: 'D:/CZB/fixtures/llm',
+  // 卡带目录跟着仓库走，不跟着某个盘符走（CI 里工作区在别的目录）。
+  CROSSEXAM_FIXTURES: join(fileURLToPath(new URL('../..', import.meta.url)), 'fixtures', 'llm'),
 });
 // 点测不该受本机是否配了模型影响：显式抹掉 LLM_*，让「还没配置联网」这条分支稳定可复现。
 for (const key of Object.keys(env)) {
