@@ -317,6 +317,57 @@ export interface SessionSummary {
   meta: Record<string, unknown>;
 }
 
+/** 历史仪表盘（P11 · C2）：把最近若干场换个角度看。字段与服务端 HistoryOverview 一一对应。 */
+export interface OverviewCounts {
+  judged: number;
+  solid: number;
+  weak: number;
+  counts: Partial<Record<VerdictKind, number>>;
+}
+
+export interface OverviewCategory {
+  category: ClaimCategory;
+  label: string;
+  total: number;
+  judged: number;
+  solid: number;
+  weak: number;
+  counts: Partial<Record<VerdictKind, number>>;
+}
+
+export interface OverviewTrendPoint {
+  sessionId: string;
+  createdAt: string;
+  jobTitle: string;
+  judged: number;
+  solid: number;
+  probes: number | null;
+}
+
+export interface OverviewResumeGroup {
+  resumeHash: string;
+  sessions: number;
+  latestId: string;
+  latestCreatedAt: string;
+}
+
+export interface HistoryOverview {
+  /** 这次统计覆盖的场次上限 */
+  window: number;
+  sessions: number;
+  claims: number;
+  verdicts: OverviewCounts;
+  categories: OverviewCategory[];
+  meanProbes: number | null;
+  /** 最近几场，按时间升序：左手边是更早的那一场 */
+  trend: OverviewTrendPoint[];
+  /** 不足两场时说明为什么没有趋势 */
+  trendNote: string | null;
+  resumeGroups: OverviewResumeGroup[];
+  sameResumeRuns: number;
+  headline: string;
+}
+
 export interface LlmStats {
   calls: number;
   replayedCalls: number;
@@ -681,6 +732,11 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
   });
   if (!res.ok) throw new ApiError(await readError(res), res.status);
   return (await res.json()) as T;
+}
+
+export function fetchOverview(limit?: number): Promise<HistoryOverview> {
+  const suffix = limit === undefined ? '' : '?limit=' + String(limit);
+  return getJson<HistoryOverview>('/api/sessions/overview' + suffix);
 }
 
 export async function listSessions(limit = 20): Promise<SessionSummary[]> {

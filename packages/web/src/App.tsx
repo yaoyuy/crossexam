@@ -15,6 +15,7 @@ import {
   fetchRevisions,
   fetchStats,
   fetchTemplates,
+  fetchOverview,
   getSession,
   importResumeFile,
   listSessions,
@@ -32,6 +33,7 @@ import type {
   ContractView,
   DemoInfo,
   HealthInfo,
+  HistoryOverview,
   InterviewerLibrary,
   JobDescription,
   LlmMode,
@@ -172,6 +174,9 @@ export function App() {
   // 这一版比上一版怎么样（P11 · C1）。null = 还没取到；服务端的 CompareView 自带
   // 「第一版」「上一版被删了」两档，所以这里的 null 只表示「还没问过服务端」。
   const [compare, setCompare] = useState<CompareView | null>(null);
+  // 历史栏顶上那块跨场次统计（P11 · C2）。它与 sessions 一起刷新：
+  // 列表变了统计就变了，两处分别取会出现「列表有 3 场、统计说 2 场」。
+  const [overview, setOverview] = useState<HistoryOverview | null>(null);
 
   const queueRef = useRef<SseEvent[]>([]);
   const timerRef = useRef<number | null>(null);
@@ -193,6 +198,12 @@ export function App() {
       setSessions(await listSessions(20));
     } catch {
       // 历史列表拉不到不影响主流程，界面照样能跑新的质询
+    }
+    try {
+      setOverview(await fetchOverview());
+    } catch {
+      // 统计取不到就把那块收起来（null），不影响别的功能
+      setOverview(null);
     }
   }, []);
 
@@ -938,6 +949,7 @@ export function App() {
             onImportFile={handleImportFile}
             importNote={importNote}
             sessions={sessions}
+            overview={overview}
             activeSessionId={sandbox.sessionId}
             onLoadSession={(id) => void handleLoadSession(id)}
             onDeleteSession={(id) => void handleDeleteSession(id)}

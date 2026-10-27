@@ -2,10 +2,11 @@ import { useRef } from 'react';
 import type { ReactNode } from 'react';
 import { SESSION_STATUS_LABEL } from '../labels.ts';
 import { IMPORT_ACCEPT } from '../api.ts';
-import type { LlmMode, SessionSummary } from '../api.ts';
+import type { HistoryOverview, LlmMode, SessionSummary } from '../api.ts';
 import { emptyJd, filledJds, jdDraftProblem, MAX_JDS } from '../jds.ts';
 import type { JdDraft } from '../jds.ts';
 import { Chip, Pane } from './Bits.tsx';
+import { OverviewBar } from './OverviewBar.tsx';
 
 export interface IntakeDraft {
   resumeText: string;
@@ -82,6 +83,8 @@ export function IntakePanel(props: {
   onImportFile: (file: File) => void;
   importNote: ImportNote | null;
   sessions: SessionSummary[];
+  /** 跨场次聚合。null 表示还没取到，整块不渲染 */
+  overview: HistoryOverview | null;
   activeSessionId: string | null;
   onLoadSession: (id: string) => void;
   onDeleteSession: (id: string) => void;
@@ -432,6 +435,8 @@ export function IntakePanel(props: {
             ? jdProblem
             : props.hint ?? '每个会话只跑一次：想换面试官或改简历，直接再点一次「开始质询」，会新建一场。'}
       </p>
+
+      <OverviewBar view={props.overview} />
 
       <div className="flex flex-col gap-1.5 border-t border-ink-800 pt-2.5">
         <span className="text-[11px] text-ink-400">历史会话 {props.sessions.length === 0 ? '' : '(' + String(props.sessions.length) + ')'}</span>
