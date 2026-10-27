@@ -21,6 +21,7 @@ import {
   listSessions,
   deleteSupplement,
   reportDocUrl,
+  bundleUrl,
   reportHtmlUrl,
   reportUrl,
   saveSupplement,
@@ -844,6 +845,8 @@ export function App() {
   const reportHref = hasReport && sandbox.sessionId !== null ? reportUrl(sandbox.sessionId) : null;
   const reportPrintHref = hasReport && sandbox.sessionId !== null ? reportHtmlUrl(sandbox.sessionId, true) : null;
   const reportDocHref = hasReport && sandbox.sessionId !== null ? reportDocUrl(sandbox.sessionId) : null;
+  // 打包分享：一个文件带走整场。与上面三颗报告按钮同一个条件——没有主张就没有可打包的东西
+  const bundleHref = hasReport && sandbox.sessionId !== null ? bundleUrl(sandbox.sessionId) : null;
   const telemetry = sandbox.telemetry;
 
   return (
@@ -912,6 +915,15 @@ export function App() {
                 data-shot="report-doc"
               >
                 报告 Word
+              </a>
+              <a
+                className="btn px-2.5 py-1 text-[12px]"
+                href={bundleHref ?? reportHref}
+                download
+                title="把这整场打成一个文件：报告 + 简历原文 + 改动 + 事件时间线。没有外链，对方断网也能打开"
+                data-shot="bundle-html"
+              >
+                打包分享
               </a>
             </span>
           )}
