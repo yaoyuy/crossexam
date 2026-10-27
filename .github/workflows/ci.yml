@@ -1,0 +1,46 @@
+name: CI
+
+# 这个仓库的门禁本来就在本地跑（npm run verify），CI 加的是本地跑不出来的那一半：
+# 「在别人的机器上、干净检出、没有缓存与临时文件」时还成不成立。
+#
+# 两个 job 分工明确：
+#   gate     在 Ubuntu 上跑类型 / 测试 / 冒烟 / 构建 / 性能预算，外加**卡带漂移门禁**；
+#   browser  在 Windows 上跑真浏览器点测（系统自带 Edge，脚本自己找得到）。
+#
+# 之所以把漂移门禁放在 gate：演示卡带是按提示词指纹寻址的，改了提示词却忘了重录，
+# 本地看起来一切正常，评委点下去才看到报错。seed:demo 是逐字节确定的，
+# 所以「重跑一遍再看 git diff 是否为空」就是一条可自动化的判据。
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  gate:
+    name: 门禁（类型 / 测试 / 冒烟 / 构建 / 性能预算 / 卡带漂移）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm ci
+      - run: npm run verify
+      - name: 卡带漂移门禁
+        run: |
+          npm run seed:demo
+          git diff --exit-code -- fixtures/llm
+      - name: 代码规模（只打印，便于对账）
+        run: npm run stats
+
+  browser:
+    name: 界面点测（真浏览器）
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm ci
+      - run: npm run build
+      - run: npm run e2e:ui
