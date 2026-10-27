@@ -12,6 +12,7 @@ export * from './counters.ts';
 export * from './shortfall.ts';
 export * from './compare.ts';
 export * from './overview.ts';
+export * from './growth.ts';
 export * from './revise.ts';
 export * from './supplement.ts';
 export * from './templates.ts';
