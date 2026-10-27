@@ -7,6 +7,7 @@
  * 一个刻意的设计：导出按钮只在**真的采纳过**之后才出现。
  * 没改过的简历本来就能从原文复制，摆一个「导出」在这里只会让人以为已经改好了。
  */
+import { useState } from 'react';
 import { resumeDocUrl, resumeHtmlUrl, resumeTextUrl } from '../api.ts';
 import type { RevisedResume } from '../revisions.ts';
 import { revisionSummary } from '../revisions.ts';
@@ -29,6 +30,8 @@ export function RevisionBar(props: {
   onShowOriginal: () => void;
 }) {
   const revised = props.revised;
+  // 并排对照默认收起：它是「想核对一下」时才展开的东西，不该占着这一栏的地方
+  const [showDiff, setShowDiff] = useState(false);
   const summary = revisionSummary(revised, props.chosen);
   // 导出地址由 api.ts 统一拼（三个入口的查询串各不一样，散在组件里迟早对不上）
   const id = props.sessionId ?? '';
@@ -131,6 +134,15 @@ export function RevisionBar(props: {
                 </a>
                 <button
                   type="button"
+                  className="btn px-2.5 py-1 text-[12px]"
+                  onClick={() => setShowDiff((prev) => !prev)}
+                  title="在下面把每一条改动并排列出来：左边是简历原文里的那一段，右边是改完后的那一段"
+                  data-shot="revision-diff-toggle"
+                >
+                  {showDiff ? '收起对照' : '并排看改动'}
+                </button>
+                <button
+                  type="button"
                   className="chip cursor-pointer transition-colors hover:border-rose-ink hover:text-ink-100"
                   onClick={props.onDiscard}
                   disabled={props.busy}
@@ -140,6 +152,31 @@ export function RevisionBar(props: {
                   全部撤销
                 </button>
               </div>
+              {showDiff ? (
+                <div className="flex flex-col gap-1 rounded-md border border-ink-800 bg-ink-850/40 p-2">
+                  <p className="text-[11.5px] leading-relaxed text-ink-400">
+                    左边是简历原文里的那一段，右边是改完后的那一段。空着的「原文」表示这一处是新增的一行。
+                  </p>
+                  <table className="w-full border-collapse text-[11.5px]" data-shot="revision-diff">
+                    <thead>
+                      <tr className="text-ink-400">
+                        <th className="w-[64px] border border-ink-800 px-1.5 py-1 text-left font-normal">主张</th>
+                        <th className="border border-ink-800 px-1.5 py-1 text-left font-normal">原文</th>
+                        <th className="border border-ink-800 px-1.5 py-1 text-left font-normal">改后</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {revised.applied.map((item) => (
+                        <tr key={item.claimId + String(item.start)}>
+                          <td className="border border-ink-800 px-1.5 py-1 align-top font-mono text-ink-400">{item.claimId}</td>
+                          <td className="border border-ink-800 px-1.5 py-1 align-top text-ink-400">{item.before === '' ? '（新增一行）' : item.before}</td>
+                          <td className="border border-ink-800 px-1.5 py-1 align-top text-emerald-ink">{item.after}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : null}
               {dirty ? (
                 <p className="text-[11.5px] leading-relaxed text-amber-ink">
                   勾选与当前这一版不一致：点「确认采纳」才会重算简历。
