@@ -3,6 +3,7 @@ export * from './domain.ts';
 export * from './anchor.ts';
 export * from './segment.ts';
 export * from './budget.ts';
+export * from './difficulty.ts';
 export * from './contract.ts';
 export * from './interviewer.ts';
 export * from './requirements.ts';
