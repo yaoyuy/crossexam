@@ -376,6 +376,63 @@ export interface SessionView {
   style?: string;
 }
 
+
+/* ---------------------------------------------- 版本对比（改完再跑一遍） */
+
+/** 对比里的一条主张：只比判定，所以不带锚点与权重 */
+export interface CompareClaim {
+  id: string;
+  text: string;
+  category: ClaimCategory;
+  /** 没判定是 null 而不是 undefined：对比层只认「有没有判定」 */
+  verdict: VerdictKind | null;
+}
+
+/** better 变好 / same 没变 / worse 变差 / unjudged 至少一边没判定 */
+export type ShiftKind = 'better' | 'same' | 'worse' | 'unjudged';
+
+/** 牵上的一对主张：prev 是上一版，next 是这一版 */
+export interface ComparePair {
+  prev: CompareClaim;
+  next: CompareClaim;
+  similarity: number;
+  shift: ShiftKind;
+}
+
+export interface CompareCounts {
+  judged: number;
+  solid: number;
+  weak: number;
+  counts: Partial<Record<VerdictKind, number>>;
+}
+
+export interface CompareSummary {
+  threshold: number;
+  pairs: ComparePair[];
+  added: CompareClaim[];
+  removed: CompareClaim[];
+  before: CompareCounts;
+  after: CompareCounts;
+  improved: ComparePair[];
+  worsened: ComparePair[];
+  probesBefore: number | null;
+  probesAfter: number | null;
+  /** 一句话结论由服务端算好（报告与界面共用同一句） */
+  headline: string;
+}
+
+export interface CompareView {
+  sessionId: string;
+  /** 没有上一版：这是第一场，本来就没什么可比的 */
+  first: boolean;
+  /** 记了上一版，但那一场已经不在了 */
+  parentMissing: boolean;
+  parentSessionId: string | null;
+  parent: { id: string; jobTitle: string; createdAt: string; resumeHash: string } | null;
+  /** 这一场与上一场的简历是不是同一份 */
+  resumeChanged: boolean;
+  comparison: CompareSummary | null;
+}
 export interface ContractPersona {
   name: string;
   role: string;
@@ -635,6 +692,11 @@ export function getSession(id: string): Promise<SessionView> {
   return getJson<SessionView>('/api/sessions/' + encodeURIComponent(id));
 }
 
+/** 跟上一版比。第一场也回 200（first 为真），不是 404。 */
+export function fetchCompare(id: string): Promise<CompareView> {
+  return getJson<CompareView>('/api/sessions/' + encodeURIComponent(id) + '/compare');
+}
+
 export function fetchStats(sessionId?: string): Promise<LlmStats> {
   const suffix = sessionId === undefined ? '' : '?session=' + encodeURIComponent(sessionId);
   return getJson<LlmStats>('/api/stats' + suffix);
@@ -657,6 +719,8 @@ export interface CreateSessionInput {
   difficulty?: string;
   /** 改写风格：conservative / normal / bold。不传就是常规档。 */
   style?: string;
+  /** 这一场是从哪一场改完再跑出来的：报告与界面据此说清「比上次」。 */
+  parentSessionId?: string;
 }
 
 export interface CreatedSession {
@@ -672,6 +736,8 @@ export interface CreatedSession {
   panel: string[];
   /** 落定的 JD 编号与标题（只回编号，正文留在库里） */
   jds: { id: string; ordinal: number; title: string }[];
+  /** 这一场记下的上一版（没传就是 null） */
+  parentSessionId: string | null;
 }
 
 export async function createSession(input: CreateSessionInput): Promise<CreatedSession> {
