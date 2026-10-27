@@ -842,6 +842,19 @@ await sleep(400);
 
 const historyText = await evalJs('document.querySelector(String.fromCharCode(91) + "data-shot=" + String.fromCharCode(34) + "intake" + String.fromCharCode(34) + String.fromCharCode(93) + "").innerText');
 check('历史会话列出刚才两场', historyText.indexOf('高级后端工程师（Node.js） · 演示简历') >= 0 && historyText.indexOf('已完成') >= 0 && historyText.indexOf('失败') >= 0, historyText.replace(/\n/g, ' / ').slice(-160));
+// C2 历史仪表盘：界面上的数字必须等于接口值。统计块自己算一套数字，
+// 迟早会和报告里的「站得住 N 条」对不上——这里点测的就是这条纪律。
+const apiOverview = await (await fetch('http://127.0.0.1:' + PORT + '/api/sessions/overview')).json();
+const overviewHeadline = await textOf('overview-headline');
+check('历史栏顶上有跨场次统计，结论与接口一字不差', overviewHeadline.length > 0 && overviewHeadline === apiOverview.headline, overviewHeadline.slice(0, 80));
+const listedSessions = (await sessions()).length;
+check('统计块算的场次数与历史列表一致，不是各数一套', apiOverview.sessions === listedSessions, '接口 ' + String(apiOverview.sessions) + ' 场 / 列表 ' + String(listedSessions) + ' 行');
+const barCount = await evalJs('document.querySelectorAll("[data-shot=overview-trend] > div").length');
+const wantBars = apiOverview.trend.length > 5 ? 5 : apiOverview.trend.length;
+check('趋势柱子的根数等于接口给的场次数（最多五根）', barCount === wantBars, String(barCount) + ' 根 / 接口 ' + String(apiOverview.trend.length) + ' 场');
+const resumeNoteText = await textOf('overview-resume');
+check('同一份简历跑过几场时点名这件事，只跑一场时不硬凑', apiOverview.sameResumeRuns > 1 ? resumeNoteText.indexOf('最多跑过') >= 0 : resumeNoteText.length === 0, String(resumeNoteText).slice(0, 60));
+
 const clicked = await evalJs('(() => { const btns = Array.from(document.querySelectorAll(String.fromCharCode(91) + "data-shot=" + String.fromCharCode(34) + "intake" + String.fromCharCode(34) + String.fromCharCode(93) + " button")); const b = btns.find((x) => (x.textContent || "").indexOf("演示简历") >= 0); if (!b) return "没找到"; b.click(); return "ok"; })()');
 check('点历史里的那一条能载回来', clicked === 'ok', String(clicked));
 const loaded = await waitText('置信度', 15000);
