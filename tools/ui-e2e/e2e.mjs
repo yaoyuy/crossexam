@@ -380,6 +380,26 @@ const backCard = await waitFor(async () => { const text = await cardText(); retu
 check('切回常规档：预算与指纹都回到原样', budgetOf(backCard) === '3/2/60' && digestOf(backCard) === digestOf(cardBefore), budgetOf(backCard) + ' / ' + digestOf(backCard));
 await evalJs('(function () { var b = document.querySelector("[data-shot=contract-toggle]"); if (b !== null) b.click(); return "ok"; })()');
 await sleep(200);
+
+// 改写风格：三档只调「改得多狠」，所以它**不该**动契约指纹——
+// 这一条正是与追问强度的对照实验：那边换档指纹必须变，这边换档指纹必须不变。
+const styleChips = await evalJs('(() => { const pick = (n) => document.querySelector("[data-shot=" + n + "]") !== null; return [pick("style-conservative"), pick("style-normal"), pick("style-bold")].join(","); })()');
+check('投料台给出三档改写风格', styleChips === 'true,true,true', String(styleChips));
+const styleNoteOf = () => evalJs('(document.querySelector("[data-shot=style-note]") || { textContent: "" }).textContent');
+const normalStyleNote = await styleNoteOf();
+check('默认常规档，并把这一档的改法说成人话', normalStyleNote.indexOf('该收敛的收敛') >= 0, normalStyleNote.slice(0, 40));
+await evalJs('document.querySelector("[data-shot=style-bold]").click()');
+await sleep(300);
+const boldStyleNote = await styleNoteOf();
+check('切到敢改档，说明换成另一句话', boldStyleNote.indexOf('不新增任何事实') >= 0, boldStyleNote.slice(0, 40));
+await evalJs('(function () { var b = document.querySelector("[data-shot=contract-toggle]"); if (b !== null) b.click(); return "ok"; })()');
+await sleep(300);
+const styleCard = await cardText();
+check('换改写风格不改契约指纹（与追问强度相反，它不属于契约）', digestOf(styleCard) === digestOf(backCard), digestOf(backCard) + ' → ' + digestOf(styleCard));
+await evalJs('(function () { var b = document.querySelector("[data-shot=contract-toggle]"); if (b !== null) b.click(); return "ok"; })()');
+await evalJs('document.querySelector("[data-shot=style-normal]").click()');
+await sleep(300);
+
 const typed = await setTextarea(0, CUSTOM_RESUME);
 check('能在浏览器里自己打一份简历', typed === CUSTOM_RESUME.length, String(typed) + ' 字');
 await waitText('字', 5000);
