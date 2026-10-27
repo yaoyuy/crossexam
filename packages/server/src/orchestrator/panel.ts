@@ -10,7 +10,7 @@
  * 是最难查的一类问题。调用方拿到 missing 必须拒绝开跑并说明是哪一位。
  */
 
-import { buildContracts } from '@crossexam/shared';
+import { buildContracts, contractBudgetView } from '@crossexam/shared';
 import type { BudgetConfig, ContractBudgetView, IntentContract, InterviewerRole } from '@crossexam/shared';
 import { getInterviewer } from '../store/index.ts';
 import type { Db } from '../store/index.ts';
@@ -30,16 +30,11 @@ export function isPresetRole(id: string): id is InterviewerRole {
 }
 
 /**
- * 预算账本里有四个字段，契约里只声明三个。
- * maxConsecutiveUnanswerable 是**编排层**关停主张的策略，不是面试官可以据以行动的规则，
- * 所以它不进契约——契约要能被面试官读到并遵守，读不到的字段写进去只是噪音。
+ * 收窄规则的实现搬到了 shared（contractBudgetView）——它是唯一来源。
+ * 这里保留同名的转发，是为了让服务端既有调用点不必跟着改一遍。
  */
 export function budgetView(config: BudgetConfig): ContractBudgetView {
-  return {
-    maxRoundsPerClaim: config.maxRoundsPerClaim,
-    maxProbesPerInterviewerPerClaim: config.maxProbesPerInterviewerPerClaim,
-    maxTotalProbes: config.maxTotalProbes,
-  };
+  return contractBudgetView(config);
 }
 
 /** 去重 + 去空 + 兜底默认阵容。重复的 id 会让同一张配额被算两次，必须在这里挡掉。 */

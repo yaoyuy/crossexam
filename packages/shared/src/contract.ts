@@ -9,6 +9,7 @@
  * 于是：契约可以 diff、可以版本化、可以单测；每条追问都能追溯到「是哪一版契约生成的」。
  */
 
+import type { BudgetConfig } from './budget.ts';
 import type { InterviewerRole, Persona } from './domain.ts';
 import { shortHash, stableStringify } from './util.ts';
 
@@ -16,6 +17,22 @@ export interface ContractBudgetView {
   maxRoundsPerClaim: number;
   maxProbesPerInterviewerPerClaim: number;
   maxTotalProbes: number;
+}
+
+/**
+ * 预算账本有四个字段，契约只声明三个。
+ * maxConsecutiveUnanswerable 是**编排层**关停主张的策略，不是面试官可以据以行动的规则，
+ * 所以它不进契约——契约要能被面试官读到并遵守，读不到的字段写进去只是噪音。
+ *
+ * 这条收窄必须是**唯一**的一处实现：多一处就会让同一场沙盘在「运行」与「对账」
+ * 两处算出不同指纹，界面把没漂移的沙盘报成「契约漂移」。
+ */
+export function contractBudgetView(config: BudgetConfig): ContractBudgetView {
+  return {
+    maxRoundsPerClaim: config.maxRoundsPerClaim,
+    maxProbesPerInterviewerPerClaim: config.maxProbesPerInterviewerPerClaim,
+    maxTotalProbes: config.maxTotalProbes,
+  };
 }
 
 export interface IntentContract {
