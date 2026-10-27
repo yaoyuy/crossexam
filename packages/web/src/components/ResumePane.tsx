@@ -20,12 +20,21 @@ export function ResumePane(props: {
    * 不传就显示原文——「看原文」和「看改完的」是同一栏的两种视图，不是两栏。
    */
   revised?: RevisedResume | null;
+  /**
+   * 按岗位筛过的一版（P12 · ③）：与「原文 / 改完的」并列的第三种视图。
+   * 它没有改动可标、也没有可聚焦的原文区间——筛过的文本坐标全变了，
+   * 拿原文坐标去标只会标错地方，所以这一版一律不画锚点。
+   */
+  tailored?: { text: string; jdTitle: string; keptSegments: number; droppedSegments: number } | null;
   onShowOriginal?: () => void;
+  /** 从「这一版」切回「改完的」 */
+  onShowRevised?: () => void;
 }) {
   const focusRef = useRef<HTMLElement | null>(null);
   const focusKey = props.focus === null ? '' : String(props.focus.start) + '-' + String(props.focus.end);
   const revised = props.revised ?? null;
-  const showing = revised === null ? props.text : revised.text;
+  const tailored = props.tailored ?? null;
+  const showing = tailored !== null ? tailored.text : revised === null ? props.text : revised.text;
 
   useEffect(() => {
     const node = focusRef.current;
@@ -34,26 +43,51 @@ export function ResumePane(props: {
 
   const segments = buildSegments(
     showing,
-    props.focus,
-    props.hits.map((anchor) => ({ start: anchor.start, end: anchor.end })),
-    spanRanges(revised),
+    tailored === null ? props.focus : null,
+    tailored === null ? props.hits.map((anchor) => ({ start: anchor.start, end: anchor.end })) : [],
+    tailored === null ? spanRanges(revised) : [],
   );
 
   let focusAssigned = false;
 
   return (
     <Pane
-      title={revised === null ? '简历原文' : '改完的简历'}
+      title={tailored !== null ? '这一版（按岗位筛）' : revised === null ? '简历原文' : '改完的简历'}
       dataShot="resume"
       subtitle={
         props.text.length === 0
           ? '还没有材料'
-          : revised === null
-            ? String(props.text.length) + ' 字 · 被引用 ' + String(props.hits.length) + ' 处'
-            : String(revised.text.length) + ' 字 · 改动 ' + String(revised.applied.length) + ' 处（绿色）'
+          : tailored !== null
+            ? String(tailored.text.length) + ' 字 · 按《' + tailored.jdTitle + '》留下 ' + String(tailored.keptSegments) + ' 段、去掉 ' + String(tailored.droppedSegments) + ' 段'
+            : revised === null
+              ? String(props.text.length) + ' 字 · 被引用 ' + String(props.hits.length) + ' 处'
+              : String(revised.text.length) + ' 字 · 改动 ' + String(revised.applied.length) + ' 处（绿色）'
       }
       actions={
-        revised === null ? undefined : (
+        tailored !== null ? (
+          <div className="flex items-center gap-1">
+            {revised === null ? null : (
+              <button
+                type="button"
+                className="chip cursor-pointer transition-colors hover:border-ember-500 hover:text-ink-100"
+                onClick={props.onShowRevised}
+                title="切回改完的那一版"
+                data-shot="resume-show-revised"
+              >
+                看改完的
+              </button>
+            )}
+            <button
+              type="button"
+              className="chip cursor-pointer transition-colors hover:border-ember-500 hover:text-ink-100"
+              onClick={props.onShowOriginal}
+              title="回到未经改动的原文"
+              data-shot="resume-show-original"
+            >
+              看原文
+            </button>
+          </div>
+        ) : revised === null ? undefined : (
           <button
             type="button"
             className="chip cursor-pointer transition-colors hover:border-ember-500 hover:text-ink-100"
