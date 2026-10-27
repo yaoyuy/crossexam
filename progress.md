@@ -1194,3 +1194,44 @@ P11 改与复用：B2 逐条并排改动对照 ✅ · B1 改写风格档位 · C
 **门禁与实测**：`npm run verify` exit 0（**60 个测试文件 / 620 条断言** + 冒烟 9 项 + 构建）；`npm run e2e:ui` **125/125** 且控制台 0 报错；`npm run shots` 24 张；`npm run seed:demo` 写 **56 盘**（extract 1 / jd-extract 1 / jd-merge 1 / jd-match 1 / probe 24 / answer 10 / verdict 5 / suggest 12 / counter 1），九组合两遍签名一致，默认组合 `79f7d89bfdc9`。
 
 **下一步**：P11 的 C1 简历版本对比（改完再跑一遍，判定怎么变）。
+
+## Session 30（2026-10-27）· P11 C1：简历版本对比（改完再跑一遍）
+
+**目标**：用户 m07544 / m07596 定下的第二阶段第一项 —— 让「改完再跑一遍，判定怎么变」
+从一句产品承诺变成界面上点得出来的事实。这一步同时补上了 P12「成长档案」的数据底座。
+
+**产出**
+
+| 层 | 落点 |
+| --- | --- |
+| shared | `packages/shared/src/compare.ts`（约 9.6 KB）：`DEFAULT_ALIGN_THRESHOLD = 0.34` / `bigramsOf` / `textSimilarity`（bigram Jaccard）/ `alignClaims`（全对打分 + 降序贪心一对一）/ `verdictShift`（复用 `WEAKNESS_RANK`）/ `compareRuns` / `compareHeadline` / `shiftDetail`；测试 +17 条 |
+| server | schema **v10** 加 `session.parent_session_id`（故意不加外键）；`packages/server/src/compare.ts` 的 `compareSessions`（四档：本场不存在 / 第一版 / 上一版被删 / 正常对比）；`GET /api/sessions/:id/compare`；`POST /api/sessions` 收 `parentSessionId`（指不存在的上一场回 400）；两份报告新增「比上次」一节且**后续章节编号整体 +1**；测试 +11 条 |
+| web | `api.ts` 的 `CompareView` 契约与 `fetchCompare`；`packages/web/src/compare.ts` 的 `compareFactsOf` / `shiftDetailOf`（四状态文案）；`CompareBar` 组件（有真的变好变差时默认摊开）；`RevisionBar` 的「改完再跑一遍」按钮；`App.tsx` 把 `handleRun` 重构成 `startRun`（入口多一个 `parentSessionId`），新增 `handleRerun`；测试 +6 条 |
+| demo | `seed:demo` 每种档位组合改跑**两场**：第一场全采纳改写 → 第二场拿改完的简历再质询（父会话记第一场），两场都录卡带并互相比对，第二场「比上次」必须 `improved > 0` 且 `worsened === 0`；卡带 56 → **149 盘**，三档风格改写字数 361→386 / 361→465 / 361→483 |
+| tools | `seed-demo` 命令行每组多打三行（改写多少字、第二场摘要、比上次的 headline）；`e2e.mjs` 在契约对账前插入 5 条断言，把「采纳 → 再跑一遍 → 出结论」走完整条链路，**132/132** |
+
+**真问题**
+
+- 两场之间「同一条主张」在数据里不是事实而是估计（F67）：会话内 id 每场重编、改写后原文锚点已不存在。
+  处置是承认它是估计：做成纯函数、可测试、可调参，并把配不上的单独摆出来（新增 / 消失），
+  报告只谈变好/没变/变差、不报相似度分数。
+- `ClaimComparison.improved` / `worsened` 是**成对的数组**不是条数，测试第一版按数字断言直接红
+  （`expected [ …(4) ] to be 4`）。这类「名字像计数、其实是列表」的字段值得在类型上更明确一点。
+- 点测那条红得很有价值（F68）：界面上「这是第一版」写在面板副标题里，断言读的却是正文元素。
+  改成读整栏之后一个断言同时看到状态与说明，而且以后往这一栏加字不会因为「字换了位置」假红。
+- 合成脚本第二场不能手抄改后文本：改后文本随改写风格档位变，手抄必然有一档落空。
+  改成用标记（「主导引入 Redis 缓存」这类）从改完的简历里**现取引文**，主张文字则与第一场一字不差——
+  界面的版本对比按主张文本配对，改一个字那一条就从「变好」掉进「新增/消失」两堆。
+
+**门禁与实测**：`npm run verify` exit 0（**63 个测试文件 / 659 条断言** + 冒烟 9 项 + 构建）；
+`npm run e2e:ui` **132/132** 且控制台 0 报错；`npm run seed:demo` 写 **149 盘**
+（extract 4 / jd-extract 1 / jd-merge 1 / jd-match 4 / probe 78 / answer 25 / verdict 20 / suggest 12 / counter 4），
+九组合两遍签名一致，默认组合 `64aa0be85503`。
+
+**提交**：`550156d` shared 相似度配对 · `29fe81d` schema v10 · `a4f3e5f` 版本对比接口 ·
+`5b806f2` 报告「比上次」· `3acd413` web 契约与文案 · `3780200` 再跑一遍按钮与「比上次」栏 ·
+`710b914` 点测存在条件 · `9fb6c63` 删除重入守卫 · `818e56f` 离线演示多跑一场 ·
+`050addf` 示例简历两场回归 · `9035866` 点测端到端。
+
+**下一步**：P11 的 C2 历史仪表盘。
+
