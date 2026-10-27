@@ -1329,3 +1329,23 @@ C2 要在历史栏顶上加一句话结论，并把「哪些类别总被打回�
 `e85e12d` 点测 · 后续 `docs` 一个提交（ADR-0021 + F73/F74 + D57 + 3.6.15 + 数字同步 + 截图 + PDF）。
 
 **下一步**：P12 ③ 一岗一版简历。
+
+## Session 34（P12 ③：一岗一版）
+
+**做了什么**：按岗位出一版简历——只做「留下 / 去掉」，一个字都不改。
+
+- shared：`packages/shared/src/tailor.ts`（`claimRanges` / `tailorHeadline` / `tailorResume`，三条分支：没有要求 → 返回原文；
+  一条都对不上 → 拒绝筛并说明；正常 → 只去掉「有主张且主张全部对不上」的行）+ 13 条单测。
+- server：`packages/server/src/tailor.ts`（`tailorFor`，jdId 校验、base 取原文或改完的、不落库每次现算）+
+  `GET /api/sessions/:id/tailor?jd=` 与 `tailored.txt/.html/.doc?jd=` 三件套（`resume-export.ts` 加 tailored 选项）+ 9 条单测。
+- web：`api.ts` 的 TailorView 契约与 `fetchTailor` + 三个导出 URL、`components/TailorBar.tsx` 新栏、
+  `ResumePane.tsx` 多出第三种视图「这一版（按岗位筛）」（不画锚点）、`JdPane.tsx` 的「按这个岗位出一版」入口、`App.tsx` 接线。
+- 点测：`tools/ui-e2e/e2e.mjs` 加 10 项（入口存在、条数与接口一致、去掉哪几条写在明面上、右栏正文与接口逐字相同、
+  三个导出入口与 txt/Word/PDF 各验一次、筛过的 HTML 无外链、能切回原文）。
+
+**为什么这么设计**：筛选是投影不是编辑——改写已有一条独立通道，筛选若也能改字，同一段文字就有两个作者（F75）；
+「上游还没对照过」与「一条都对不上」必须分开表达（F76）。匹配口径复用要求对照的结论，
+不自己再算一遍，避免两个都对但不一样的结果并存。
+
+**门禁与实测**：`npm run verify` exit 0；`npm run e2e:ui` **157/157** 且控制台 0 报错
+（实测：留下 2 条主张 / 去掉 3 条 / 留下 12 段 / 去掉 3 段，原文 465 字 → 这一版 319 字）。
