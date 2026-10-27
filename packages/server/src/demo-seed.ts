@@ -13,7 +13,8 @@
  */
 
 import { unlinkSync } from 'node:fs';
-import { DEFAULT_BUDGET, jdIdOf, jdTitleOf, shortHash, stableStringify } from '@crossexam/shared';
+import { DEFAULT_DIFFICULTY, DIFFICULTIES, DIFFICULTY_LABEL, budgetOf, jdIdOf, jdTitleOf, shortHash, stableStringify } from '@crossexam/shared';
+import type { Difficulty } from '@crossexam/shared';
 import { DEMO_JD, DEMO_JD_TITLE, DEMO_RESUME, DEMO_TITLE } from './demo-content.ts';
 import { DEMO_MODEL, createDemoScriptedClient } from './llm/scripted-demo.ts';
 import type { DemoSeedEntry } from './llm/scripted-demo.ts';
@@ -38,29 +39,43 @@ export interface DemoRunSummary {
   usageTokens: number;
 }
 
+export interface DemoDifficultyRun {
+  difficulty: Difficulty;
+  label: string;
+  record: DemoRunSummary;
+  replay: DemoRunSummary;
+  /** 这一档两次跑的结果是否逐项一致 */
+  ok: boolean;
+  problems: string[];
+  signature: string;
+}
+
 export interface DemoSeedReport {
   cassetteDir: string;
   entries: DemoSeedEntry[];
+  /** 三档各自跑一遍：档位改的是预算，而预算写在渲染出的提示词里，所以每档都要有自己的卡带 */
+  runs: DemoDifficultyRun[];
+  /** 常规档的那一份。顶层保留它，是为了不让既有消费者（CLI 打印、测试断言）跟着改一遍 */
   record: DemoRunSummary;
   replay: DemoRunSummary;
-  /** 两次跑的结果是否逐项一致 */
+  /** 三档全部逐项一致才算通过 */
   ok: boolean;
   problems: string[];
   /** 这一轮不再需要、已被清理掉的旧合成卡带（提示词改动后的孤儿） */
   pruned: string[];
-  /** 逐字节可比的签名：写进日志、测试断言、出问题时 diff 都靠它 */
+  /** 逐字节可比的签名（常规档）：写进日志、测试断言、出问题时 diff 都靠它 */
   signature: string;
 }
 
-function newSessionId(db: AnyDb, mode: StoredLlmMode): string {
+function newSessionId(db: AnyDb, mode: StoredLlmMode, difficulty: Difficulty): string {
   const id = insertSession(db, {
     jobTitle: DEMO_TITLE,
     jdText: DEMO_JD,
     resumeText: DEMO_RESUME,
     resumeHash: shortHash(DEMO_RESUME, 24),
     llmMode: mode,
-    budget: { config: DEFAULT_BUDGET, totalProbes: 0, claims: {} },
-    meta: { source: 'demo-seed' },
+    budget: { config: budgetOf(difficulty), totalProbes: 0, claims: {} },
+    meta: { source: 'demo-seed', difficulty },
   });
   // 演示场次也要像 HTTP 建会话那样把 JD 写进 jd 表：编排层读的是 listJds(db, sessionId)，
   // 只写老字段 jdText 等于告诉它「这场没上传岗位要求」，JD 三个阶段会整段被跳过。
@@ -160,15 +175,18 @@ function pruneStaleCassettes(dir: string, keep: ReadonlySet<string>): string[] {
   return removed;
 }
 
-export async function seedDemoCassettes(opts: { dir: string }): Promise<DemoSeedReport> {
-  const scripted = createDemoScriptedClient(opts.dir);
-
+/** 一次「合成跑 + 回放跑」：两遍必须逐项一致，否则这一档的卡带就是脱节的 */
+async function runOneDifficulty(
+  dir: string,
+  scripted: ReturnType<typeof createDemoScriptedClient>,
+  difficulty: Difficulty,
+): Promise<{ run: DemoDifficultyRun; result: RunSessionResult }> {
   const recordDb = openDatabase({ path: ':memory:' });
   let recordRun: RunSessionResult;
   try {
     recordRun = await runAndPersist({
       db: recordDb,
-      sessionId: newSessionId(recordDb, 'record'),
+      sessionId: newSessionId(recordDb, 'record', difficulty),
       client: scripted.client,
       model: 'scripted-demo',
     });
@@ -176,31 +194,87 @@ export async function seedDemoCassettes(opts: { dir: string }): Promise<DemoSeed
     closeDatabase(recordDb);
   }
 
-  // 新卡带已经全部落盘（第一遍边跑边写），此刻清理旧指纹最安全：
-  // 回放要用的那一批已经在了，删掉的都是这一轮谁也读不到的孤儿。
-  const pruned = pruneStaleCassettes(opts.dir, new Set(scripted.entries.map((entry) => entry.digest)));
-
   const replayDb = openDatabase({ path: ':memory:' });
   let replayRun: RunSessionResult;
   try {
     replayRun = await runAndPersist({
       db: replayDb,
-      sessionId: newSessionId(replayDb, 'replay'),
-      client: createReplayClient(opts.dir),
+      sessionId: newSessionId(replayDb, 'replay', difficulty),
+      client: createReplayClient(dir),
       model: 'fixture',
     });
   } finally {
     closeDatabase(replayDb);
   }
 
+  const label = DIFFICULTY_LABEL[difficulty];
   const problems: string[] = [];
-  if (scripted.entries.length === 0) {
+  if (signatureOf(recordRun) !== signatureOf(replayRun)) {
+    problems.push(label + '档的回放结果与合成结果不一致：卡带与当前提示词已经脱节，请检查提示词改动后重跑 seed。');
+  }
+  if (replayRun.rejectedClaims.length === 0) {
+    problems.push(label + '档的演示里没有被拦下的主张：锚定闸门失去了可见的正面证据。');
+  }
+  // 温和档每人对一条主张只问一次，最容易变成「一条追问都没有」而没人发现。
+  if (replayRun.probes.length === 0) {
+    problems.push(label + '档一条追问都没问出来：这一档的演示等于没演示。');
+  }
+  return {
+    run: {
+      difficulty,
+      label,
+      record: summarize(recordRun),
+      replay: summarize(replayRun),
+      ok: problems.length === 0,
+      problems,
+      signature: signatureOf(recordRun),
+    },
+    result: recordRun,
+  };
+}
+
+export async function seedDemoCassettes(opts: { dir: string }): Promise<DemoSeedReport> {
+  // 三档各跑一遍。预算写在渲染出的提示词里，所以档位不同就是不同的卡带；
+  // 不这么做的后果很具体：用户在界面上把档位切到「挑刺」，一点开跑就报找不到记录。
+  const runs: DemoDifficultyRun[] = [];
+  const entries: DemoSeedEntry[] = [];
+  const keep = new Set<string>();
+  for (const difficulty of DIFFICULTIES) {
+    // 每一档都必须是一个**全新**的脚本客户端：演示脚本的「这条已经问过了」记忆
+    // 挂在客户端实例上（scripted-demo.ts 的 ScriptState），复用一个实例跑第二场时，
+    // 它会以为自己已经问遍全场，第二场一条追问都不问——实测温和 10 条、后两档 0 条。
+    const scripted = createDemoScriptedClient(opts.dir);
+    const one = await runOneDifficulty(opts.dir, scripted, difficulty);
+    runs.push(one.run);
+    for (const entry of scripted.entries) {
+      // 同一份提示词（例如 answer 阶段不含预算）在三档下指纹相同，合并时按指纹去重：
+      // 不去重会让「一共写出 N 盘卡带」这句话变成重复计数。
+      if (keep.has(entry.digest)) continue;
+      keep.add(entry.digest);
+      entries.push(entry);
+    }
+  }
+
+  // 新卡带已经全部落盘（每一遍边跑边写），此刻清理旧指纹最安全：
+  // 回放要用的那一批已经在了，删掉的都是这一轮谁也读不到的孤儿。
+  const pruned = pruneStaleCassettes(opts.dir, keep);
+
+  const normal = runs.filter((item) => item.difficulty === DEFAULT_DIFFICULTY)[0];
+  if (normal === undefined) {
+    throw new Error('常规档没有跑出结果：DIFFICULTIES 里必须包含默认档。');
+  }
+
+  const problems: string[] = [];
+  if (runs.length !== DIFFICULTIES.length) {
+    problems.push('档位数量对不上：预期 ' + String(DIFFICULTIES.length) + ' 档，实际跑了 ' + String(runs.length) + ' 档。');
+  }
+  if (entries.length === 0) {
     problems.push('一盘卡带也没写出来：演示脚本没有覆盖到任何一个阶段的模型调用。');
   }
   // 逐阶段点名：编排层对单个阶段的失败是逐项容错的，
   // 脚本抛错时合成跑照样"成功"，只有到回放才炸。所以生成端必须自己点名。
   const required = ['extract', 'jd-extract', 'jd-merge', 'jd-match', 'probe', 'answer', 'verdict', 'suggest'];
-  const missing = required.filter((purpose) => !scripted.entries.some((entry) => entry.purpose === purpose));
+  const missing = required.filter((purpose) => !entries.some((entry) => entry.purpose === purpose));
   if (missing.length > 0) {
     problems.push(
       '演示脚本没有覆盖这些阶段：' +
@@ -208,21 +282,20 @@ export async function seedDemoCassettes(opts: { dir: string }): Promise<DemoSeed
         '。回放会在这些阶段报「找不到记录」，而合成跑不会报错——属于静默失败，必须在生成端拦下。',
     );
   }
-  if (signatureOf(recordRun) !== signatureOf(replayRun)) {
-    problems.push('回放结果与合成结果不一致：卡带与当前提示词已经脱节，请检查提示词改动后重跑 seed。');
-  }
-  if (replayRun.rejectedClaims.length === 0) {
-    problems.push('演示里没有被拦下的主张：锚定闸门失去了可见的正面证据。');
+  // 逐档的问题由 runOneDifficulty 给出（套在同一个 problems 里，调用方只看一处）
+  for (const item of runs) {
+    for (const problem of item.problems) problems.push(problem);
   }
 
   return {
     cassetteDir: opts.dir,
-    entries: scripted.entries,
-    record: summarize(recordRun),
-    replay: summarize(replayRun),
+    entries,
+    runs,
+    record: normal.record,
+    replay: normal.replay,
     ok: problems.length === 0,
     problems,
     pruned,
-    signature: signatureOf(recordRun),
+    signature: normal.signature,
   };
 }

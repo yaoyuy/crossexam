@@ -27,8 +27,8 @@ const HELP = [
   '  --dir <目录>   卡带写入目录，默认 fixtures/llm（可用 CROSSEXAM_FIXTURES 覆盖）',
   '  --help         显示这段说明',
   '',
-  '它会跑两遍演示沙盘：第一遍用确定性脚本客户端边跑边录卡带，',
-  '第二遍用只读回放客户端重跑并比对签名。对不上就退出码 1。',
+  '它会按三种追问强度（温和 / 常规 / 挑刺）各跑两遍演示沙盘：第一遍用确定性脚本客户端',
+  '边跑边录卡带，第二遍用只读回放客户端重跑并比对签名。任何一档对不上就退出码 1。',
 ].join(String.fromCharCode(10));
 
 function argValue(name: string): string | null {
@@ -88,8 +88,12 @@ async function main(): Promise<void> {
   if (report.pruned.length > 0) {
     console.log('清理旧卡带：' + report.pruned.length + ' 条（提示词改过，旧指纹已经没人读得到）');
   }
-  console.log('第一遍 合成脚本：' + summaryLine(report.record));
-  console.log('第二遍 只读回放：' + summaryLine(report.replay));
+  // 三档各报一遍：档位写进提示词，所以每一档都是独立的一批卡带，
+  // 只报常规档会让人以为「切到挑刺也能离线跑」，而实际上很可能没有那批卡带。
+  for (const run of report.runs) {
+    console.log('【' + run.label + '】合成脚本：' + summaryLine(run.record));
+    console.log('【' + run.label + '】只读回放：' + summaryLine(run.replay));
+  }
 
   if (!report.ok) {
     console.log('自检：失败');
@@ -98,7 +102,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  console.log('自检：通过（两遍结果签名一致 ' + shortHash(report.signature, 12) + '）');
+  console.log('自检：通过（' + String(report.runs.length) + ' 档各自两遍签名一致 · 常规档 ' + shortHash(report.signature, 12) + '）');
   console.log('');
   console.log('下一步：CROSSEXAM_MODE=replay npm run dev 然后打开服务地址点「示例简历」');
 }
