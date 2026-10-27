@@ -366,6 +366,17 @@ async function main() {
     await cdp.evaluate(click('mode-replay'));
     await sleep(250);
 
+    // 追问强度三档：换一档换的是契约里的预算与指纹，所以卡带必须按档位分开录。
+    // 这一张拍的是挑刺档：契约卡片展开着，预算已经是每主张 4 轮 / 全场 80 次。
+    await cdp.evaluate("document.querySelector(\"[data-shot=difficulty-hard]\").scrollIntoView({ block: 'center' })");
+    await cdp.evaluate(click('difficulty-hard'));
+    await cdp.evaluate(click('contract-toggle'));
+    await cdp.waitFor("document.querySelector(\"[data-shot=contract-toggle]\").parentElement.innerText.indexOf('全场最多 80 次') >= 0", '契约换成挑刺档', 10000);
+    await sleep(350);
+    await cdp.shot(opts.out, '21-difficulty.png');
+    await cdp.evaluate(click('difficulty-normal'));
+    await cdp.evaluate(click('contract-toggle'));
+    await sleep(200);
     // 面试官工作室：自定义面试官是「任何专业都能用」那条要求的入口。
     // 走本地规则这条路（不联网、确定性），拍下来的正好是「没有 API Key 也能配出面试官」。
     await cdp.evaluate(click('open-studio'));

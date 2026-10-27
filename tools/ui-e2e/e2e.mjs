@@ -348,6 +348,38 @@ const backNote = await evalJs('(document.querySelector("[data-shot=mode-note]") 
 const modelHiddenAgain = await evalJs('document.querySelector("[data-shot=model-input]") === null');
 check('切回离线回放后模型输入框收起', backNote.indexOf('不联网') >= 0 && modelHiddenAgain === true, backNote.slice(0, 30));
 
+// 追问强度：三档只有预算不同，但预算写进了契约、也写进了提示词指纹。
+// 这条场景要证明的是「换档 = 换契约」，不是「换了个界面装饰」：
+// 展开的契约卡片里的数字与指纹都必须跟着变——不然卡带就不用按档位分开录，那才是产品在骗人。
+const diffChips = await evalJs('(() => { const pick = (n) => document.querySelector("[data-shot=" + n + "]") !== null; return [pick("difficulty-gentle"), pick("difficulty-normal"), pick("difficulty-hard")].join(","); })()');
+check('投料台给出三档追问强度', diffChips === 'true,true,true', String(diffChips));
+const noteOf = () => evalJs('(document.querySelector("[data-shot=difficulty-note]") || { textContent: "" }).textContent');
+const normalNote = await noteOf();
+check('默认是常规档，并把这一档的预算说成人话', normalNote.indexOf('最多 3 轮') >= 0, normalNote.slice(0, 50));
+// 契约卡片的正文在按钮的父节点里，指纹与预算都在展开后的 dl 里。
+const cardText = () => evalJs('(function () { var b = document.querySelector("[data-shot=contract-toggle]"); return b === null ? "" : String(b.parentElement.innerText); })()');
+const digestOf = (text) => { const hit = /指纹 ([0-9a-f]{8})/.exec(String(text)); return hit === null ? '' : hit[1]; };
+const budgetOf = (text) => {
+  const hit = /每主张最多 ([0-9]+) 轮追问 · 每人每主张最多 ([0-9]+) 次 · 全场最多 ([0-9]+) 次/.exec(String(text));
+  return hit === null ? '' : hit[1] + '/' + hit[2] + '/' + hit[3];
+};
+await evalJs('(function () { var b = document.querySelector("[data-shot=contract-toggle]"); if (b !== null) b.click(); return "ok"; })()');
+await sleep(300);
+const cardBefore = await cardText();
+check('展开契约能看到这一档的预算与指纹', budgetOf(cardBefore) === '3/2/60' && digestOf(cardBefore).length === 8, budgetOf(cardBefore) + ' / ' + digestOf(cardBefore));
+await evalJs('document.querySelector("[data-shot=difficulty-hard]").click()');
+const hardCard = await waitFor(async () => { const text = await cardText(); return budgetOf(text) === '4/2/80' ? text : ''; }, '契约跟着换档', 8000);
+const hardNote = await noteOf();
+check('切到挑刺档：契约里的预算从 3/2/60 变成 4/2/80', budgetOf(hardCard) === '4/2/80' && hardNote.indexOf('最多 4 轮') >= 0, budgetOf(hardCard) + ' / ' + hardNote.slice(0, 20));
+check('换档真的换了指纹（所以卡带要按档位分开录）', digestOf(hardCard).length === 8 && digestOf(hardCard) !== digestOf(cardBefore), digestOf(cardBefore) + ' → ' + digestOf(hardCard));
+await evalJs('document.querySelector("[data-shot=difficulty-gentle]").click()');
+const gentleCard = await waitFor(async () => { const text = await cardText(); return budgetOf(text) === '2/1/40' ? text : ''; }, '温和档的契约', 8000);
+check('温和档连「每人每主张几次」都更小（1 次）', budgetOf(gentleCard) === '2/1/40', budgetOf(gentleCard));
+await evalJs('document.querySelector("[data-shot=difficulty-normal]").click()');
+const backCard = await waitFor(async () => { const text = await cardText(); return budgetOf(text) === '3/2/60' ? text : ''; }, '回到常规档', 8000);
+check('切回常规档：预算与指纹都回到原样', budgetOf(backCard) === '3/2/60' && digestOf(backCard) === digestOf(cardBefore), budgetOf(backCard) + ' / ' + digestOf(backCard));
+await evalJs('(function () { var b = document.querySelector("[data-shot=contract-toggle]"); if (b !== null) b.click(); return "ok"; })()');
+await sleep(200);
 const typed = await setTextarea(0, CUSTOM_RESUME);
 check('能在浏览器里自己打一份简历', typed === CUSTOM_RESUME.length, String(typed) + ' 字');
 await waitText('字', 5000);
