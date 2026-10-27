@@ -9,7 +9,7 @@
  * 事实只有一个来源；多写一个薄呈现层，好过让服务端去依赖一个工具目录。
  */
 
-import { CLAIM_CATEGORY_LABEL, MATCH_LABEL, PERSONA_PRESETS, REQUIREMENT_KIND_LABEL, VERDICT_LABEL } from '@crossexam/shared';
+import { CLAIM_CATEGORY_LABEL, MATCH_LABEL, PERSONA_PRESETS, REQUIREMENT_KIND_LABEL, VERDICT_LABEL, categoryLine, shortfallPlan } from '@crossexam/shared';
 import type { Anchor, Verdict, VerdictKind } from '@crossexam/shared';
 import type { ProbeRow } from './store/index.ts';
 import type { SessionView } from './pipeline.ts';
@@ -190,6 +190,7 @@ function claimSection(view: SessionView): string[] {
     }
     out.push('</ul>');
   }
+  for (const line of shortfallSection(view)) out.push(line);
   return out;
 }
 
@@ -200,6 +201,54 @@ function claimSection(view: SessionView): string[] {
  * 而「主张与判定」回答的是「简历里这句话站不站得住」。
  * 缺的那几条只列在这里、不生成追问——那是回去补经历的事，不是追问能问出来的。
  */
+/**
+ * 按类别看短板（HTML 版）：与 Markdown 报告同一句话、同一份排序。
+ */
+function shortfallOf(view: SessionView): ReturnType<typeof shortfallPlan> {
+  const claims = view.claims.map((claim) => {
+    const verdict = verdictOf(view, claim.id);
+    return {
+      id: claim.id,
+      text: claim.text,
+      category: claim.category,
+      verdict: verdict === null ? null : verdict.kind,
+    };
+  });
+  return shortfallPlan(claims);
+}
+
+function shortfallSection(view: SessionView): string[] {
+  const plan = shortfallOf(view);
+  const out: string[] = [];
+  out.push('<h3>按类别看短板</h3>');
+  out.push('<p>' + esc(plan.headline) + '</p>');
+  if (plan.total === 0) return out;
+  out.push('<ul class="facts">');
+  for (const item of plan.stats) out.push('<li>' + esc(categoryLine(item)) + '</li>');
+  out.push('</ul>');
+  if (plan.weakest.length === 0) {
+    out.push('<p>没有需要补的主张。</p>');
+    return out;
+  }
+  out.push('<p>最该先补的 ' + String(plan.weakest.length) + ' 处（同一程度按主张顺序）：</p>');
+  out.push('<ul class="facts">');
+  for (const item of plan.weakest) {
+    const verdict = verdictOf(view, item.id);
+    const badge =
+      verdict === null
+        ? '<span class="badge" style="background:#9ca3af">未判定</span>'
+        : verdictBadge(verdict.kind);
+    out.push(
+      '<li><span class="id">' + esc(item.id) + '</span>' + badge +
+        '<span class="weight">' + esc(CLAIM_CATEGORY_LABEL[item.category]) +
+        ' · 追问 ' + String(probesOf(view, item.id).length) + ' 条</span>' +
+        esc(item.text) + '</li>',
+    );
+  }
+  out.push('</ul>');
+  return out;
+}
+
 function requirementSection(view: SessionView): string[] {
   const out: string[] = [];
   out.push('<h2>二、岗位要求对照</h2>');

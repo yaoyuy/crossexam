@@ -8,7 +8,7 @@
  * 所以它只读数据库里的事实，不做任何润色或补写。
  */
 
-import { CLAIM_CATEGORY_LABEL, MATCH_LABEL, PERSONA_PRESETS, REQUIREMENT_KIND_LABEL, VERDICT_LABEL } from '@crossexam/shared';
+import { CLAIM_CATEGORY_LABEL, MATCH_LABEL, PERSONA_PRESETS, REQUIREMENT_KIND_LABEL, VERDICT_LABEL, categoryLine, shortfallPlan } from '@crossexam/shared';
 import type { Anchor, Verdict, VerdictKind } from '@crossexam/shared';
 import type { ProbeRow } from './store/index.ts';
 import type { SessionView } from './pipeline.ts';
@@ -72,6 +72,53 @@ function jdTitleOfId(view: SessionView, jdId: string): string {
  * 这边看的是这份 JD 的每条要求有没有被回答到。缺的那几条**不生成追问**，
  * 只列在这里——因为「简历里没写」不是可以靠追问解决的事，那是回去补经历的事。
  */
+/**
+ * 按类别看短板：同一份判定的另一种摆法。
+ *
+ * 排序与定义只写在 shared/shortfall.ts 里，两个渲染器都不许自己再排一遍——
+ * 不然「报告里说最该补 C3、界面上排第一的是 C5」这种矛盾迟早出现。
+ */
+function shortfallOf(view: SessionView): ReturnType<typeof shortfallPlan> {
+  const claims = view.claims.map((claim) => {
+    const verdict = verdictOf(view, claim.id);
+    return {
+      id: claim.id,
+      text: claim.text,
+      category: claim.category,
+      verdict: verdict === null ? null : verdict.kind,
+    };
+  });
+  return shortfallPlan(claims);
+}
+
+function shortfallLines(view: SessionView): string[] {
+  const plan = shortfallOf(view);
+  const out: string[] = [];
+  out.push('### 按类别看短板');
+  out.push('');
+  out.push(plan.headline);
+  out.push('');
+  if (plan.total === 0) return out;
+  for (const item of plan.stats) out.push('- ' + categoryLine(item));
+  out.push('');
+  if (plan.weakest.length === 0) {
+    out.push('没有需要补的主张。');
+    out.push('');
+    return out;
+  }
+  out.push('最该先补的 ' + String(plan.weakest.length) + ' 处（同一程度按主张顺序，不另行排序）：');
+  out.push('');
+  for (const item of plan.weakest) {
+    const verdict = verdictOf(view, item.id);
+    const kind = verdict === null ? '未判定' : VERDICT_LABEL[verdict.kind];
+    out.push(
+      '- ' + item.id + ' · ' + kind + ' · ' + CLAIM_CATEGORY_LABEL[item.category] + '：' + item.text +
+        '（追问 ' + String(probesOf(view, item.id).length) + ' 条）',
+    );
+  }
+  out.push('');
+  return out;
+}
 function requirementLines(view: SessionView): string[] {
   const out: string[] = [];
   out.push('## 二、岗位要求对照');
@@ -187,6 +234,8 @@ export function renderReport(view: SessionView): string {
     }
     out.push('');
   }
+
+  for (const line of shortfallLines(view)) out.push(line);
 
   for (const line of requirementLines(view)) out.push(line);
 
