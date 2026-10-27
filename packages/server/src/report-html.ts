@@ -33,7 +33,7 @@ const MATCH_COLOR: Record<string, string> = {
   missing: '#6b7280',
 };
 
-const STYLE = [
+export const STYLE = [
   ':root { color-scheme: light; }',
   '* { box-sizing: border-box; }',
   'body { margin: 0; padding: 0; background: #ffffff; color: #1f2937;',
@@ -76,7 +76,7 @@ const STYLE = [
   '@media print { .page { max-width: none; padding: 0; } .claim, .probe, .advice { break-inside: avoid; } }',
 ].join(NL);
 
-function esc(text: string): string {
+export function esc(text: string): string {
   return text
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
