@@ -8,6 +8,7 @@ import {
   discardRevisions,
   fetchCompare,
   fetchContracts,
+  fetchGrowth,
   fetchDemo,
   fetchHealth,
   fetchInterviewers,
@@ -33,6 +34,7 @@ import type {
   CompareView,
   ContractView,
   DemoInfo,
+  GrowthView,
   HealthInfo,
   HistoryOverview,
   InterviewerLibrary,
@@ -58,6 +60,7 @@ import { RevisionBar } from './components/RevisionBar.tsx';
 import { Chip } from './components/Bits.tsx';
 import { ClaimBoard } from './components/ClaimBoard.tsx';
 import { CompareBar } from './components/CompareBar.tsx';
+import { GrowthPanel } from './components/GrowthPanel.tsx';
 import { HelpPanel } from './components/HelpPanel.tsx';
 import { IntakePanel } from './components/IntakePanel.tsx';
 import { InterviewerStudio } from './components/InterviewerStudio.tsx';
@@ -178,6 +181,10 @@ export function App() {
   // 历史栏顶上那块跨场次统计（P11 · C2）。它与 sessions 一起刷新：
   // 列表变了统计就变了，两处分别取会出现「列表有 3 场、统计说 2 场」。
   const [overview, setOverview] = useState<HistoryOverview | null>(null);
+  // 成长档案（P12 · ②）：沿版本链往上走的那些版。open 与数据分开，
+  // 因为「打开抽屉」是一次读库，「点了才取」比每次跑完都取省事也省流量。
+  const [growth, setGrowth] = useState<GrowthView | null>(null);
+  const [growthOpen, setGrowthOpen] = useState(false);
 
   const queueRef = useRef<SseEvent[]>([]);
   const timerRef = useRef<number | null>(null);
@@ -188,7 +195,7 @@ export function App() {
   const streamingRef = useRef(false);
   // 正在删的会话 id：界面上先把行摘掉、请求还在路上，这段时间里再点同一行不再发第二次请求
   const deletingRef = useRef<Set<string>>(new Set());
-  // 历史列表刷新的序号，用来丢掉乱序回来的旧结果（连点两下删除就能撞上）
+  // 历史列表刷新的序号，用来丢掉乱序回来的旧结果（删两下就能撞上）
   const sessionsSeq = useRef(0);
   const paceRef = useRef(pace);
 
@@ -709,6 +716,22 @@ export function App() {
     markHelpSeen();
   }, []);
 
+  /**
+   * 打开成长档案。点了才读库——它不像「比上次」每次跑完都得有，
+   * 少一次后台请求也少一处要维护的时序；取不到就带着 null 打开，面板会说清为什么是空的。
+   */
+  const handleOpenGrowth = useCallback(() => {
+    setGrowthOpen(true);
+    const id = sandbox.sessionId;
+    if (id === null) {
+      setGrowth(null);
+      return;
+    }
+    void fetchGrowth(id)
+      .then((view) => setGrowth(view))
+      .catch(() => setGrowth(null));
+  }, [sandbox.sessionId]);
+
   const handleToggleTheme = useCallback(() => {
     // 只改 <html data-theme>，颜色全是 CSS 变量的事；顺手把选择记住
     setTheme((current) => {
@@ -883,6 +906,15 @@ export function App() {
             data-shot="help-open"
           >
             新手教程
+          </button>
+          <button
+            type="button"
+            className="chip cursor-pointer transition-colors hover:border-ember-500 hover:text-ink-100"
+            onClick={handleOpenGrowth}
+            title="这一场所在的版本链：每条主张改了几回、现在什么结论"
+            data-shot="growth-open"
+          >
+            成长档案
           </button>
           <button
             type="button"
@@ -1072,11 +1104,12 @@ export function App() {
             「比上次」摆在采纳改写下面：它的因是「改完」，它的果是「这一版的判定」，
             两栏挨着才看得出这是一条闭环。没有上一版时它整栏不渲染。
           */}
-          <CompareBar view={compare} />
+          <CompareBar view={compare} onOpenGrowth={handleOpenGrowth} />
         </div>
       </main>
 
       <HelpPanel open={helpOpen} onClose={handleCloseHelp} />
+      <GrowthPanel view={growth} open={growthOpen} onClose={() => setGrowthOpen(false)} />
       <InterviewerStudio
         open={studioOpen}
         onClose={handleCloseStudio}
