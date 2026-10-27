@@ -17,9 +17,11 @@ import {
   getSession,
   importResumeFile,
   listSessions,
+  deleteSupplement,
   reportDocUrl,
   reportHtmlUrl,
   reportUrl,
+  saveSupplement,
   streamRun,
 } from './api.ts';
 import type {
@@ -32,6 +34,7 @@ import type {
   JobDescription,
   LlmMode,
   Requirement,
+  SessionSupplement,
   SessionSummary,
   SseEvent,
   TemplateLibrary,
@@ -44,7 +47,7 @@ import { applyTheme, nextTheme, readStoredTheme, saveTheme, THEME_LABEL } from '
 import type { Theme } from './theme.ts';
 import { allAnchors, anchorsOfJd, initialSandbox, sandboxReducer, stateFromHistory, totalProbes } from './state.ts';
 import { emptyDraftList, jdPayload, materialJds, previewJds } from './jds.ts';
-import { acceptAll, skippedReason as skippedReasonOf, toggleAccepted } from './revisions.ts';
+import { acceptAll, choosableClaimIds, skippedReason as skippedReasonOf, toggleAccepted } from './revisions.ts';
 import type { RevisedResume } from './revisions.ts';
 import { RevisionBar } from './components/RevisionBar.tsx';
 import { Chip } from './components/Bits.tsx';
@@ -153,6 +156,11 @@ export function App() {
   const [revisionBusy, setRevisionBusy] = useState(false);
   // 右栏现在显示哪一版：'original' 原文 / 'revised' 改完的
   const [viewing, setViewing] = useState<'original' | 'revised'>('original');
+  // 用户当场给自己补的那几句真话（一条主张一句）。它和改写建议一样，
+  // 只在点「确认采纳」时才进简历，所以没必要另开一条确认链路。
+  const [supplements, setSupplements] = useState<SessionSupplement[]>([]);
+  // 上一次存或删补充说明的结果，按主张显示在那张卡片上；换场次就清掉
+  const [supplementNote, setSupplementNote] = useState<{ claimId: string; text: string } | null>(null);
 
   const queueRef = useRef<SseEvent[]>([]);
   const timerRef = useRef<number | null>(null);
@@ -323,6 +331,8 @@ export function App() {
       setChosen([]);
       setRevisionNote(null);
       setViewing('original');
+      setSupplements([]);
+      setSupplementNote(null);
       queueRef.current = [];
       streamingRef.current = true;
       dispatch({ type: 'begin', sessionId: created.id });
@@ -385,6 +395,8 @@ export function App() {
       setChosen(stored === null ? [] : [...stored.accepted]);
       setRevisionNote(null);
       setViewing(stored === null ? 'original' : 'revised');
+      setSupplements(view.supplements ?? []);
+      setSupplementNote(null);
       setHint('这是历史会话：过程由事件表重放，和当时直播看到的是同一条代码路径。');
     } catch (error) {
       setHint(error instanceof Error ? error.message : '打不开这条会话');
@@ -513,6 +525,55 @@ export function App() {
     setChosen((current) => toggleAccepted(current, claimId));
   }, []);
 
+  /**
+   * 存下用户自己补的那句真话。存下来只是记账，进不进简历由「确认采纳」决定——
+   * 所以这里刻意不动 chosen：用户勾不勾是他的事，别替他做主。
+   */
+  const handleSaveSupplement = useCallback(
+    async (claimId: string, text: string) => {
+      const id = sandbox.sessionId;
+      if (id === null) return;
+      setSupplementNote(null);
+      try {
+        const row = await saveSupplement(id, claimId, text);
+        setSupplements((current) => [
+          ...current.filter((item) => item.claimId !== claimId),
+          row,
+        ]);
+        setSupplementNote({
+          claimId,
+          text:
+            '已记下 ' + claimId + ' 的补充说明。点「采纳」再确认，它才会进简历。',
+        });
+      } catch (error) {
+        setSupplementNote({
+          claimId,
+          text: error instanceof Error ? error.message : '这句没能存下来',
+        });
+      }
+    },
+    [sandbox.sessionId],
+  );
+
+  const handleDeleteSupplement = useCallback(
+    async (claimId: string) => {
+      const id = sandbox.sessionId;
+      if (id === null) return;
+      setSupplementNote(null);
+      try {
+        await deleteSupplement(id, claimId);
+        setSupplements((current) => current.filter((item) => item.claimId !== claimId));
+        setSupplementNote({ claimId, text: '已删掉 ' + claimId + ' 的补充说明。' });
+      } catch (error) {
+        setSupplementNote({
+          claimId,
+          text: error instanceof Error ? error.message : '这句没能删掉',
+        });
+      }
+    },
+    [sandbox.sessionId],
+  );
+
   const handleToggleRole = useCallback((id: string) => {
     setPanel((current) => nextPanel(current, id));
   }, []);
@@ -530,6 +591,8 @@ export function App() {
     setChosen([]);
     setRevisionNote(null);
     setViewing('original');
+    setSupplements([]);
+    setSupplementNote(null);
   }, []);
 
   const handleCloseHelp = useCallback(() => {
@@ -626,17 +689,28 @@ export function App() {
     [refreshLibrary],
   );
 
-  /** 有改写建议、因此可以勾选采纳的主张 id（顺序与界面上主张的顺序一致） */
+  /** 能勾选采纳的主张 id：有改写建议的，或自己补了一句真话的（判据在 revisions.ts 里） */
   const acceptCandidates = useMemo(
     () =>
-      sandbox.claims
-        .filter((item) => item.suggestion !== null && item.suggestion.suggestion !== null)
-        .map((item) => item.claim.id),
-    [sandbox.claims],
+      choosableClaimIds(
+        sandbox.claims.map((item) => ({
+          id: item.claim.id,
+          hasSuggestion: item.suggestion !== null && item.suggestion.suggestion !== null,
+        })),
+        supplements.map((row) => row.claimId),
+      ),
+    [sandbox.claims, supplements],
   );
 
   /** 勾过却改不动的理由：只在「已经提交过一版」之后才查得到 */
   const skippedReason = useCallback((claimId: string): string | null => skippedReasonOf(revised, claimId), [revised]);
+
+  /** 补充说明的存/删结果只显示在它自己那张卡片上，不抢「采纳改写」栏的位置 */
+  const supplementNoteFor = useCallback(
+    (claimId: string): string | null =>
+      supplementNote !== null && supplementNote.claimId === claimId ? supplementNote.text : null,
+    [supplementNote],
+  );
 
   /** 右栏显示哪一版：没有改完的版本时，无论选哪个都只能是原文 */
   const shownRevised = viewing === 'revised' ? revised : null;
@@ -809,6 +883,10 @@ export function App() {
             chosen={chosen}
             onToggleChoose={handleToggleChoose}
             skippedReason={skippedReason}
+            supplements={supplements}
+            onSaveSupplement={handleSaveSupplement}
+            onDeleteSupplement={handleDeleteSupplement}
+            supplementNoteFor={supplementNoteFor}
           />
           <RequirementBoard
             requirements={sandbox.requirements}

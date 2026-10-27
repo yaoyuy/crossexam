@@ -1,3 +1,5 @@
+import { useState } from 'react';
+
 import { CLAIM_CATEGORY_LABEL, personaLabelOf, VERDICT_CRITERIA, VERDICT_LABEL } from '../labels.ts';
 import type { Anchor, Requirement, VerdictOutcome } from '../api.ts';
 import type { ClaimView, SandboxState } from '../state.ts';
@@ -92,6 +94,100 @@ function VerdictBlock(props: { outcome: VerdictOutcome; onFocus: (anchor: Anchor
   );
 }
 
+/**
+ * 补一句真话。改写建议是模型写的，这一句是**用户自己写的**。
+ * 两者都只在点「确认采纳」之后才会进简历，所以共用同一个勾选动作——
+ * 只把它当备注收着，用户会以为写进去的已经写进去了。
+ */
+function SupplementBlock(props: {
+  claimId: string;
+  text: string | null;
+  note?: string | null;
+  onSave?: (claimId: string, text: string) => void;
+  onDelete?: (claimId: string) => void;
+}) {
+  const [draft, setDraft] = useState(props.text ?? "");
+  const [editing, setEditing] = useState(false);
+  const has = props.text !== null;
+  const open = !has || editing;
+  return (
+    <div className="flex flex-col gap-2 rounded-lg border border-mint-400/25 bg-mint-400/5 p-2.5">
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge tone="solid">补一句真话</Badge>
+        <span className="text-[11px] text-ink-400">
+          {has
+            ? '这句是你写的，采纳之后会作为新的一行加进简历。'
+            : '简历里没写、但你确实做过的事写在这里，它会变成简历里新的一行。'}
+        </span>
+        {has ? (
+          <button
+            type="button"
+            data-shot={'supplement-edit-' + props.claimId}
+            className="ml-auto cursor-pointer text-[11px] text-ink-300 underline decoration-dotted"
+            onClick={() => {
+              setDraft(props.text ?? "");
+              setEditing(true);
+            }}
+          >
+            改一句
+          </button>
+        ) : null}
+      </div>
+      {has && !editing ? (
+        <p data-shot={'supplement-text-' + props.claimId} className="text-[12.5px] leading-relaxed text-mint-300">
+          {props.text}
+        </p>
+      ) : null}
+      {open ? (
+        <>
+          <textarea
+            data-shot={'supplement-input-' + props.claimId}
+            rows={2}
+            value={draft}
+            placeholder="例如：日订单 30 万，峰值 QPS 5000。"
+            className="w-full resize-none rounded-md border border-ink-700 bg-ink-900/70 px-2 py-1.5 text-[12px] text-ink-100 outline-none focus:border-mint-400/60"
+            onChange={(event) => setDraft(event.target.value)}
+          />
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              data-shot={'supplement-save-' + props.claimId}
+              className="cursor-pointer rounded-md border border-mint-400/40 px-2 py-0.5 text-[11.5px] text-mint-300 transition-colors hover:bg-mint-400/10"
+              onClick={() => props.onSave?.(props.claimId, draft)}
+            >
+              存下这句
+            </button>
+            {has ? (
+              <button
+                type="button"
+                data-shot={'supplement-delete-' + props.claimId}
+                className="cursor-pointer text-[11.5px] text-rose-ink underline decoration-dotted"
+                onClick={() => props.onDelete?.(props.claimId)}
+              >
+                删掉
+              </button>
+            ) : null}
+            {editing ? (
+              <button
+                type="button"
+                className="cursor-pointer text-[11.5px] text-ink-400"
+                onClick={() => setEditing(false)}
+              >
+                收起
+              </button>
+            ) : null}
+          </div>
+        </>
+      ) : null}
+      {props.note == null ? null : (
+        <p data-shot={'supplement-note-' + props.claimId} className="text-[11.5px] leading-relaxed text-amber-ink">
+          {props.note}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function ClaimCard(props: {
   item: ClaimView;
   state: SandboxState;
@@ -106,6 +202,15 @@ function ClaimCard(props: {
   onToggleChoose?: (claimId: string) => void;
   /** 勾过却改不动时的理由，由上层从「改完的简历」那份清单里查 */
   skippedReason?: string | null;
+  /** 用户自己给这条主张补的那句真话（还没补就是 null） */
+  supplement?: { text: string } | null;
+  /** 有没有东西可勾：改写建议与补充说明都算 */
+  canChoose?: boolean;
+  /** 存那句补充说明。没传就整块不渲染（比如直播还没跑完） */
+  onSaveSupplement?: (claimId: string, text: string) => void;
+  onDeleteSupplement?: (claimId: string) => void;
+  /** 上一次存这句的结果或错误，原样显示 */
+  supplementNote?: string | null;
 }) {
   const item = props.item;
   const answeredCount = item.probes.filter((pv) => pv.answer !== null && pv.answer.answered).length;
@@ -118,7 +223,22 @@ function ClaimCard(props: {
           <Chip>{CLAIM_CATEGORY_LABEL[item.claim.category] ?? item.claim.category}</Chip>
           <WeightBar value={item.claim.weight} />
           {item.closed ? <Chip title="追问预算已关停这条主张">已关停</Chip> : null}
-          <span className="ml-auto text-[11px] text-ink-400">
+          {props.canChoose === true && props.onToggleChoose !== undefined ? (
+            <label
+              className="ml-auto flex cursor-pointer select-none items-center gap-1.5 text-[11.5px] text-ink-300"
+              title="勾上之后点「确认采纳」，简历会被真的改掉"
+            >
+              <input
+                type="checkbox"
+                className="h-3.5 w-3.5 cursor-pointer accent-[var(--color-ember-500)]"
+                checked={props.chosen === true}
+                onChange={() => props.onToggleChoose?.(item.claim.id)}
+                data-shot={'choose-' + item.claim.id}
+              />
+              采纳
+            </label>
+          ) : null}
+          <span className={(props.canChoose === true ? "" : "ml-auto ") + "text-[11px] text-ink-400"}>
             {String(item.probes.length)} 问 · {String(answeredCount)} 答
           </span>
         </div>
@@ -207,21 +327,6 @@ function ClaimCard(props: {
           <div className="flex items-center gap-2">
             <Badge tone="ember">改写建议</Badge>
             <span className="text-[11px] text-ink-400">{item.suggestion.suggestion.problem}</span>
-            {props.onToggleChoose === undefined ? null : (
-              <label
-                className="ml-auto flex cursor-pointer select-none items-center gap-1.5 text-[11.5px] text-ink-300"
-                title="勾上之后点「确认采纳」，简历会被真的改掉"
-              >
-                <input
-                  type="checkbox"
-                  className="h-3.5 w-3.5 cursor-pointer accent-[var(--color-ember-500)]"
-                  checked={props.chosen === true}
-                  onChange={() => props.onToggleChoose?.(item.claim.id)}
-                  data-shot={'choose-' + item.claim.id}
-                />
-                采纳
-              </label>
-            )}
           </div>
           {props.skippedReason === undefined || props.skippedReason === null ? null : (
             <p className="text-[11.5px] leading-relaxed text-rose-ink">勾了但没改成：{props.skippedReason}</p>
@@ -232,6 +337,16 @@ function ClaimCard(props: {
           </div>
           <p className="text-[11.5px] leading-relaxed text-ink-400">为什么：{item.suggestion.suggestion.why}</p>
         </div>
+      )}
+
+      {props.onSaveSupplement === undefined ? null : (
+        <SupplementBlock
+          claimId={item.claim.id}
+          text={props.supplement === undefined || props.supplement === null ? null : props.supplement.text}
+          note={props.supplementNote ?? null}
+          onSave={props.onSaveSupplement}
+          onDelete={props.onDeleteSupplement}
+        />
       )}
     </article>
   );
@@ -250,6 +365,11 @@ export function ClaimBoard(props: {
   chosen?: readonly string[];
   onToggleChoose?: (claimId: string) => void;
   skippedReason?: (claimId: string) => string | null;
+  /** 用户自己补的那些真话（按主张 id 一条） */
+  supplements?: readonly { claimId: string; text: string }[];
+  onSaveSupplement?: (claimId: string, text: string) => void;
+  onDeleteSupplement?: (claimId: string) => void;
+  supplementNoteFor?: (claimId: string) => string | null;
 }) {
   const state = props.state;
   const notices = state.rejectedProbes;
@@ -309,6 +429,15 @@ export function ClaimBoard(props: {
             chosen={(props.chosen ?? []).indexOf(item.claim.id) >= 0}
             onToggleChoose={props.onToggleChoose}
             skippedReason={props.skippedReason?.(item.claim.id) ?? null}
+            supplement={(props.supplements ?? []).find((row) => row.claimId === item.claim.id) ?? null}
+            canChoose={
+              props.onToggleChoose !== undefined &&
+              ((item.suggestion !== null && item.suggestion.suggestion !== null) ||
+                (props.supplements ?? []).some((row) => row.claimId === item.claim.id))
+            }
+            onSaveSupplement={props.onSaveSupplement}
+            onDeleteSupplement={props.onDeleteSupplement}
+            supplementNote={props.supplementNoteFor?.(item.claim.id) ?? null}
           />
         ))
       )}

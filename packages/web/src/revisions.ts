@@ -44,6 +44,22 @@ export function toggleAccepted(current: readonly string[], claimId: string): str
   return current.indexOf(claimId) < 0 ? [...current, claimId] : current.filter((id) => id !== claimId);
 }
 
+/**
+ * 能勾选采纳的主张 id（顺序照界面上的主张顺序）。
+ *
+ * 有改写建议的算，用户自己补了一句真话的也算：补充说明走的是同一条
+ * 「确认采纳」链路，如果这里不算它，补了说明却勾不上，那颗按钮点了没反应。
+ * 抽成纯函数是因为这种错在界面上很难看出来——它看起来只是「没法勾」。
+ */
+export function choosableClaimIds(
+  claims: readonly { id: string; hasSuggestion: boolean }[],
+  supplementClaimIds: readonly string[],
+): string[] {
+  return claims
+    .filter((item) => item.hasSuggestion || supplementClaimIds.indexOf(item.id) >= 0)
+    .map((item) => item.id);
+}
+
 /** 一次勾上所有候选（界面上是「全部采纳」那颗按钮） */
 export function acceptAll(candidates: readonly string[]): string[] {
   return [...candidates];
