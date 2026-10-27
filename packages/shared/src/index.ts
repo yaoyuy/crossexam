@@ -6,6 +6,7 @@ export * from './budget.ts';
 export * from './contract.ts';
 export * from './interviewer.ts';
 export * from './requirements.ts';
+export * from './shortfall.ts';
 export * from './revise.ts';
 export * from './templates.ts';
 export * from './schemas.ts';
