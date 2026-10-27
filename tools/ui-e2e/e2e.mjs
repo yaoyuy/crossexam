@@ -466,8 +466,14 @@ check('服务端把 demo 场次记成 done', demoSession !== undefined, JSON.str
 const view = await (await fetch('http://127.0.0.1:' + PORT + '/api/sessions/' + demoSession.id)).json();
 const advised = view.suggestions.filter((s) => s.status === 'suggested');
 check('服务端判定 5 条，其中 4 条给出改写建议', view.verdicts.length === 5 && advised.length === 4 && view.suggestions.length === 5, '判定 ' + String(view.verdicts.length) + ' / 建议 ' + String(advised.length) + '（outcome ' + String(view.suggestions.length) + '）');
-const drawn = String(doneText).split('置信度').length - 1;
-check('界面画出的判定条数与服务端一致', drawn === view.verdicts.length, '界面 ' + String(drawn) + ' / 服务端 ' + String(view.verdicts.length));
+// 「等到出现」不等于「等到到齐」：waitText 抓的是第一次出现「置信度」的那一刻，
+// 那时 5 条判定可能才到了 4 条。要按最终画面数，就得等它涨到服务端的条数。
+const drawn = await waitFor(async () => {
+  const text = await evalJs('document.body.innerText');
+  const n = String(text).split('置信度').length - 1;
+  return n >= view.verdicts.length ? String(n) : '';
+}, '判定条数到齐', 20000);
+check('界面画出的判定条数与服务端一致', drawn === String(view.verdicts.length), '界面 ' + String(drawn) + ' / 服务端 ' + String(view.verdicts.length));
 // 每条判定都要写清「为什么这样判」：判据是固定文案，模型的解释只是措辞。
 const whyLines = await evalJs('(document.body.innerText.match(/为什么这样判：/g) || []).length');
 check('每条判定都写了判定口径', whyLines === view.verdicts.length, String(whyLines) + ' 条 / 判定 ' + String(view.verdicts.length) + ' 条');
@@ -616,6 +622,20 @@ const resumeDocText = await resumeDoc.text();
 check('简历的 Word 入口给的是 application/msword 附件',
   resumeDoc.status === 200 && String(resumeDoc.headers.get('content-type')).indexOf('msword') >= 0 && String(resumeDoc.headers.get('content-disposition')).indexOf('.doc') >= 0,
   String(resumeDocText.length) + ' 字符');
+// B2：并排看改动。默认收起，展开后每条改动一行，左边原文右边改后。
+const hasDiffBefore = await evalJs('document.querySelector("[data-shot=revision-diff]") === null');
+check('并排对照默认收起，不占这一栏的地方', hasDiffBefore === true, String(hasDiffBefore));
+await clickShot('revision-diff-toggle');
+await sleep(250);
+const diffRows = await evalJs('(() => { const t = document.querySelector("[data-shot=revision-diff]"); if (t === null) return -1; return t.querySelectorAll("tbody tr").length; })()');
+const appliedCount = revisedResume === null ? -2 : revisedResume.applied.length;
+check('展开后每条改动一行，改前改后并排', diffRows === appliedCount, String(diffRows) + ' 行 / ' + String(appliedCount) + ' 处改动');
+const diffHead = await evalJs('(() => { const t = document.querySelector("[data-shot=revision-diff]"); if (t === null) return ""; return t.querySelector("thead").innerText; })()');
+check('对照表两列写的是「原文」与「改后」', String(diffHead).indexOf('原文') >= 0 && String(diffHead).indexOf('改后') >= 0, String(diffHead).split(String.fromCharCode(10)).join(' '));
+await clickShot('revision-diff-toggle');
+await sleep(200);
+const diffGone = await evalJs('document.querySelector("[data-shot=revision-diff]") === null');
+check('再点一次把对照收起来', diffGone === true, String(diffGone));
 await evalJs('document.querySelector("[data-shot=revision-discard]").click()');
 const discardNote = await waitFor(async () => { const t = await evalJs('(() => { const el = document.querySelector("[data-shot=revision-note]"); return el === null ? "" : el.innerText; })()'); return t.indexOf('已撤销全部采纳') >= 0 ? t : ''; }, '撤销结论', 20000);
 const afterDiscard = (await (await fetch('http://127.0.0.1:' + PORT + '/api/sessions/' + demoSession.id + '/revisions')).json()).revised;
