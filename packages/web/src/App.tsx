@@ -180,6 +180,8 @@ export function App() {
   const streamTimerRef = useRef<number | null>(null);
   const pollRef = useRef<number | null>(null);
   const streamingRef = useRef(false);
+  // 正在删的会话 id：界面上先把行摘掉、请求还在路上，这段时间里再点同一行不再发第二次请求
+  const deletingRef = useRef<Set<string>>(new Set());
   const paceRef = useRef(pace);
 
   useEffect(() => {
@@ -486,6 +488,10 @@ export function App() {
     async (id: string) => {
       // 先从列表里摘掉，再发请求：这一行在请求回来之前就点了第二下的话，
       // 第二次会打到一个已经不存在的会话上（服务端如实回 404，控制台就留下一条报错）。
+      // 但只把那一行从界面上抹掉还不够：DOM 要等下一次渲染才更新，同一帧里点到两下
+      // 就会发出两个 DELETE。所以在路上就把这个 id 记下来，重入直接返回。
+      if (deletingRef.current.has(id)) return;
+      deletingRef.current.add(id);
       setSessions((current) => current.filter((item) => item.id !== id));
       try {
         await deleteSession(id);
@@ -494,6 +500,8 @@ export function App() {
       } catch (error) {
         setHint(error instanceof Error ? error.message : '删不掉这条会话');
         await refreshSessions();
+      } finally {
+        deletingRef.current.delete(id);
       }
     },
     [sandbox.sessionId, refreshSessions],
