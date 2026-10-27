@@ -81,6 +81,13 @@ export function consistencyNote(view: ContractView): ConsistencyNote {
  * 指纹寻址的卡带就全部对不上，本来能离线跑通的演示会报「找不到记录」。
  * 所以面板顺序一律按这个枚举重排，与点击历史无关。
  */
+/**
+ * 服务端没给默认档时的兜底。
+ * 界面刻意不在这里列三档的名称与预算：档位清单由 GET /api/health 下发，
+ * 这里只是一个「总得有个默认值」的字符串。
+ */
+export const DEFAULT_DIFFICULTY = 'normal';
+
 export const PANEL_ORDER: InterviewerRole[] = ['tech', 'hr', 'hiring_manager', 'stress', 'domain_expert'];
 
 /**

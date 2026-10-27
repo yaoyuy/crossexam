@@ -66,6 +66,10 @@ export function IntakePanel(props: {
   modelOptions: string[];
   /** 联网相关的一句提示：缺哪个环境变量、或清单为什么是空的 */
   runModeNote: string | null;
+  /** 追问强度：gentle / normal / hard，由服务端给的清单决定有哪几档 */
+  difficulty: string;
+  difficultyChoices: { id: string; label: string; hint: string }[];
+  onDifficultyChange: (id: string) => void;
   onUseDemo: () => void;
   onRun: () => void;
   onClear: () => void;
@@ -323,6 +327,38 @@ export function IntakePanel(props: {
               </p>
             )}
           </label>
+        )}
+      </div>
+
+      {/*
+        追问强度：三档**只有预算不同**——人设、手法、禁止项一个字都不改。
+        这样「同一位面试官、同一份简历，只是问得更狠」才是可比的变量。
+        预算写在渲染出的 system prompt 里，所以换档就是换契约指纹，界面上能看到它跟着变。
+      */}
+      <div className="flex flex-col gap-1.5">
+        <span className="text-[11px] text-ink-400">追问强度（问多深）</span>
+        <div className="flex flex-wrap gap-1.5">
+          {props.difficultyChoices.map((choice) => (
+            <button
+              key={choice.id}
+              type="button"
+              data-shot={'difficulty-' + choice.id}
+              title={choice.hint}
+              className={'chip ' + (props.difficulty === choice.id ? 'border-ember-500/50 text-ember-300' : 'opacity-70')}
+              onClick={() => props.onDifficultyChange(choice.id)}
+            >
+              {props.difficulty === choice.id ? '\u2713 ' : ''}
+              {choice.label}
+            </button>
+          ))}
+        </div>
+        {props.difficultyChoices.length === 0 ? null : (
+          <p data-shot="difficulty-note" className="text-[11px] leading-relaxed text-ink-500">
+            {
+              (props.difficultyChoices.find((item) => item.id === props.difficulty) ?? props.difficultyChoices[0])
+                ?.hint ?? ''
+            }
+          </p>
         )}
       </div>
 

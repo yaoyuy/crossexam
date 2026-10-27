@@ -234,6 +234,20 @@ export interface HealthInfo {
   modeLabels?: Record<string, string>;
   /** 联网就绪状态：缺哪个环境变量由 missing 点名。 */
   live?: { ready: boolean; missing: string[] };
+  /** 三档追问强度：名字、一句话说明与四个预算数字都由服务端给，界面不自己编。 */
+  difficulties?: DifficultyChoice[];
+  defaultDifficulty?: string;
+}
+
+/**
+ * 一档追问强度。界面只负责挑一个 id，**预算数字一律不在这边写死**：
+ * 它是契约指纹的一部分，两边各写一份就一定有对不上的那天。
+ */
+export interface DifficultyChoice {
+  id: string;
+  label: string;
+  hint: string;
+  budget: ContractBudget & { maxConsecutiveUnanswerable: number };
 }
 
 /** 真实端点上的模型清单；没配好联网时 ready=false 且 models 为空。 */
@@ -299,6 +313,8 @@ export interface SessionView {
   /** 追问阶段实际摆上桌的对照表（只有 hit / weak） */
   requirementNotes: RequirementNote[];
   requirementSummary: MatchSummary;
+  /** 这一场问得有多狠。旧会话可能没有，界面按默认档处理。 */
+  difficulty?: string;
 }
 
 export interface ContractPersona {
@@ -343,6 +359,8 @@ export interface ContractView {
 
 export interface ContractsResponse {
   panel: string[];
+  /** 这份契约是按哪一档算出来的 */
+  difficulty?: string;
   budget: ContractBudget;
   contracts: ContractView[];
 }
@@ -386,8 +404,11 @@ export function fetchDemo(): Promise<DemoInfo> {
 }
 
 /** 契约是声明式的：给定面试官 id 就能算出全文与指纹，不需要跑沙盘、不调模型 */
-export function fetchContracts(panel?: string[]): Promise<ContractsResponse> {
-  const query = panel !== undefined && panel.length > 0 ? '?panel=' + panel.join(',') : '';
+export function fetchContracts(panel?: string[], difficulty?: string): Promise<ContractsResponse> {
+  const parts: string[] = [];
+  if (panel !== undefined && panel.length > 0) parts.push('panel=' + panel.join(','));
+  if (difficulty !== undefined && difficulty !== '') parts.push('difficulty=' + encodeURIComponent(difficulty));
+  const query = parts.length > 0 ? '?' + parts.join('&') : '';
   return getJson<ContractsResponse>('/api/contracts' + query);
 }
 
@@ -573,6 +594,8 @@ export interface CreateSessionInput {
   interviewers?: string[];
   /** 1–8 份岗位描述（标题可省，省了取正文第一行）；不传或不给正文就等于没有 JD。 */
   jds?: { title: string; text: string }[];
+  /** 追问强度：gentle / normal / hard。不传就是常规档。 */
+  difficulty?: string;
 }
 
 export interface CreatedSession {
@@ -580,6 +603,8 @@ export interface CreatedSession {
   mode: LlmMode;
   model: string;
   jobTitle: string;
+  /** 服务端落定的追问强度 */
+  difficulty: string;
   /** 服务端落定的阵容（已按上限截断、已校验存在） */
   panel: string[];
   /** 落定的 JD 编号与标题（只回编号，正文留在库里） */
