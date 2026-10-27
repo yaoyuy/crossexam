@@ -1235,3 +1235,39 @@ P11 改与复用：B2 逐条并排改动对照 ✅ · B1 改写风格档位 · C
 
 **下一步**：P11 的 C2 历史仪表盘。
 
+
+## Session 31（2026-10-27）· P11 C2：历史仪表盘
+
+**目标**：C1 把「两场」比清楚了，但历史栏跑到第三场就失效——一列场次看不出是在变好还是在打转。
+C2 要在历史栏顶上加一句话结论，并把「哪些类别总被打回」摆出来。这一步也顺手把 P12 成长档案要用的
+「同一份简历跑过几场」算出来了。
+
+**产出**
+
+| 层 | 落点 |
+| --- | --- |
+| shared | `packages/shared/src/overview.ts`：`TREND_POINTS = 5` / `SessionFacts`（`probes` 可为 `null`）/ `overviewOf` / `overviewHeadline` / `trendLine` / `meanOf` / `newestFirst`；判定分布复用 `verdictCounts`、类别短板复用 `categoryShortfalls`，自己一个字都不算；测试 +11 条 |
+| server | `packages/server/src/overview.ts` 的 `overviewSessions(db, limit = OVERVIEW_WINDOW)`（`OVERVIEW_WINDOW = 200`，追问数取 `listProbes().length` 真实行数）；`GET /api/sessions/overview` **注册在 `/api/sessions/:id` 之前**（Hono 按注册顺序匹配）；测试 +6 条 |
+| web | `api.ts` 的 `HistoryOverview` 契约与 `fetchOverview`；`packages/web/src/overview.ts`（`dayLabel` / `trendBars` / `categoryLines` / `sameResumeNote` / `overviewFactsOf`）；`OverviewBar` 组件（空库整块不渲染）；`IntakePanel` 历史块上方接线；`App.tsx` 与 `sessions` 一起刷新（两处分别取会出现「列表 3 场、统计说 2 场」）；测试 +9 条 |
+| tools | `e2e.mjs` 加 4 条断言：界面 headline 与 `/api/sessions/overview` 的 headline **一字不差** / 接口场次数等于历史列表行数 / 柱子数等于 `min(trend.length, 5)` / 同一份简历跑过 2 场以上时出现那句提示；**136/136** |
+
+**真问题**
+
+- 「同一件事算两次」的失败不是崩溃，是两个都对但不一样（F69）。仪表盘完全可以自己 `reduce` 一遍判定分布，
+  但哪天「欠证据算不算欠」这种口径一改，它就和报告分叉。处置是直接 import 现成实现，
+  并且自己在 shared 里**不持有任何「哪个判定更差」的知识**（排序仍只在 `WEAKNESS_RANK` 一处）。
+- 第一版把「空库」与「还没取到」混成一种状态（都返回 `null`），界面每一处都要写三元判断，
+  刷新时还会闪一下「还没有跑过任何一场」（F70）。改成数据层永远给结论、界面层用 `facts.empty` 决定不渲染。
+- 路由顺序是个静默陷阱：`/api/sessions/overview` 写在 `/api/sessions/:id` 后面会被当成会话 id，
+  返回「会话不存在」，而且接口自身看不出错。测试里专门留了一条 `not 404` 的断言守着。
+- 追问数的平均数不能把取不到的场次当 0：那会让还没跑完的场次把平均值往下拽。`meanOf` 只在非 `null` 上求平均。
+
+**门禁与实测**：`npm run verify` exit 0（**66 个测试文件 / 685 条断言** + 冒烟 9 项 + 构建）；
+`npm run e2e:ui` **136/136** 且控制台 0 报错；`npm run repro` 干净目录 **70.8 s**
+（clone 33.3 s · install 15.0 s · verify 18.6 s · 跑完一场并下载报告 0.8 s），
+因此 README / 技术文档 / `tools/repro` / 发布清单 / `task_plan` 五处的耗时表与「5 倍余量」一并改为 70.8 s 与「8 倍余量」。
+
+**提交**：`7b6afe2` shared 聚合纯函数 · `858d1fb` 仪表盘接口 · `97f45a6` 界面历史栏 ·
+`66020f0` 点测对账 · 后续 `docs` 一个提交（ADR-0019 + F69/F70 + D55 + 数字同步 + 技术文档重出）。
+
+**下一步**：P11 的 C3 单文件 HTML 打包。
