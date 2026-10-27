@@ -31,22 +31,41 @@
 
 import type { Db } from './db.ts';
 
-export const SCHEMA_VERSION = 9;
+export const SCHEMA_VERSION = 10;
 
-const SESSION_TABLE =
-  'CREATE TABLE IF NOT EXISTS session (' +
-  '  id TEXT PRIMARY KEY,' +
-  '  created_at TEXT NOT NULL,' +
-  '  updated_at TEXT NOT NULL,' +
-  '  mode TEXT NOT NULL,' +
-  '  job_title TEXT NOT NULL,' +
-  '  jd_text TEXT NOT NULL,' +
-  '  resume_text TEXT NOT NULL,' +
-  '  resume_hash TEXT NOT NULL,' +
-  '  status TEXT NOT NULL,' +
-  '  budget_json TEXT NOT NULL,' +
-  "  meta_json TEXT NOT NULL DEFAULT '{}'" +
-  ')';
+/**
+ * 会话表的建表语句。表名做成参数是给 v10 迁移用的：
+ * 那一版要加列，而 SQLite 的 ALTER TABLE ... RENAME 会把**别人家的外键**一起改写
+ * （所有子表的 REFERENCES session 会变成 REFERENCES session_v9），
+ * 于是「把老表改名、建新表、搬数据」这个姿势在这张表上行不通——
+ * 搬完数据再插一条追问，就报 no such table: main.session_v9。
+ * 所以反过来：先建 session_v10、搬数据、删掉老表、再把新表改名成 session。
+ */
+function sessionTableSql(table: string): string {
+  return (
+    'CREATE TABLE IF NOT EXISTS ' + table + ' (' +
+    '  id TEXT PRIMARY KEY,' +
+    '  created_at TEXT NOT NULL,' +
+    '  updated_at TEXT NOT NULL,' +
+    '  mode TEXT NOT NULL,' +
+    '  job_title TEXT NOT NULL,' +
+    '  jd_text TEXT NOT NULL,' +
+    '  resume_text TEXT NOT NULL,' +
+    '  resume_hash TEXT NOT NULL,' +
+    '  status TEXT NOT NULL,' +
+    '  budget_json TEXT NOT NULL,' +
+    "  meta_json TEXT NOT NULL DEFAULT '{}'," +
+    // v10：这一场是从哪一场改完再跑出来的。自引用但**不加外键**——
+    // 删掉上一版不该把这一版一起带走，历史记录是给人对照用的，不是从属关系。
+    '  parent_session_id TEXT' +
+    ')'
+  );
+}
+
+const SESSION_TABLE = sessionTableSql('session');
+
+/** v10 迁移期间的新表名，搬完数据就被改名成 session。 */
+const SESSION_TABLE_NEXT = sessionTableSql('session_next');;
 
 const CLAIM_TABLE =
   'CREATE TABLE IF NOT EXISTS claim (' +
@@ -544,6 +563,32 @@ function migrateV9(db: Db): void {
   rebuild(db, () => db.exec(COUNTER_TABLE), 9);
 }
 
+/**
+ * v9 → v10：会话记下自己是从哪一场改完再跑出来的。
+ *
+ * 「改完再跑一遍」不需要新机制，但它得知道跟谁比。链是**显式**的：
+ * 用户点那个按钮时把上一场 id 带过来，建档时写进这一列。
+ * 刻意不按简历相似度自动认亲——改过之后的简历本来就不一样了，
+ * 自动认亲会认错，而错认出来的「比上次」比没有对比更糟。
+ *
+ * 老库里这一列全是 NULL，语义正好是「这一场是第一版」。
+ */
+function migrateV10(db: Db): void {
+  rebuild(
+    db,
+    () => {
+      db.exec(SESSION_TABLE_NEXT);
+      db.exec(
+        'INSERT INTO session_next (id, created_at, updated_at, mode, job_title, jd_text, resume_text, resume_hash, status, budget_json, meta_json)' +
+          ' SELECT id, created_at, updated_at, mode, job_title, jd_text, resume_text, resume_hash, status, budget_json, meta_json FROM session',
+      );
+      db.exec('DROP TABLE session');
+      db.exec('ALTER TABLE session_next RENAME TO session');
+    },
+    10,
+  );
+}
+
 /** 版本号 → 升级动作。只写「从上一版升上来」的那一步，不写全量建表。 */
 const MIGRATIONS: Record<number, (db: Db) => void> = {
   2: migrateV2,
@@ -554,6 +599,7 @@ const MIGRATIONS: Record<number, (db: Db) => void> = {
   7: migrateV7,
   8: migrateV8,
   9: migrateV9,
+  10: migrateV10,
 };
 
 export class SchemaVersionError extends Error {

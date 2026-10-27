@@ -92,6 +92,8 @@ export interface NewSession {
   budget: BudgetState;
   meta?: Record<string, unknown>;
   createdAt?: string;
+  /** 这一场是从哪一场改完再跑出来的；不给就是第一版 */
+  parentSessionId?: string | null;
 }
 
 export interface SessionRow {
@@ -106,6 +108,8 @@ export interface SessionRow {
   status: SessionStatus;
   budget: BudgetState;
   meta: Record<string, unknown>;
+  /** null = 这一场是第一版，没有可比的对象 */
+  parentSessionId: string | null;
 }
 
 interface SessionDbRow {
@@ -120,6 +124,7 @@ interface SessionDbRow {
   status: string;
   budget_json: string;
   meta_json: string;
+  parent_session_id: string | null;
 }
 
 function mapSession(row: SessionDbRow): SessionRow {
@@ -135,6 +140,7 @@ function mapSession(row: SessionDbRow): SessionRow {
     status: row.status as SessionStatus,
     budget: parseJson<BudgetState>(row.budget_json, { config: { maxRoundsPerClaim: 0, maxProbesPerInterviewerPerClaim: 0, maxTotalProbes: 0, maxConsecutiveUnanswerable: 0 }, totalProbes: 0, claims: {} }),
     meta: parseJson<Record<string, unknown>>(row.meta_json, {}),
+    parentSessionId: row.parent_session_id ?? null,
   };
 }
 
@@ -142,8 +148,8 @@ export function insertSession(db: Db, input: NewSession): string {
   const id = input.id ?? newId('s');
   const at = input.createdAt ?? nowIso();
   db.prepare(
-    'INSERT INTO session (id, created_at, updated_at, mode, job_title, jd_text, resume_text, resume_hash, status, budget_json, meta_json)' +
-      ' VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    'INSERT INTO session (id, created_at, updated_at, mode, job_title, jd_text, resume_text, resume_hash, status, budget_json, meta_json, parent_session_id)' +
+      ' VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
   ).run(
     id,
     at,
@@ -156,6 +162,7 @@ export function insertSession(db: Db, input: NewSession): string {
     'draft',
     JSON.stringify(input.budget),
     JSON.stringify(input.meta ?? {}),
+    input.parentSessionId ?? null,
   );
   return id;
 }

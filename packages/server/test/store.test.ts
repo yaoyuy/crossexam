@@ -84,6 +84,48 @@ function seedSession(): string {
   });
 }
 
+describe('改完再跑一遍的版本链（v10）', function () {
+  function chainSession(id: string, parent: string | null): string {
+    return insertSession(db, {
+      id: id,
+      jobTitle: '高级后端工程师',
+      jdText: '负责订单链路。',
+      resumeText: RESUME,
+      resumeHash: 'hash-' + id,
+      llmMode: 'replay',
+      budget: initBudget(['claim-1']),
+      parentSessionId: parent,
+    });
+  }
+
+  it('新库直接建出 parent_session_id 列，默认是 NULL', function () {
+    chainSession('sess-first', null);
+    const row = getSession(db, 'sess-first');
+    expect(row?.parentSessionId).toBeNull();
+  });
+
+  it('写进去的父会话能原样读回来，且父会话本身不受影响', function () {
+    chainSession('sess-first', null);
+    chainSession('sess-second', 'sess-first');
+    expect(getSession(db, 'sess-second')?.parentSessionId).toBe('sess-first');
+    expect(getSession(db, 'sess-first')?.parentSessionId).toBeNull();
+  });
+
+  it('删掉上一版不会连带删掉这一版——历史记录不是从属关系', function () {
+    chainSession('sess-first', null);
+    chainSession('sess-second', 'sess-first');
+    deleteSession(db, 'sess-first');
+    const second = getSession(db, 'sess-second');
+    expect(second).not.toBeNull();
+    expect(second?.parentSessionId).toBe('sess-first');
+  });
+
+  it('父会话不存在也照写不误：外键是**故意**不加的', function () {
+    chainSession('sess-orphan', 'sess-never-existed');
+    expect(getSession(db, 'sess-orphan')?.parentSessionId).toBe('sess-never-existed');
+  });
+});
+
 describe('建表与迁移', function () {
   it('首次迁移建好表并写入版本号，重复执行是幂等的', function () {
     expect(migrate(db)).toBe(SCHEMA_VERSION);
