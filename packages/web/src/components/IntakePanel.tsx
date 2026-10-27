@@ -70,6 +70,10 @@ export function IntakePanel(props: {
   difficulty: string;
   difficultyChoices: { id: string; label: string; hint: string }[];
   onDifficultyChange: (id: string) => void;
+  /** 改写风格：conservative / normal / bold，清单同样由服务端给 */
+  style: string;
+  styleChoices: { id: string; label: string; hint: string }[];
+  onStyleChange: (id: string) => void;
   onUseDemo: () => void;
   onRun: () => void;
   onClear: () => void;
@@ -356,6 +360,38 @@ export function IntakePanel(props: {
           <p data-shot="difficulty-note" className="text-[11px] leading-relaxed text-ink-500">
             {
               (props.difficultyChoices.find((item) => item.id === props.difficulty) ?? props.difficultyChoices[0])
+                ?.hint ?? ''
+            }
+          </p>
+        )}
+      </div>
+
+      {/*
+        改写风格：只改「建议改得多狠」，不改判定，也不改三条铁律（不许造数字、
+        不许把参与写成主导、改前必须锚得回原文）。它不进契约指纹——契约描述谁在问，
+        风格描述改得多狠——但会写进改写阶段的提示词，所以换档就是换卡带。
+      */}
+      <div className="flex flex-col gap-1.5">
+        <span className="text-[11px] text-ink-400">改写风格（改多狠）</span>
+        <div className="flex flex-wrap gap-1.5">
+          {props.styleChoices.map((choice) => (
+            <button
+              key={choice.id}
+              type="button"
+              data-shot={'style-' + choice.id}
+              title={choice.hint}
+              className={'chip ' + (props.style === choice.id ? 'border-ember-500/50 text-ember-300' : 'opacity-70')}
+              onClick={() => props.onStyleChange(choice.id)}
+            >
+              {props.style === choice.id ? '\u2713 ' : ''}
+              {choice.label}
+            </button>
+          ))}
+        </div>
+        {props.styleChoices.length === 0 ? null : (
+          <p data-shot="style-note" className="text-[11px] leading-relaxed text-ink-500">
+            {
+              (props.styleChoices.find((item) => item.id === props.style) ?? props.styleChoices[0])
                 ?.hint ?? ''
             }
           </p>

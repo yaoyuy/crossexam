@@ -269,6 +269,16 @@ export interface HealthInfo {
   /** 三档追问强度：名字、一句话说明与四个预算数字都由服务端给，界面不自己编。 */
   difficulties?: DifficultyChoice[];
   defaultDifficulty?: string;
+  /** 三档改写风格：只给名字与一句话说明，不给指南——指南是提示词的事。 */
+  styles?: StyleChoice[];
+  defaultStyle?: string;
+}
+
+/** 一档改写风格。它不进契约指纹：契约描述「谁在问」，风格描述「改得多狠」。 */
+export interface StyleChoice {
+  id: string;
+  label: string;
+  hint: string;
 }
 
 /**
@@ -362,6 +372,8 @@ export interface SessionView {
   counterRejected: RejectedCounter[];
   /** 这一场问得有多狠。旧会话可能没有，界面按默认档处理。 */
   difficulty?: string;
+  /** 这一场的改写建议改得多狠。旧会话可能没有，界面按默认档处理。 */
+  style?: string;
 }
 
 export interface ContractPersona {
@@ -643,6 +655,8 @@ export interface CreateSessionInput {
   jds?: { title: string; text: string }[];
   /** 追问强度：gentle / normal / hard。不传就是常规档。 */
   difficulty?: string;
+  /** 改写风格：conservative / normal / bold。不传就是常规档。 */
+  style?: string;
 }
 
 export interface CreatedSession {
@@ -652,6 +666,8 @@ export interface CreatedSession {
   jobTitle: string;
   /** 服务端落定的追问强度 */
   difficulty: string;
+  /** 服务端落定的改写风格 */
+  style: string;
   /** 服务端落定的阵容（已按上限截断、已校验存在） */
   panel: string[];
   /** 落定的 JD 编号与标题（只回编号，正文留在库里） */

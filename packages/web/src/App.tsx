@@ -39,7 +39,7 @@ import type {
   SseEvent,
   TemplateLibrary,
 } from './api.ts';
-import { DEFAULT_DIFFICULTY, nextPanel, PANEL_ORDER } from './contract.ts';
+import { DEFAULT_DIFFICULTY, DEFAULT_STYLE, nextPanel, PANEL_ORDER } from './contract.ts';
 import { MODEL_NOTE_PENDING, modelNoteOf } from './runmode.ts';
 import { personaBlurbOf, personaLabelOf } from './labels.ts';
 import { markHelpSeen, shouldAutoOpenHelp } from './help.ts';
@@ -143,6 +143,10 @@ export function App() {
   // 所以换档 = 换契约指纹，界面上的契约视图会跟着重算。
   const [difficulty, setDifficulty] = useState<string>(DEFAULT_DIFFICULTY);
   const [difficultyChoices, setDifficultyChoices] = useState<{ id: string; label: string; hint: string }[]>([]);
+  // 这一场改写建议改多狠。与追问强度是两条独立的轴：问得多狠不决定改得多狠。
+  // 它不进契约指纹（契约描述谁在问），但会写进改写阶段的提示词，所以换档 = 换卡带。
+  const [style, setStyle] = useState<string>(DEFAULT_STYLE);
+  const [styleChoices, setStyleChoices] = useState<{ id: string; label: string; hint: string }[]>([]);
   const [theme, setTheme] = useState<Theme>(readStoredTheme);
   // 第一次打开自动弹一次教程；点过「知道了」之后就不再打扰
   const [helpOpen, setHelpOpen] = useState(() => shouldAutoOpenHelp());
@@ -211,6 +215,8 @@ export function App() {
         // 档位清单与默认档都来自服务端：界面不自己编三档，也不自己决定默认哪一档。
         setDifficultyChoices(loadedHealth.difficulties ?? []);
         setDifficulty(loadedHealth.defaultDifficulty ?? DEFAULT_DIFFICULTY);
+        setStyleChoices(loadedHealth.styles ?? []);
+        setStyle(loadedHealth.defaultStyle ?? DEFAULT_STYLE);
       } catch (error) {
         setHint(error instanceof Error ? error.message : '连不上本地服务，请先 npm run dev');
       }
@@ -322,6 +328,8 @@ export function App() {
         interviewers: panel,
         // 档位同理：它决定这一场的预算与契约指纹，必须随会话固定下来
         difficulty,
+        // 改写风格也随会话固定：跑完之后再改风格，不该把历史会话的建议换成另一档的说法
+        style,
       });
       sessionId = created.id;
       // 服务端回的只有编号与标题，正文用刚提交的那几份对上——右栏立刻就能看 JD 原文
@@ -371,7 +379,7 @@ export function App() {
           .catch(() => undefined);
       }
     }
-  }, [busy, draft, panel, runMode, runModel, difficulty, pushEvent, drain, refreshSessions]);
+  }, [busy, draft, panel, runMode, runModel, difficulty, style, pushEvent, drain, refreshSessions]);
 
   const handleLoadSession = useCallback(async (id: string) => {
     setBusy(true);
@@ -398,6 +406,10 @@ export function App() {
       setViewing(stored === null ? 'original' : 'revised');
       setSupplements(view.supplements ?? []);
       setSupplementNote(null);
+      // 这两档是那一场的输入，跟著会话落过库：打开历史会话时把界面拨回当时的样子，
+      // 否则用户会以为「我明明选的是敢改」——而报告与建议都是当年那一档产的。
+      if (typeof view.difficulty === 'string' && view.difficulty !== '') setDifficulty(view.difficulty);
+      if (typeof view.style === 'string' && view.style !== '') setStyle(view.style);
       setHint('这是历史会话：过程由事件表重放，和当时直播看到的是同一条代码路径。');
     } catch (error) {
       setHint(error instanceof Error ? error.message : '打不开这条会话');
@@ -866,6 +878,9 @@ export function App() {
             difficulty={difficulty}
             difficultyChoices={difficultyChoices}
             onDifficultyChange={setDifficulty}
+            style={style}
+            styleChoices={styleChoices}
+            onStyleChange={setStyle}
           />
           <StageRail state={sandbox} panel={panel} health={health} contracts={contracts} onFocusClaim={handleFocusClaim} />
         </aside>

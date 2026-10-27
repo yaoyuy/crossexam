@@ -88,6 +88,12 @@ export function consistencyNote(view: ContractView): ConsistencyNote {
  */
 export const DEFAULT_DIFFICULTY = 'normal';
 
+/**
+ * 改写风格的默认档。与难度同理：界面不自己列三档名称与说明，清单由 /api/health 下发，
+ * 这里只是一个「总得有个默认值」——以及让打开历史会话时对不上号的老数据有个落脚处。
+ */
+export const DEFAULT_STYLE = 'normal';
+
 export const PANEL_ORDER: InterviewerRole[] = ['tech', 'hr', 'hiring_manager', 'stress', 'domain_expert'];
 
 /**
