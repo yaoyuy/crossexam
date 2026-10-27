@@ -54,6 +54,7 @@ import { compareSessions } from '../compare.ts';
 import { overviewSessions } from '../overview.ts';
 import { renderReport, reportFileName } from '../report.ts';
 import { renderReportHtml, reportDocFileName, reportHtmlFileName } from '../report-html.ts';
+import { bundleFileName, renderBundleHtml } from '../bundle.ts';
 import { resumeDocFileName, resumeHtmlFileName, renderResumeHtml, resumeTextFileName } from '../resume-export.ts';
 import { acceptRevisions, discardRevisions, removeSupplementFor, revisedOf, saveSupplementFor } from '../revisions.ts';
 import {
@@ -771,6 +772,26 @@ export function createApp(opts: AppOptions): Hono {
     return c.body(renderReportHtml(view, { applied: revisedOf(db, id)?.applied ?? [], compare: compareSessions(db, id) }), 200, {
       'content-type': 'application/msword; charset=utf-8',
       'content-disposition': 'attachment; filename="' + reportDocFileName(view) + '"',
+    });
+  });
+
+  /**
+   * 整场打包成一个单文件 HTML：报告正文 + 简历原文与本版改动 + 事件时间线。
+   * 硬规矩：输出里不许出现 http:// 或 https:// —— 这个文件要能断网双击打开，
+   * 一旦混进外链（字体、统计、图片），收件人看到的就是半张白纸。
+   */
+  app.get('/api/sessions/:id/bundle.html', (c) => {
+    const id = c.req.param('id');
+    const view = assembleSession(db, id);
+    if (view === null) return c.json({ error: '会话不存在' }, 404);
+    const html = renderBundleHtml(view, {
+      applied: revisedOf(db, id)?.applied ?? [],
+      compare: compareSessions(db, id),
+      events: listEvents(db, id, 0),
+    });
+    return c.body(html, 200, {
+      'content-type': 'text/html; charset=utf-8',
+      'content-disposition': 'attachment; filename="' + bundleFileName(view) + '"',
     });
   });
 
