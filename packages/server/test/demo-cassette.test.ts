@@ -37,6 +37,7 @@ const ALL_PURPOSES = [
   'answer',
   'verdict',
   'suggest',
+  'counter',
 ];
 
 const tempDirs: string[] = [];
@@ -102,6 +103,7 @@ describe('离线演示（合成卡带）', () => {
     expect(summary.rounds).toBe(3);
     expect(summary.probes).toBe(10);
     expect(summary.suggestions).toBe(4);
+    expect(summary.counters).toBe(4);
 
     // 四种判定各有戏：站得住 / 表述过度 / 无法回答 / 证据缺失（两条）
     const kinds = summary.verdicts.map((verdict) => verdict.kind).sort();
@@ -119,6 +121,14 @@ describe('离线演示（合成卡带）', () => {
     const anchored = view.probes.filter((probe) => probe.requirementId != null && probe.jdAnchor != null);
     expect(anchored.length).toBeGreaterThan(0);
     expect((anchored[0]?.jdAnchor?.quote.length ?? 0) > 3).toBe(true);
+
+    // P10-A4：反问也要在离线演示里看得见，而且两种依据都得出现过——
+    // 只依据 JD 的话，评委看不到「反问也能锚回简历原话」这一半。
+    expect(view.counters.length).toBe(4);
+    const sources = view.counters.map((item) => item.source).sort();
+    expect(sources).toEqual(['jd', 'jd', 'resume', 'resume']);
+    expect(view.counters.every((item) => item.anchor.quote.length > 3)).toBe(true);
+    expect(view.counters.every((item) => item.reply !== '')).toBe(true);
   });
 
   // 追问强度换一档，提示词里的预算就换一段，指纹跟着换——所以卡带必须按档位各录一份。
