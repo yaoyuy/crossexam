@@ -8,7 +8,7 @@
  * 所以它只读数据库里的事实，不做任何润色或补写。
  */
 
-import { CLAIM_CATEGORY_LABEL, MATCH_LABEL, PERSONA_PRESETS, REQUIREMENT_KIND_LABEL, VERDICT_LABEL, categoryLine, shortfallPlan } from '@crossexam/shared';
+import { CLAIM_CATEGORY_LABEL, COUNTER_KIND_LABEL, COUNTER_SOURCE_LABEL, MATCH_LABEL, PERSONA_PRESETS, REQUIREMENT_KIND_LABEL, VERDICT_LABEL, categoryLine, shortfallPlan } from '@crossexam/shared';
 import type { Anchor, Verdict, VerdictKind } from '@crossexam/shared';
 import type { ProbeRow } from './store/index.ts';
 import type { SessionView } from './pipeline.ts';
@@ -182,6 +182,39 @@ function requirementLines(view: SessionView): string[] {
   return out;
 }
 
+/**
+ * 反问一节：轮到求职者问的那几句。
+ *
+ * 没生成反问时也要说清是为什么——这一节最容易让人以为功能没跑，
+ * 而真实原因通常是「这场没有 JD 也没有主张」这种输入层面的短路。
+ */
+function counterLines(view: SessionView): string[] {
+  const out: string[] = [];
+  out.push('## 四、轮到你了（' + String(view.counters.length) + ' 句可以反问）');
+  out.push('');
+  if (view.counters.length === 0) {
+    out.push('（这一场没有生成反问：没有可依据的材料，或者依据锚不回原文）');
+    out.push('');
+    return out;
+  }
+  out.push('这几句是模拟出来的：回答由沙盘里的求职者 Agent 代答，不是真 HR 在答。每句都带着依据——点开就能看到它出自简历或 JD 的哪一段。');
+  out.push('');
+  for (const item of view.counters) {
+    out.push('### ' + item.id + ' · ' + COUNTER_KIND_LABEL[item.kind] + ' · ' + COUNTER_SOURCE_LABEL[item.source]);
+    out.push('');
+    out.push('问：' + item.text);
+    out.push('');
+    const range = '字符 ' + String(item.anchor.start) + '-' + String(item.anchor.end);
+    const from = item.jdId === null ? '（来自简历，' + range + '）' : '（来自《' + jdTitleOfId(view, item.jdId) + '》，' + range + '）';
+    out.push('> 依据原文：「' + item.anchor.quote + '」' + from);
+    out.push('');
+    out.push('- 为什么值得问：' + item.reason);
+    out.push('- 对方大概会答：' + item.reply);
+    out.push('');
+  }
+  return out;
+}
+
 function probeLines(probes: readonly ProbeRow[]): string[] {
   if (probes.length === 0) return ['（这条主张没有被追问）'];
   const out: string[] = [];
@@ -272,7 +305,9 @@ export function renderReport(view: SessionView): string {
     out.push('');
   }
 
-  out.push('## 四、简历修改建议');
+  for (const line of counterLines(view)) out.push(line);
+
+  out.push('## 五、简历修改建议');
   out.push('');
   const advice = view.suggestions.filter((item) => item.status === 'suggested' && item.suggestion !== null);
   if (advice.length === 0) out.push('（没有被判定为需要改写的条目）');
@@ -289,7 +324,7 @@ export function renderReport(view: SessionView): string {
     out.push('');
   }
 
-  out.push('## 五、复现方式');
+  out.push('## 六、复现方式');
   out.push('');
   out.push('- 本次跑法：' + s.llmMode);
   out.push('- 事件条数：' + String(view.events.length) + '（全部落本地 SQLite，可按 seq 重放）');

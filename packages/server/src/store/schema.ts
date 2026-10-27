@@ -31,7 +31,7 @@
 
 import type { Db } from './db.ts';
 
-export const SCHEMA_VERSION = 8;
+export const SCHEMA_VERSION = 9;
 
 const SESSION_TABLE =
   'CREATE TABLE IF NOT EXISTS session (' +
@@ -286,6 +286,32 @@ const SUPPLEMENT_TABLE =
   '  updated_at TEXT NOT NULL,' +
   '  PRIMARY KEY (session_id, claim_id)' +
   ')';
+/**
+ * 反问环节：轮到求职者提问时的那几句话。
+ *
+ * 只加表，不动任何既有列——这是迁移能往前走的唯一姿势（见 migrateV9）。
+ * quote/start/end/exact 四个列和别的实体一样：依据所在的原文区间就在这一行里，
+ * 刷新页面、翻历史都还能点回去。
+ */
+const COUNTER_TABLE =
+  'CREATE TABLE IF NOT EXISTS counter (' +
+  '  session_id TEXT NOT NULL REFERENCES session(id) ON DELETE CASCADE,' +
+  '  id TEXT NOT NULL,' +
+  '  ordinal INTEGER NOT NULL,' +
+  '  text TEXT NOT NULL,' +
+  '  kind TEXT NOT NULL,' +
+  '  reason TEXT NOT NULL,' +
+  '  reply TEXT NOT NULL,' +
+  '  source TEXT NOT NULL,' +
+  '  jd_id TEXT,' +
+  '  quote TEXT NOT NULL,' +
+  '  start INTEGER NOT NULL,' +
+  '  end INTEGER NOT NULL,' +
+  '  exact INTEGER NOT NULL,' +
+  '  created_at TEXT NOT NULL,' +
+  '  PRIMARY KEY (session_id, id)' +
+  ')';
+
 const JD_INDEX = 'CREATE INDEX IF NOT EXISTS jd_by_session ON jd(session_id, ordinal)';
 const REQUIREMENT_INDEX = 'CREATE INDEX IF NOT EXISTS requirement_by_session ON requirement(session_id, ordinal)';
 
@@ -314,6 +340,7 @@ function schemaStatements(options: { probeTurnUnique: boolean }): readonly strin
     REQUIREMENT_INDEX,
     REQUIREMENT_MATCH_TABLE,
     SUPPLEMENT_TABLE,
+    COUNTER_TABLE,
   ];
 }
 
@@ -507,6 +534,16 @@ function migrateV8(db: Db): void {
   );
 }
 
+/**
+ * v9：新增反问表。
+ *
+ * 只加表、不重建——反问是纯新增的产物，老库里没有它对应的任何数据，
+ * 所以这一次迁移没有「搬数据」这一步，失败面也就只有建表这一件事。
+ */
+function migrateV9(db: Db): void {
+  rebuild(db, () => db.exec(COUNTER_TABLE), 9);
+}
+
 /** 版本号 → 升级动作。只写「从上一版升上来」的那一步，不写全量建表。 */
 const MIGRATIONS: Record<number, (db: Db) => void> = {
   2: migrateV2,
@@ -516,6 +553,7 @@ const MIGRATIONS: Record<number, (db: Db) => void> = {
   6: migrateV6,
   7: migrateV7,
   8: migrateV8,
+  9: migrateV9,
 };
 
 export class SchemaVersionError extends Error {

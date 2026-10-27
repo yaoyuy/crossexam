@@ -23,6 +23,7 @@ import type {
   RequirementNote,
   ResumeOutline,
   Verdict,
+  VerdictKind,
 } from '@crossexam/shared';
 import { REQUIREMENT_KIND_LABEL, VERDICT_LABEL, renderSystemPrompt } from '@crossexam/shared';
 import type { LlmRequest } from '../llm/types.ts';
@@ -38,6 +39,7 @@ export type StageName =
   | 'answer'
   | 'verdict'
   | 'suggest'
+  | 'counter'
   | 'contract';
 
 /**
@@ -55,6 +57,8 @@ export const STAGE_SETTINGS: Record<StageName, { temperature: number; maxTokens:
   answer: { temperature: 0.3, maxTokens: 800 },
   verdict: { temperature: 0.1, maxTokens: 1500 },
   suggest: { temperature: 0.3, maxTokens: 1500 },
+  // 反问阶段：要问得像一个真在考虑去不去的人，温度比判定类高一点，但仍然只依据材料。
+  counter: { temperature: 0.5, maxTokens: 2200 },
   // 设计师阶段：输出结构比文采重要，温度同样压到 0 附近。
   contract: { temperature: 0.2, maxTokens: 1200 },
 };
@@ -548,6 +552,85 @@ export function buildContractPrompt(input: {
     lines.push('## 求职者简历（节选，只用于判断行业与层级，不要针对其中内容写 tactics）');
     lines.push(resume.slice(0, 600));
   }
+  return lines.join(NL);
+}
+
+// ---------------------------------------------------------------- 阶段七：反问（轮到求职者提问）
+//
+// 与前面几个阶段不同，这一阶段的产物**不是**对求职者的评价，而是给求职者的信息：
+// 面试快结束时那句「你有什么想问我们的吗」，大多数人会浪费掉。
+// 所以提示词要它做的不是「评价这份简历」，而是「基于已经读到的材料，替他问几个真问题」。
+
+export const COUNTER_SYSTEM = [
+  '你是「反问教练」。这一场压力测试已经跑完了，现在轮到求职者提问（面试官会说「你有什么想问我们的吗」）。',
+  '你要替他想出 3 到 6 句**真正值得问出口**的反问——问出去能帮他判断这个岗位值不值得去。',
+  '',
+  '## 只能依据这两类材料',
+  '1. 岗位描述里的原句（sourceId 写 JD 编号，如 J1）',
+  '2. 他简历里的某条主张（sourceId 写主张编号，如 C3）',
+  '没有依据的话不要问——下面会给出材料和编号。',
+  '',
+  '## 五类取向（kind 只能取这五个）',
+  '- team：团队与协作（团队多大、汇报给谁、和谁配合最多）',
+  '- tech：技术栈与工具（实际在用什么、有没有历史包袱、要不要参与选型）',
+  '- growth：成长与考核（晋升路径、考核周期、新人上手期怎么带）',
+  '- business：业务与产品（业务现状、用户规模、未来一年要做什么）',
+  '- process：流程与节奏（发布节奏、需求从哪来、值班与加班）',
+  '五类不必都覆盖，但不要六句话全挤在一类上。',
+  '',
+  '## 纪律',
+  '1. quote 必须是那份材料里的**逐字片段**——代码会拿它回原文重新定位，定位不到这句反问会被丢掉。',
+  '2. sourceId 只能取下面列出的编号；指不出依据就别写这一句。',
+  '3. reply 写「用人方大概会怎么答」，1 到 2 句、要具体，不要写「这要看情况」。',
+  '4. 不要问薪资福利，不要问「公司文化怎么样」这类问了等于没问的问题。',
+  '5. 下面标了判定的主张，说明已经被问过了，不要再拿来反问。',
+  '',
+  '## 输出要求（只输出一个 JSON 对象）',
+  '{"counters":[{"text":"我想问的那句话","kind":"team","reason":"为什么该问这个",' +
+    '"reply":"用人方大概会这样答","quote":"材料里的逐字片段","sourceId":"J1"}]}',
+].join(NL);
+
+/**
+ * 给反问阶段的输入。
+ *
+ * JD 原文照给：quote 必须是 JD 里的逐字片段，模型看不到原文就只能编。
+ * 岗位要求那张表也给它，但只是帮它理解岗位——R 编号不是合法的 sourceId，
+ * 免得它把「一张对照表里的条目」当成原始材料。
+ */
+export function buildCounterPrompt(input: {
+  jds: readonly JobDescription[];
+  requirements: readonly Requirement[];
+  claims: readonly Claim[];
+  /** 主张 id → 判定；作为附注渲染在被问过的主张旁边 */
+  verdicts?: ReadonlyMap<string, VerdictKind>;
+}): string {
+  const lines: string[] = [];
+  lines.push('## 岗位（sourceId 可以选这里的 JD 编号）');
+  if (input.jds.length === 0) {
+    lines.push('（这次没有上传岗位描述）');
+  } else {
+    for (const jd of input.jds) {
+      lines.push('### [' + jd.id + '] ' + jd.title + '（' + String(jd.text.length) + ' 字）');
+      lines.push(jd.text);
+      lines.push('');
+    }
+  }
+  if (input.requirements.length > 0) {
+    lines.push('## 岗位要求（帮你理解这个岗位；R 编号不能当 sourceId）');
+    for (const requirement of input.requirements) {
+      lines.push('- [' + requirement.id + '] ' + REQUIREMENT_KIND_LABEL[requirement.kind] + '：' + requirement.text);
+    }
+    lines.push('');
+  }
+  lines.push('## 简历里可以被引用的主张（sourceId 可以选这里的编号）');
+  const notes: Record<string, string> = {};
+  if (input.verdicts) {
+    for (const claim of input.claims) {
+      const kind = input.verdicts.get(claim.id);
+      if (kind !== undefined) notes[claim.id] = '判定：' + VERDICT_LABEL[kind] + '（已经被追问过，别再拿来反问）';
+    }
+  }
+  lines.push(input.claims.length === 0 ? '（这份简历没有抽到可引用的主张）' : renderClaims(input.claims, notes));
   return lines.join(NL);
 }
 

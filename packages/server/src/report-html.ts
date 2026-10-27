@@ -9,7 +9,7 @@
  * 事实只有一个来源；多写一个薄呈现层，好过让服务端去依赖一个工具目录。
  */
 
-import { CLAIM_CATEGORY_LABEL, MATCH_LABEL, PERSONA_PRESETS, REQUIREMENT_KIND_LABEL, VERDICT_LABEL, categoryLine, shortfallPlan } from '@crossexam/shared';
+import { CLAIM_CATEGORY_LABEL, COUNTER_KIND_LABEL, COUNTER_SOURCE_LABEL, MATCH_LABEL, PERSONA_PRESETS, REQUIREMENT_KIND_LABEL, VERDICT_LABEL, categoryLine, shortfallPlan } from '@crossexam/shared';
 import type { Anchor, Verdict, VerdictKind } from '@crossexam/shared';
 import type { ProbeRow } from './store/index.ts';
 import type { SessionView } from './pipeline.ts';
@@ -142,6 +142,7 @@ function metaRows(view: SessionView): string[] {
     ['Token', '输入 ' + String(view.llm.inputTokens) + ' / 输出 ' + String(view.llm.outputTokens) + ' / 缓存命中 ' + String(view.llm.cacheReadTokens) + ' / 推理 ' + String(view.llm.reasoningTokens)],
     ['追问预算', '已用 ' + String(s.budget.totalProbes) + ' 次，上限 ' + String(s.budget.config.maxTotalProbes) + ' 次；主张 ' + String(view.claims.length) + ' 条'],
     ['岗位要求', view.jds.length === 0 ? '未上传（面试官按各自的经验追问）' : String(view.jds.length) + ' 份 JD，抽出 ' + String(view.requirements.length) + ' 条要求（答得上 ' + String(view.requirementSummary.hit) + ' · 答得含糊 ' + String(view.requirementSummary.weak) + ' · 简历里没写 ' + String(view.requirementSummary.missing) + '）'],
+    ['反问', view.counters.length === 0 ? '这一场没有生成反问' : String(view.counters.length) + ' 句（每句都带简历或 JD 原文依据）'],
   ];
   return rows.map((row) => '<tr><th>' + esc(row[0]) + '</th><td>' + esc(row[1]) + '</td></tr>');
 }
@@ -347,8 +348,39 @@ function transcriptSection(view: SessionView): string[] {
   return out;
 }
 
+function counterSection(view: SessionView): string[] {
+  const out: string[] = [];
+  out.push('<h2>四、轮到你了（' + String(view.counters.length) + ' 句可以反问）</h2>');
+  if (view.counters.length === 0) {
+    out.push('<p>（这一场没有生成反问：没有可依据的材料，或者依据锚不回原文）</p>');
+    return out;
+  }
+  out.push('<p>这几句是模拟出来的：回答由沙盘里的求职者 Agent 代答，不是真 HR 在答。每句都带着依据——点开就能看到它出自简历或 JD 的哪一段。</p>');
+  for (const item of view.counters) {
+    out.push('<div class="probe">');
+    out.push(
+      '<div class="who">' + esc(item.id) + ' · ' + esc(COUNTER_KIND_LABEL[item.kind]) + ' · ' +
+        esc(COUNTER_SOURCE_LABEL[item.source]) + '</div>',
+    );
+    out.push('<div>' + esc(item.text) + '</div>');
+    out.push(quote('依据原文 · ' + (item.jdId === null ? '简历' : jdTitleOfId(view, item.jdId)), item.anchor));
+    out.push('<div class="weight">为什么值得问：' + esc(item.reason) + '</div>');
+    out.push('<div class="answer">对方大概会答：' + esc(item.reply) + '</div>');
+    out.push('</div>');
+  }
+  if (view.counterRejected.length > 0) {
+    out.push('<h3>被丢掉的反问（依据锚不回原文，没有进入这一节）</h3>');
+    out.push('<ul class="facts">');
+    for (const rejected of view.counterRejected) {
+      out.push('<li>「' + esc(rejected.text) + '」—— ' + esc(rejected.reason) + '</li>');
+    }
+    out.push('</ul>');
+  }
+  return out;
+}
+
 function adviceSection(view: SessionView): string[] {
-  const out: string[] = ['<h2>四、简历修改建议</h2>'];
+  const out: string[] = ['<h2>五、简历修改建议</h2>'];
   const advice = view.suggestions.filter((item) => item.status === 'suggested' && item.suggestion !== null);
   if (advice.length === 0) out.push('<p>（没有被判定为需要改写的条目）</p>');
   for (const item of advice) {
@@ -372,7 +404,7 @@ function adviceSection(view: SessionView): string[] {
 function reproSection(view: SessionView): string[] {
   const s = view.session;
   return [
-    '<h2>五、复现方式</h2>',
+    '<h2>六、复现方式</h2>',
     '<ul class="facts">',
     '<li>本次跑法：' + esc(s.llmMode) + '</li>',
     '<li>事件条数：' + String(view.events.length) + '（全部落本地 SQLite，可按 seq 重放）</li>',
@@ -407,6 +439,7 @@ export function renderReportHtml(view: SessionView, options: ReportHtmlOptions =
   for (const block of claimSection(view)) out.push(block);
   for (const block of requirementSection(view)) out.push(block);
   for (const block of transcriptSection(view)) out.push(block);
+  for (const block of counterSection(view)) out.push(block);
   for (const block of adviceSection(view)) out.push(block);
   for (const block of reproSection(view)) out.push(block);
   out.push('<div class="footer">本报告由本地服务生成（简历与报告都没有离开这台机器）。报告是事实的转述：结论只来自数据库里的事件与判定，不做润色、不补写。</div>');

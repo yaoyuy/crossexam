@@ -17,12 +17,14 @@
 import type {
   Answer,
   Claim,
+  CounterQuestion,
   IntentContract,
   InterviewerRole,
   JobDescription,
   MatchSummary,
   Probe,
   RejectedClaim,
+  RejectedCounter,
   RejectedRequirement,
   Requirement,
   RequirementMatch,
@@ -30,6 +32,7 @@ import type {
   ResumeOutline,
   Suggestion,
   Verdict,
+  VerdictKind,
 } from '@crossexam/shared';
 import {
   DEFAULT_BUDGET,
@@ -54,6 +57,7 @@ import { verdictClaims } from './verdict.ts';
 import type { AnsweredProbe, VerdictError, VerdictOutcome } from './verdict.ts';
 import { suggestClaims } from './suggest.ts';
 import type { SuggestError, SuggestOutcome } from './suggest.ts';
+import { counterRound } from './counter.ts';
 
 export const DEFAULT_PANEL: readonly InterviewerRole[] = ['tech', 'hr', 'hiring_manager'];
 export const DEFAULT_MAX_ROUNDS = 3;
@@ -74,6 +78,8 @@ export type RunEvent =
   | { type: 'budget'; totalProbes: number; open: string[]; closed: string[] }
   | { type: 'verdicts'; verdicts: VerdictOutcome[]; errors: VerdictError[] }
   | { type: 'suggestions'; suggestions: SuggestOutcome[]; errors: SuggestError[] }
+  /** 反问环节：沙盘跑完之后轮到求职者提问 */
+  | { type: 'counter'; counters: CounterQuestion[]; rejected: RejectedCounter[] }
   | { type: 'error'; fatal: boolean; message: string };
 
 export interface RunSessionInput {
@@ -123,6 +129,9 @@ export interface RunSessionResult {
   verdictDetails: VerdictOutcome[];
   suggestions: Suggestion[];
   suggestionDetails: SuggestOutcome[];
+  /** 轮到求职者提问时，替他准备好的那几句话 */
+  counters: CounterQuestion[];
+  counterRejected: RejectedCounter[];
   budget: BudgetSnapshot;
   /** 预算的原始状态：落库与续跑要的是它，快照只是给人看的视图 */
   budgetState: BudgetState;
@@ -329,6 +338,23 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionResu
       else if (o.status === 'rejected' && o.reason) notices.push('一条修改建议被拦下：' + o.reason);
     }
 
+    // 反问环节放在最后：它要读的是「这个岗位 + 这份简历 + 已经问过什么」，
+    // 前面四个阶段的结果都是它的输入。没有 JD、也没有主张时它会自己短路，不发请求。
+    await emit({ type: 'stage', stage: 'counter', round: null });
+    const verdictByClaim = new Map<string, VerdictKind>();
+    for (const o of judged.outcomes) verdictByClaim.set(o.verdict.claimId, o.verdict.kind);
+    const asked = await counterRound({
+      client: input.client,
+      resumeText: input.resumeText,
+      jds,
+      requirements,
+      claims,
+      verdicts: verdictByClaim,
+    });
+    usage = addUsage(usage, asked.usage);
+    await emit({ type: 'counter', counters: asked.counters, rejected: asked.rejected });
+    for (const note of asked.notices) notices.push(note);
+
     return {
       resumeText: input.resumeText,
       jdText,
@@ -349,6 +375,8 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionResu
       verdictDetails: judged.outcomes,
       suggestions,
       suggestionDetails: advised.outcomes,
+      counters: asked.counters,
+      counterRejected: asked.rejected,
       budget: budgetSnapshot(budget),
       budgetState: budget,
       rounds,
