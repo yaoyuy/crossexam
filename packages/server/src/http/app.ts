@@ -50,6 +50,7 @@ import { assembleSession, metaPanelIds, runAndPersist, viewsOfContracts } from '
 import type { SessionView } from '../pipeline.ts';
 import { extractResumeFromFile, ImportError, IMPORT_ACCEPT } from '../import/index.ts';
 import type { ImportErrorCode } from '../import/index.ts';
+import { compareSessions } from '../compare.ts';
 import { renderReport, reportFileName } from '../report.ts';
 import { renderReportHtml, reportDocFileName, reportHtmlFileName } from '../report-html.ts';
 import { resumeDocFileName, resumeHtmlFileName, renderResumeHtml, resumeTextFileName } from '../resume-export.ts';
@@ -643,6 +644,21 @@ export function createApp(opts: AppOptions): Hono {
       return c.json({ error: '找不到这几位面试官：' + resolved.missing.join('、') + '。' + knownPanelHint() }, 400);
     }
 
+    // 改完再跑一遍：链是显式的，页面点那个按钮时把上一场 id 带过来。
+    // 刻意不按简历相似度自动认亲——改过之后的简历本来就不一样了，自动认亲会认错，
+    // 而错认出来的「比上次」比没有对比更糟。
+    const rawParent = body['parentSessionId'];
+    let parentSessionId: string | null = null;
+    if (rawParent !== undefined && rawParent !== null) {
+      const wanted = textField(rawParent);
+      if (wanted !== '') {
+        if (getSession(db, wanted) === null) {
+          return c.json({ error: '找不到要对比的上一场会话：' + wanted + '。' }, 400);
+        }
+        parentSessionId = wanted;
+      }
+    }
+
     const id = insertSession(db, {
       jobTitle,
       // 老字段只留第一份：它是给旧代码与报告头部看的投影，真正的清单在 jd 表里。
@@ -652,11 +668,13 @@ export function createApp(opts: AppOptions): Hono {
       llmMode: mode,
       // 预算账本一建会话就按档位写好：跑的时候用它，读的时候也用它重算契约指纹。
       budget: { config: budgetOf(difficulty), totalProbes: 0, claims: {} },
+      parentSessionId,
       meta: {
         source: useDemo ? 'demo' : 'user',
         model: wantedModel,
         difficulty,
         style,
+        parentSessionId,
         panel: resolved.ids,
         // 指纹逐份留档：JD 原文是输入，日后想核对「当时贴的是不是这一版」只看指纹就够。
         jdDigests: jds.list.map((jd) => jdDigest(jd.text)),
@@ -671,6 +689,7 @@ export function createApp(opts: AppOptions): Hono {
         jobTitle,
         difficulty,
         style,
+        parentSessionId,
         panel: resolved.ids,
         // 只回编号与标题：原文界面本来就有，没必要再传一遍。
         jds: jds.list.map((jd) => ({ id: jd.id, ordinal: jd.ordinal, title: jd.title })),
@@ -681,6 +700,16 @@ export function createApp(opts: AppOptions): Hono {
 
   app.get('/api/sessions/:id', (c) => {
     const view = assembleSession(db, c.req.param('id'));
+    if (view === null) return c.json({ error: '会话不存在' }, 404);
+    return c.json(view);
+  });
+
+  /**
+   * 跟上一版比。没有父会话是正常状态（第一版），不是 404：
+   * 界面要能明确地说「这是第一版」，而不是把「没得比」显示成「出错了」。
+   */
+  app.get('/api/sessions/:id/compare', (c) => {
+    const view = compareSessions(db, c.req.param('id'));
     if (view === null) return c.json({ error: '会话不存在' }, 404);
     return c.json(view);
   });
