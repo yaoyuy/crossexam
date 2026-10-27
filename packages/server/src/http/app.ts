@@ -51,6 +51,7 @@ import type { SessionView } from '../pipeline.ts';
 import { extractResumeFromFile, ImportError, IMPORT_ACCEPT } from '../import/index.ts';
 import type { ImportErrorCode } from '../import/index.ts';
 import { compareSessions } from '../compare.ts';
+import { overviewSessions } from '../overview.ts';
 import { renderReport, reportFileName } from '../report.ts';
 import { renderReportHtml, reportDocFileName, reportHtmlFileName } from '../report-html.ts';
 import { resumeDocFileName, resumeHtmlFileName, renderResumeHtml, resumeTextFileName } from '../resume-export.ts';
@@ -578,6 +579,13 @@ export function createApp(opts: AppOptions): Hono {
       }
       return c.json({ error: '导入失败：' + messageOf(err) }, 500);
     }
+  });
+
+  // 历史仪表盘。必须排在 /api/sessions/:id 前面：Hono 按注册顺序匹配，
+  // 否则 overview 会被当成一个会话 id，得到一句「会话不存在」。
+  app.get('/api/sessions/overview', (c) => {
+    const limit = numberField(c.req.query('limit')) ?? undefined;
+    return c.json(overviewSessions(db, limit));
   });
 
   app.get('/api/sessions', (c) => {
