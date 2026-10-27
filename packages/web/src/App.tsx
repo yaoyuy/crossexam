@@ -15,6 +15,7 @@ import {
   fetchModels,
   fetchRevisions,
   fetchStats,
+  fetchTailor,
   fetchTemplates,
   fetchOverview,
   getSession,
@@ -44,6 +45,7 @@ import type {
   SessionSupplement,
   SessionSummary,
   SseEvent,
+  TailorView,
   TemplateLibrary,
 } from './api.ts';
 import { DEFAULT_DIFFICULTY, DEFAULT_STYLE, nextPanel, PANEL_ORDER } from './contract.ts';
@@ -70,6 +72,7 @@ import { CounterBoard } from './components/CounterBoard.tsx';
 import { RequirementBoard } from './components/RequirementBoard.tsx';
 import { ResumePane } from './components/ResumePane.tsx';
 import { StageRail } from './components/StageRail.tsx';
+import { TailorBar } from './components/TailorBar.tsx';
 import { TemplatePicker } from './components/TemplatePicker.tsx';
 
 /** 初始投料：一份空简历、一行空 JD。JD 列表先摆一行，让人知道这里可以贴。 */
@@ -168,8 +171,12 @@ export function App() {
   const [chosen, setChosen] = useState<string[]>([]);
   const [revisionNote, setRevisionNote] = useState<string | null>(null);
   const [revisionBusy, setRevisionBusy] = useState(false);
-  // 右栏现在显示哪一版：'original' 原文 / 'revised' 改完的
-  const [viewing, setViewing] = useState<'original' | 'revised'>('original');
+  // 右栏现在显示哪一版：'original' 原文 / 'revised' 改完的 / 'tailored' 按岗位筛出来的一版
+  const [viewing, setViewing] = useState<'original' | 'revised' | 'tailored'>('original');
+  // 一岗一版（P12 · ③）：按某一份 JD 现筛出来的一版。null = 还没筛过。
+  // 它不落库、不进 session，换场次或重新筛就整块替换——它是一次现算的结果。
+  const [tailored, setTailored] = useState<TailorView | null>(null);
+  const [tailoring, setTailoring] = useState(false);
   // 用户当场给自己补的那几句真话（一条主张一句）。它和改写建议一样，
   // 只在点「确认采纳」时才进简历，所以没必要另开一条确认链路。
   const [supplements, setSupplements] = useState<SessionSupplement[]>([]);
@@ -398,6 +405,7 @@ export function App() {
         setRevised(null);
         setChosen([]);
         setRevisionNote(null);
+        setTailored(null);
         setViewing('original');
         setSupplements([]);
         setSupplementNote(null);
@@ -472,6 +480,33 @@ export function App() {
     });
   }, [startRun, revised, sandbox.sessionId, draft]);
 
+  /**
+   * 按这个岗位出一版（P12 · ③）。
+   *
+   * 与「改完再跑一遍」的分工：那个要跑模型、要落库、会产生新判定；这个不跑模型——
+   * 只把原文里对不上这份 JD 的那几行去掉。点过一次之后右栏多出第三个视图。
+   */
+  const handleTailor = useCallback(
+    (jdId: string) => {
+      const id = sandbox.sessionId;
+      if (id === null) return;
+      setTailoring(true);
+      // 筛哪一份，就把哪一份的原文切到当前：结论与输入必须同时看得见
+      setActiveJdId(jdId);
+      void fetchTailor(id, jdId)
+        .then((view) => {
+          setTailored(view);
+          setViewing('tailored');
+          setHint(view.ok ? view.headline : view.note);
+        })
+        .catch((error: unknown) => {
+          setHint(error instanceof Error ? error.message : '这一版没能筛出来');
+        })
+        .finally(() => setTailoring(false));
+    },
+    [sandbox.sessionId],
+  );
+
   const handleLoadSession = useCallback(async (id: string) => {
     setBusy(true);
     setHint(null);
@@ -494,6 +529,7 @@ export function App() {
       setRevised(stored);
       setChosen(stored === null ? [] : [...stored.accepted]);
       setRevisionNote(null);
+      setTailored(null);
       setViewing(stored === null ? 'original' : 'revised');
       setSupplements(view.supplements ?? []);
       setSupplementNote(null);
@@ -846,6 +882,8 @@ export function App() {
 
   /** 右栏显示哪一版：没有改完的版本时，无论选哪个都只能是原文 */
   const shownRevised = viewing === 'revised' ? revised : null;
+  /** 按岗位筛过的那一版：只在用户点过「按这个岗位出一版」之后才拿得出来 */
+  const shownTailored = viewing === 'tailored' ? tailored : null;
 
   /** 右栏的 JD 原文：跑过就用服务端那份（带 J1..Jn 编号），没跑过就用投料台里的草稿现算 */
   const shownJds = useMemo(
@@ -1075,7 +1113,9 @@ export function App() {
               focus={sandbox.focus}
               hits={allAnchors(sandbox)}
               revised={shownRevised}
+              tailored={shownTailored}
               onShowOriginal={() => setViewing('original')}
+              onShowRevised={() => setViewing('revised')}
             />
             <JdPane
               jds={shownJds}
@@ -1083,8 +1123,24 @@ export function App() {
               onPick={setActiveJdId}
               focus={sandbox.jdFocus}
               hits={jdHits}
+              onTailor={sandbox.sessionId === null || busy ? null : handleTailor}
+              tailoring={tailoring}
             />
           </div>
+          {/*
+            一岗一版：只在真的点过「按这个岗位出一版」之后才出现。
+            它摆在简历与 JD 原文下面、采纳改写上面——因是「这份简历 × 这份岗位」，
+            果是右边那一版筛过的正文，导出三件套一起都在这一栏里。
+          */}
+          {tailored === null || sandbox.sessionId === null ? null : (
+            <TailorBar
+              view={tailored}
+              sessionId={sandbox.sessionId}
+              showing={viewing === 'tailored'}
+              onShow={() => setViewing('tailored')}
+              onHide={() => setViewing(revised === null ? 'original' : 'revised')}
+            />
+          )}
           <RevisionBar
             sessionId={sandbox.sessionId}
             revised={revised}

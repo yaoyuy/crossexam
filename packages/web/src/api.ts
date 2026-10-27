@@ -486,6 +486,48 @@ export interface CompareView {
 }
 
 /**
+ * 一岗一版的接口契约（P12 · ③）。
+ *
+ * 同样刻意与服务端 tailor.ts 重复声明而不 import：web 包不引 @crossexam/shared。
+ * 漂移由 packages/server/test/tailor.test.ts 的接口返回体看守。
+ */
+export type TailorReason = 'no-claim' | 'matched' | 'unmatched';
+
+export interface TailorLine {
+  index: number;
+  text: string;
+  keep: boolean;
+  header: boolean;
+  reason: TailorReason;
+  claimIds: string[];
+  requirementIds: string[];
+}
+
+export interface TailorView {
+  sessionId: string;
+  jdId: string;
+  /** 这一版是从哪份文本筛的：没采纳过改写就是原文 */
+  base: 'original' | 'revised';
+  baseChars: number;
+  /** 这份 JD 与它合并来的要求一共几条 */
+  requirementCount: number;
+  /** 真对上了主张的要求条数 */
+  supportedRequirements: number;
+  jdTitle: string;
+  /** false 表示一条主张都对不上，这一版没敢筛，text 仍是原文 */
+  ok: boolean;
+  note: string | null;
+  text: string;
+  lines: TailorLine[];
+  keptSegments: number;
+  droppedSegments: number;
+  keptClaims: string[];
+  droppedClaims: string[];
+  missingRequirements: number;
+  headline: string;
+}
+
+/**
  * 成长档案的接口契约（P12 · ②）。
  *
  * 刻意与服务端 growth.ts 重复声明而不 import：web 包不引 @crossexam/shared，
@@ -811,6 +853,15 @@ export function fetchCompare(id: string): Promise<CompareView> {
   return getJson<CompareView>('/api/sessions/' + encodeURIComponent(id) + '/compare');
 }
 
+/**
+ * 按一个岗位筛出一版。第一场也回 200：ok 为假时 text 就是原文，界面据此说清为什么没筛。
+ */
+export function fetchTailor(id: string, jdId: string): Promise<TailorView> {
+  return getJson<TailorView>(
+    '/api/sessions/' + encodeURIComponent(id) + '/tailor?jd=' + encodeURIComponent(jdId),
+  );
+}
+
 export function fetchGrowth(id: string): Promise<GrowthView> {
   return getJson<GrowthView>('/api/sessions/' + encodeURIComponent(id) + '/growth');
 }
@@ -978,6 +1029,20 @@ export function resumeHtmlUrl(id: string, options: { print?: boolean; marks?: bo
 export function resumeDocUrl(id: string, marks = true): string {
   const base = '/api/sessions/' + encodeURIComponent(id) + '/resume.doc';
   return marks ? base + '?marks=1' : base;
+}
+
+/** 按岗位筛出来的一版：三个地址与那个岗位绑在一起，换 JD 就是换文件 */
+export function tailoredTextUrl(id: string, jdId: string): string {
+  return '/api/sessions/' + encodeURIComponent(id) + '/tailored.txt?jd=' + encodeURIComponent(jdId);
+}
+
+export function tailoredHtmlUrl(id: string, jdId: string, print = false): string {
+  const base = '/api/sessions/' + encodeURIComponent(id) + '/tailored.html?jd=' + encodeURIComponent(jdId);
+  return print ? base + '&print=1' : base;
+}
+
+export function tailoredDocUrl(id: string, jdId: string): string {
+  return '/api/sessions/' + encodeURIComponent(id) + '/tailored.doc?jd=' + encodeURIComponent(jdId);
 }
 
 export interface SseEvent {

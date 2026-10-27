@@ -19,6 +19,12 @@ export function JdPane(props: {
   focus: Anchor | null;
   /** 这一份 JD 上被抽成要求的位置 */
   hits: Anchor[];
+  /**
+   * 按当前这份 JD 出一版简历（P12 · ③）。按钮长在「岗位要求原文」栏里，
+   * 因为这个动作的输入就是这一栏正开着的那份 JD——入口贴着它的输入，用户不用猜是拿哪份在筛。
+   */
+  onTailor?: ((jdId: string) => void) | null;
+  tailoring?: boolean;
   className?: string;
 }) {
   const focusRef = useRef<HTMLElement | null>(null);
@@ -57,9 +63,21 @@ export function JdPane(props: {
         (props.hits.length === 0 ? '还没抽出要求' : '抽成 ' + String(props.hits.length) + ' 条要求')
       }
       actions={
-        props.jds.length > 1 ? (
-          <div className='flex flex-wrap items-center justify-end gap-1'>
-            {props.jds.map((jd) => (
+        <div className='flex flex-wrap items-center justify-end gap-1'>
+          {props.onTailor === undefined || props.onTailor === null ? null : (
+            <button
+              type='button'
+              data-shot='jd-tailor'
+              title={'按《' + active.title + '》把简历筛一版：只保留对得上这份岗位的主张，一个字都不改'}
+              disabled={props.tailoring === true}
+              onClick={() => props.onTailor?.(active.id)}
+              className='chip cursor-pointer border-ember-500 text-ink-100 transition-colors hover:brightness-110 disabled:cursor-default disabled:opacity-50'
+            >
+              {props.tailoring === true ? '正在筛…' : '按这个岗位出一版'}
+            </button>
+          )}
+          {props.jds.length > 1 ? (
+            props.jds.map((jd) => (
               <button
                 key={jd.id}
                 type='button'
@@ -73,9 +91,9 @@ export function JdPane(props: {
               >
                 {jd.id + ' · ' + jd.title}
               </button>
-            ))}
-          </div>
-        ) : undefined
+            )))
+              : null}
+        </div>
       }
       bodyClassName='p-0'
     >
