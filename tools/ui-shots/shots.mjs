@@ -352,6 +352,9 @@ async function main() {
     const top = (name) => pane(name) + '.scrollTop = 0';
     const bottom = (name) => pane(name) + '.scrollTop = ' + pane(name) + '.scrollHeight';
     const click = (shot) => "document.querySelector('[data-shot=\"" + shot + "\"]').click()";
+    // 按 data-shot 往输入框里写字：直接改 .value React 收不到，要用原生 setter 再补一个 input 事件。
+    // 选择器整段过 JSON.stringify，既躲开引号嵌套，也保证它真的是属性选择器（写成 querySelector("supplement-input-C1") 会变成找标签名）。
+    const setField = (shot, text) => "(() => { const el = document.querySelector(" + JSON.stringify('[data-shot="' + shot + '"]') + "); if (el === null) return -1; const proto = el.tagName === 'TEXTAREA' ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype; const setter = Object.getOwnPropertyDescriptor(proto, 'value').set; setter.call(el, " + JSON.stringify(text) + "); el.dispatchEvent(new Event('input', { bubbles: true })); return el.value.length; })()";
 
     log('界面截图输出到：' + opts.out);
     await cdp.shot(opts.out, '01-intake.png', top('claims'));
@@ -439,6 +442,34 @@ async function main() {
     // 拍完退回原文：后面几张拍的是「刚跑完一场」的状态，不该带着一版改过的简历。
     await cdp.evaluate(click('revision-discard'));
     await cdp.waitFor("(document.querySelector('[data-shot=\"revision-note\"]')?.innerText ?? '').includes('已撤销全部采纳')", '撤销结论', 20000);
+
+    // P10 · A1 补充说明：给一条本来没有改写建议的主张补一句真话。
+    // 这一张是「面试官说你缺证据，你可以当场把证据补上」的直接证据——
+    // 补完这句它就能被勾选采纳，作为新的一行进简历，而原文一个字都不动。
+    const supId = await cdp.evaluate("fetch('/api/sessions').then((r) => r.json()).then((list) => { const id = (list.sessions[0] || {}).id || ''; if (id === '') return ''; return fetch('/api/sessions/' + id).then((r) => r.json()).then((view) => { const advised = new Set((view.suggestions || []).filter((s) => s.status === 'suggested').map((s) => s.claimId)); const hit = (view.claims || []).find((c) => !advised.has(c.id)); return hit ? hit.id : ''; }); })");
+    if (typeof supId !== 'string' || supId === '') throw new Error('找不到没有改写建议的主张，补充说明那一张拍不了');
+    const supNoteSel = JSON.stringify('[data-shot="supplement-note-' + supId + '"]');
+    const supTextSel = JSON.stringify('[data-shot="supplement-text-' + supId + '"]');
+    const supText = '日订单 30 万，峰值 QPS 5000（这句是我自己补的事实）。';
+    const typed = await cdp.evaluate(setField('supplement-input-' + supId, supText));
+    if (typed !== supText.length) throw new Error('往 ' + supId + ' 的输入框里没写进去（返回 ' + String(typed) + '）');
+    await cdp.evaluate(click('supplement-save-' + supId));
+    // 等结论：这里刻意用轮询而不用 cdp.waitFor，失败时能把这句提示的原话打出来。
+    let supNote = '';
+    for (let i = 0; i < 30; i += 1) {
+      supNote = String(await cdp.evaluate("(document.querySelector(" + supNoteSel + ") || {}).innerText || ''"));
+      if (supNote.indexOf('已记下') >= 0) break;
+      await sleep(500);
+}
+    if (supNote.indexOf('已记下') < 0) throw new Error('补一句真话没生效：' + supId + ' / 卡片上的提示是「' + supNote + '」');
+    await sleep(300);
+    // 截在卡片上：那句真话、以及「改一句」按钮同框。
+    await cdp.shot(opts.out, '22-supplement.png', "document.querySelector(" + supTextSel + ").scrollIntoView({ block: 'center' })");
+    // 拍完删掉：后面几张（契约、教程、报告）要的是「刚跑完、什么都没改」的状态，
+    // 而且报告里会多出一节「你补的证据」，那属于另一个场景。
+    await cdp.evaluate(click('supplement-edit-' + supId));
+    await cdp.evaluate(click('supplement-delete-' + supId));
+    await cdp.waitFor("((document.querySelector(" + supNoteSel + ") || {}).innerText || '').indexOf('已删掉') >= 0", '补充说明删掉', 15000);
 
     // 意图契约：展开一位面试官的契约，再摊开他实际拿到的 System Prompt。
     // 这一张是「意图控制」这条评分项的直接证据：目标/手法/禁区/预算都是结构化数据，

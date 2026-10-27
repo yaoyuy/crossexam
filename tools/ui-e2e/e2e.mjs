@@ -593,6 +593,68 @@ const discardNote = await waitFor(async () => { const t = await evalJs('(() => {
 const afterDiscard = (await (await fetch('http://127.0.0.1:' + PORT + '/api/sessions/' + demoSession.id + '/revisions')).json()).revised;
 const paneBack = await evalJs('document.querySelector("[data-shot=resume]").innerText');
 check('「全部撤销」把简历退回原文（界面与服务端同时退）', discardNote.length > 0 && afterDiscard === null && paneBack.indexOf('改完的简历') < 0, String(afterDiscard));
+// A1：用户自己补一句真话。挑的是没有改写建议的那条主张——
+// 它原本连勾选框都没有，补了说明之后必须能勾上，否则「确认采纳」就成了点了没反应的按钮。
+async function shotSelector(name) {
+  return "[data-shot=" + JSON.stringify(name) + "]";
+}
+async function textOf(name) {
+  const selector = await shotSelector(name);
+  return evalJs("(() => { const el = document.querySelector(" + JSON.stringify(selector) + "); return el === null ? '' : el.innerText; })()");
+}
+async function clickShot(name) {
+  const selector = await shotSelector(name);
+  return evalJs("(() => { const el = document.querySelector(" + JSON.stringify(selector) + "); if (el === null) return 'missing'; el.click(); return 'ok'; })()");
+}
+async function hasShot(name) {
+  const selector = await shotSelector(name);
+  return evalJs("document.querySelector(" + JSON.stringify(selector) + ") === null ? 'no' : 'yes'");
+}
+const chooseCountBefore = await evalJs('document.querySelectorAll(' + JSON.stringify('[data-shot^=choose-]') + ').length');
+check('补说明之前，只有带建议的主张能勾选', chooseCountBefore === advised.length, String(chooseCountBefore) + ' 个 / 建议 ' + String(advised.length) + ' 条');
+const noSuggest = view.claims.find((c) => !advised.some((s) => s.claimId === c.id));
+const supId = String(noSuggest === undefined ? '' : noSuggest.id);
+const hadChoose = await hasShot('choose-' + supId);
+check('没有建议的那条主张本来就勾不上', hadChoose === 'no', supId + ' → ' + hadChoose);
+const SUP_TEXT = '日订单 30 万，峰值 QPS 5000（这句是我自己补的事实）。';
+const typedSup = await setShot('supplement-input-' + supId, SUP_TEXT);
+check('卡片上有「补一句真话」的输入框，能填进去', typedSup > 0, String(typedSup) + ' 字');
+await clickShot('supplement-save-' + supId);
+const supNote = await waitFor(async () => { const t = await textOf('supplement-note-' + supId); return t.indexOf('已记下') >= 0 ? t : ''; }, '补充说明已存下', 15000);
+check('存下这句并给出结论', supNote.indexOf('已记下') >= 0, supNote.slice(0, 60));
+const shownSup = await textOf('supplement-text-' + supId);
+check('这句显示在那张卡片上', shownSup.indexOf('峰值 QPS 5000') >= 0, shownSup.slice(0, 50));
+const chooseNow = await hasShot('choose-' + supId);
+check('补了说明之后这条也能勾选采纳', chooseNow === 'yes', chooseNow);
+await clickShot('choose-' + supId);
+await sleep(200);
+await clickShot('revision-submit');
+const supAccepted = await waitFor(async () => { const t = await textOf('revision-note'); return t.indexOf('已按这次勾选改好简历') >= 0 ? t : ''; }, '采纳补充说明', 20000);
+check('没有建议、只有这句补充说明，也能确认采纳', supAccepted.indexOf('改成了 1 处') >= 0, supAccepted.slice(0, 70));
+const supRevised = (await (await fetch('http://127.0.0.1:' + PORT + '/api/sessions/' + demoSession.id + '/revisions')).json()).revised;
+const lineCountOf = (t) => String(t).split(String.fromCharCode(10)).length;
+check('服务端把这句话作为新的一行加进简历（原文一个字没动）',
+  supRevised !== null && supRevised.text.indexOf('峰值 QPS 5000') >= 0 && lineCountOf(supRevised.text) === lineCountOf(view.session.resumeText) + 1,
+  supRevised === null ? 'null' : lineCountOf(supRevised.text) + ' 行 / 原文 ' + lineCountOf(view.session.resumeText) + ' 行');
+const supTxt = await (await fetch('http://127.0.0.1:' + PORT + '/api/sessions/' + demoSession.id + '/resume.txt')).text();
+check('导出的简历里就有这句新加的话', supTxt.indexOf('峰值 QPS 5000') >= 0 && supTxt === supRevised.text, String(supTxt.length) + ' 字');
+// 存下之后卡片会收起来（textarea 与按钮都不再渲染），要改或要删得先点「改一句」。
+// 这是刻意的：那句真话是要拿出去的事实，不该在界面上一直摆着一个「删掉」等着被误点。
+const deleteHidden = await hasShot('supplement-delete-' + supId);
+check('存下之后收起编辑区，删除按钮不常驻', deleteHidden === 'no', deleteHidden);
+await clickShot('supplement-edit-' + supId);
+const reopened = await hasShot('supplement-delete-' + supId);
+check('点「改一句」才重新展开，此时能删掉这句', reopened === 'yes', reopened);
+// 收尾：删掉这句、再撤销，让后面的场景看到的是「刚跑完、什么都没改」的干净状态
+await clickShot('supplement-delete-' + supId);
+const supDeleted = await waitFor(async () => { const t = await textOf('supplement-note-' + supId); return t.indexOf('已删掉') >= 0 ? t : ''; }, '补充说明已删掉', 15000);
+await clickShot('revision-discard');
+const backToOriginal = await waitFor(async () => { const t = await textOf('revision-note'); return t.indexOf('已撤销全部采纳') >= 0 ? t : ''; }, '再次撤销', 20000);
+const settled = await (await fetch('http://127.0.0.1:' + PORT + '/api/sessions/' + demoSession.id)).json();
+const settledRev = (await (await fetch('http://127.0.0.1:' + PORT + '/api/sessions/' + demoSession.id + '/revisions')).json()).revised;
+check('删掉补充说明再撤销之后，库与界面都回到没有改动的状态',
+  supDeleted.length > 0 && backToOriginal.length > 0 && settled.supplements.length === 0 && settledRev === null,
+  String(settled.supplements.length) + ' 句补充说明 / revised ' + String(settledRev));
 
 const contractBadge = await evalJs('(() => { const b = document.querySelector(String.fromCharCode(91) + "data-shot=" + String.fromCharCode(34) + "contract-toggle" + String.fromCharCode(34) + String.fromCharCode(93) + ""); b.click(); return b.textContent; })()');
 const badgeText = await waitFor(async () => { const t = await bodyText(); return t.indexOf('与运行时一致') >= 0 ? t : ''; }, '契约对账徽章', 8000);
