@@ -1108,3 +1108,43 @@ P8 多 JD 岗位审阅（1–8 份 JD、双锚点、schema v6、卡带重录）�
 ### 下一步
 
 P10 把「问」做深（A1 让求职者补一句真话 / A2 追问难度档位 / A3 报告按类别看短板 / A4 反问环节）。
+
+## Session 27 · 2026-10-27 · P10：把「问」做深（短板 / 追问强度 / 补充说明 / 轮到你了）
+
+### 目标
+
+按 roadmap-v2 第 1 节与用户 m07596「按建议来」，P10 做 A 组四项：**A3 报告按主张类别看短板 · A2 追问难度档位 · A1 让求职者补一句真话 · A4 反问环节**。
+四项共享一条设计前提：**都在同一份对话记录上换一个角度，一律不新增判定口径**——它们只把已有的主张、判定、依据重新聚合或重新用一遍，
+所以四栏的数字必须永远对得上，且每一个都能在零网络下由仓库里的卡带复现。
+
+### 做了什么
+
+| 层 | 产出 |
+| --- | --- |
+| shared | `shortfall.ts`（`categoryShortfalls` / `weakestClaims` / `shortfallPlan` / `categoryLine` / `shortfallHeadline`，排序规则：欠得多的类别在前、同程度保持主张原顺序）· `difficulty.ts`（`DIFFICULTIES` 三档：温和 2/1/40 · 常规 3/2/60 · 挑刺 4/2/80，`budgetOf` / `contractBudgetView` 只换预算）· `supplement.ts`（`supplementProblem` / `insertionPointAfter` / `supplementRevision` 产出零宽插入）· `counters.ts`（`groundCounters`：依据必须锚回简历或 JD，锚不回当场进 `rejected`；id 截断后重编所以 Q1..Qn 连续）· `domain.ts` 增 `CounterQuestion` / `RejectedCounter` 与两套中文标签 · 四个测试文件共 43 条 |
+| server | schema **v8**（`revision` 主键换 `(session_id, ordinal)`，因为一条主张可能同时落替换 + 插入两条改动；新增 `supplement` 表，只存那句话不存坐标）与 **v9**（新增 `counter` 表）· `revisions.ts` 采纳时把补充说明按主张锚点现算成插入 · 新接口 `POST/DELETE /api/sessions/:id/supplements` · 编排层 `counter.ts` + `prompts.ts` 的 `counter` 阶段（第九个阶段）· 两份报告都加「你补的证据」「轮到你了」两节 · `report.ts` 与 `report-html.ts` 的短板一节 · 测试：`counter.test.ts` 5 条 / `difficulty.test.ts` 7 条 / `supplements.test.ts` / `revisions.test.ts` 扩 |
+| web | `state.ts` 折叠 `counter` 事件并派生 `shortfallOf` · `components/CounterBoard.tsx`（「轮到你了」一栏：类别徽章、依据来源、引文按钮、「为什么值得问」与标注是模拟的回答）· `IntakePanel` 的追问强度三 chip 与说明 · `ClaimBoard` 的「补一句真话」块 · `StageRail` 的「按类别看短板」块（点名单跳回简历原文）· `api.ts` / `labels.ts` 跟上九个阶段 · 前端测试 `studio` / `difficulty` / `shortfall-state` / `counters-state` / `revisions` / `highlight` 各扩 |
+| tools | 离线演示脚本补上反问与三档预算（`DEMO_COUNTER_PLANS` 4 条、`requirementNotesIn()` 之外再读回要求小节；`seed:demo` 重录 **48 盘**卡带，两遍签名一致）· 点测新增「追问强度」「按类别看短板」「补充说明」「轮到你了」四个场景，共 **117/117** · 截图新增 `20-shortfall` / `21-difficulty` / `22-supplement` / `23-counters` 四张，共 **23 张** |
+
+### 四处真问题（都不是设计阶段发现的）
+
+1. **点测跑的是旧构建产物**（F58）：「轮到你了」做完后前端测试全绿、类型检查干净，可点测三条断言红、还报「等元素超时」，
+   看起来像新组件没渲染。真原因是服务端托管的是 `packages/web/dist`，我改了源码却没 `npm run build`——`npm run build` 之后同一条命令 117/117。
+2. **大文件 read 全量读会截断，写回去就把尾巴写没了**（F59）：`tools/ui-e2e/e2e.mjs` 实际 695 行，read 回来 656 行，拼回去 write 之后末尾收尾逻辑整段蒸发、`node --check` 报 `Unexpected end of input`。
+   处置：`git checkout --` 复原，改成「grep 找唯一锚点 + 同程序内 read 局部 + edit」。
+3. **零宽插入不能推进最右边界**（F60）：补充说明是零宽插入，第一版对它也执行 `lastEnd = end`，于是落在同一位置上的替换型改写被判成重叠而丢掉；
+   改成 `if (!insertion) lastEnd = end;`。同一处放宽让老断言 X2（零宽 + 改前为空串）从「合法拒绝」变成「不该拒绝」，被红着的门禁抓了出来——旧断言按旧语义写，语义变了就得跟着改。
+4. **断言点了页面上不存在的按钮**（F61）：「点短板名单里的主张」这条按服务端顺序取第一条短板拼 id 去点，而名单只有前 3 条，被上限挡掉的那条在页面上没有按钮——点了等于没点。
+   处置：先从页面取第一个真实存在的 `^shortfall-C[0-9]+$` 拿到 `data-shot` 再回查主张；同族坑还有「存下之后编辑区收起，删除按钮不再渲染」，断言前先确认元素存在。
+
+### 门禁与实测
+
+`npm run verify` exit 0：**58 个测试文件 / 598 条断言 / 6.1 s** + 冒烟 9 项 + vite build 42 modules / CSS 28.75 kB / JS 332.86 kB（gzip 102.80 kB）。
+`npm run e2e:ui` **117/117**、控制台 0 报错；`npm run shots` **23 张**、控制台 0 报错；`fixtures/llm` **48 盘**卡带；仓库提交 253 个。
+实测明细（`.tmp/doc-stats2.mts` 直接调 `runAndPersist`，常规档）：46 ms · 3 轮 · 5 主张 / 10 追问 / 5 判定（站得住 1 · 表述过度 1 · 证据缺失 2 · 无法回答 1）· 4 条建议 ·
+**4 句反问（依据 JD 2 · 依据简历原话 2）** · 7 条岗位要求（答得上 1 / 答得含糊 3 / 没写 3）· 每位面试官 tech 4 / hr 3 / hiring_manager 3 · token 31,172（输入 27,050 · 输出 4,122 · 思考 724）· 调用 33 次、事件 24 条。
+追问强度三档实测：契约指纹常规档 `042b385f` → 挑刺档 `cf9c6457` → 切回常规回到 `042b385f`（换档真的换了契约）。
+
+### 下一步
+
+P11 改与复用：B2 逐条并排改动对照 · B1 改写风格档位 · C1 简历版本对比 · C2 历史仪表盘 · C3 单文件 HTML 打包。
