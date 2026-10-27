@@ -16,8 +16,10 @@ import { streamSSE } from 'hono/streaming';
 import {
   DEFAULT_BUDGET,
   DEFAULT_DIFFICULTY,
+  DEFAULT_REWRITE_STYLE,
   DIFFICULTIES,
   JOB_TEMPLATES,
+  REWRITE_STYLES,
   TEMPLATE_INDUSTRIES,
   TEMPLATE_LIMITS,
   budgetOf,
@@ -27,17 +29,20 @@ import {
   difficultyViews,
   interviewerDraftSchema,
   isDifficulty,
+  isRewriteStyle,
   jdDigest,
   jdIdOf,
   jdProblems,
   jdTitleOf,
   normalizeJdText,
+  rewriteStyleOf,
+  rewriteStyleViews,
   renderSystemPrompt,
   shortHash,
   templateById,
   templateDigest,
 } from '@crossexam/shared';
-import type { Difficulty, IntentContract, InterviewerDraft, JobDescription } from '@crossexam/shared';
+import type { Difficulty, IntentContract, InterviewerDraft, JobDescription, RewriteStyle } from '@crossexam/shared';
 import { DEMO_JD, DEMO_RESUME, DEMO_TITLE } from '../demo-content.ts';
 import { createLlmClient, defaultCassetteDir, describeClient, listLiveModels, LLM_MODES, MODE_LABEL, resolveLiveConfig } from '../llm/index.ts';
 import type { LlmClient, LlmMode } from '../llm/types.ts';
@@ -335,6 +340,8 @@ export function createApp(opts: AppOptions): Hono {
       // 档位清单由 shared 提供：界面按它渲染 chip，服务端按它算预算，两边不各写一份
       difficulties: difficultyViews(),
       defaultDifficulty: DEFAULT_DIFFICULTY,
+      styles: rewriteStyleViews(),
+      defaultStyle: DEFAULT_REWRITE_STYLE,
     }),
   );
 
@@ -618,6 +625,15 @@ export function createApp(opts: AppOptions): Hono {
       }, 400);
     }
     const difficulty = difficultyOf(rawDifficulty);
+    // 改稿口径与追问强度分两件事：一个决定问多深，一个决定改多狠。同一条规矩——
+    // 建会话时定下来写进 meta，跑的时候读它，页面此刻选了什么不算数。
+    const rawStyle = body['style'];
+    if (rawStyle !== undefined && rawStyle !== null && !isRewriteStyle(rawStyle)) {
+      return c.json({
+        error: '改写风格只能是 ' + REWRITE_STYLES.join(' / ') + '，收到「' + textField(rawStyle) + '」。',
+      }, 400);
+    }
+    const style: RewriteStyle = rewriteStyleOf(rawStyle);
 
     // 阵容在建会话时就定下来：重跑同一场不会因为页面此刻勾了别人就换人。
     const wantedIds = stringList(body['interviewers']);
@@ -640,6 +656,7 @@ export function createApp(opts: AppOptions): Hono {
         source: useDemo ? 'demo' : 'user',
         model: wantedModel,
         difficulty,
+        style,
         panel: resolved.ids,
         // 指纹逐份留档：JD 原文是输入，日后想核对「当时贴的是不是这一版」只看指纹就够。
         jdDigests: jds.list.map((jd) => jdDigest(jd.text)),
@@ -653,6 +670,7 @@ export function createApp(opts: AppOptions): Hono {
         model: wantedModel,
         jobTitle,
         difficulty,
+        style,
         panel: resolved.ids,
         // 只回编号与标题：原文界面本来就有，没必要再传一遍。
         jds: jds.list.map((jd) => ({ id: jd.id, ordinal: jd.ordinal, title: jd.title })),

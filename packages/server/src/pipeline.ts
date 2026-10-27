@@ -10,7 +10,7 @@
  * 这样前端"重放一遍"与"查表"看到的是同一件事，不需要把 JSON 拆成十个列。
  */
 
-import { contractDigest, difficultyOf, matchSummary, renderSystemPrompt, requirementNotes, shortHash } from '@crossexam/shared';
+import { contractDigest, difficultyOf, matchSummary, renderSystemPrompt, requirementNotes, rewriteStyleOf, shortHash } from '@crossexam/shared';
 import type {
   BudgetConfig,
   ContractBudgetView,
@@ -25,6 +25,7 @@ import type {
   Requirement,
   RequirementMatch,
   RequirementNote,
+  RewriteStyle,
   Suggestion,
 } from '@crossexam/shared';
 import type { LlmClient, LlmRequest, LlmResult, LlmStreamEvent, LlmUsage } from './llm/types.ts';
@@ -207,6 +208,8 @@ export async function runAndPersist(input: PersistRunInput): Promise<RunSessionR
       resumeText: session.resumeText,
       jdText: session.jdText,
       jds,
+      // 改写风格与追问强度一样，都是随会话落档的输入：重跑读的还是当初选的那一档。
+      style: rewriteStyleOf(session.meta['style']),
       contracts: roster.contracts,
       // 用上面算好的那一份，不是 input.budgetConfig：
       // 后者为 undefined 时编排层会回落 DEFAULT_BUDGET，而契约是按 session.budget.config 算的，
@@ -309,6 +312,8 @@ export interface SessionView {
   requirementSummary: MatchSummary;
   /** 这一场问得多深。老会话没记过这个字段，按默认档算 */
   difficulty: Difficulty;
+  /** 这一场改得多狠。老会话没记过这个字段，按默认档算 */
+  style: RewriteStyle;
   /** 这场沙盘当时用的意图契约。表里只存了指纹，全文是按同样输入重算出来的 */
   contracts: ContractView[];
   /** 用户当场补的那几句真话（简历上没有原句的那些事实） */
@@ -511,6 +516,7 @@ export function assembleSession(db: Db, sessionId: string): SessionView | null {
     requirementNotes: requirementNotes(jds, requirements, requirementMatches),
     requirementSummary: matchSummary(requirementMatches),
     difficulty: difficultyOf(session.meta['difficulty']),
+    style: rewriteStyleOf(session.meta['style']),
     supplements: listSupplements(db, sessionId),
     counters: listCounters(db, sessionId),
     counterRejected: lastPayload<RejectedCounter>(events, 'counter', 'rejected'),

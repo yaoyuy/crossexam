@@ -14,11 +14,11 @@
  *   4. after 不能等于 before，否则等于没改。
  */
 
-import type { Anchor, Answer, Claim, Probe, ResumeOutline, Suggestion, Verdict, VerdictKind } from '@crossexam/shared';
-import { VERDICT_LABEL, parseLlmOutput, resolveAnchor, suggestionDraftSchema } from '@crossexam/shared';
+import type { Anchor, Answer, Claim, Probe, ResumeOutline, RewriteStyle, Suggestion, Verdict, VerdictKind } from '@crossexam/shared';
+import { DEFAULT_REWRITE_STYLE, VERDICT_LABEL, parseLlmOutput, resolveAnchor, suggestionDraftSchema } from '@crossexam/shared';
 import type { LlmClient, LlmUsage } from '../llm/types.ts';
 import { EMPTY_USAGE } from '../llm/types.ts';
-import { SUGGEST_SYSTEM, buildSuggestPrompt, stageRequest } from './prompts.ts';
+import { buildSuggestPrompt, stageRequest, suggestSystem } from './prompts.ts';
 import { isFatalLlmError } from './probe.ts';
 import type { AnsweredProbe } from './verdict.ts';
 
@@ -47,6 +47,8 @@ export interface SuggestClaimsInput {
   transcriptByClaim: Readonly<Record<string, readonly AnsweredProbe[]>>;
   resumeText: string;
   outline: ResumeOutline;
+  /** 改写风格：只调措辞的收敛程度，事实边界由下面四道闸门兜底。不传按默认档 */
+  style?: RewriteStyle;
 }
 
 export interface SuggestClaimsResult {
@@ -86,7 +88,7 @@ async function suggestOne(
   const answers = transcript.map((t) => t.answer).filter((a): a is Answer => a !== null);
   const request = stageRequest(
     'suggest',
-    SUGGEST_SYSTEM,
+    suggestSystem(input.style ?? DEFAULT_REWRITE_STYLE),
     buildSuggestPrompt({ claim, verdict, probes, answers }),
     'suggest:' + claim.id,
   );
