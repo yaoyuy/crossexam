@@ -517,6 +517,24 @@ const reportDocText = await reportDoc.text();
 check('Word 入口给的是 application/msword 附件',
   reportDoc.status === 200 && String(reportDoc.headers.get('content-type')).indexOf('msword') >= 0 && String(reportDoc.headers.get('content-disposition')).indexOf('.doc') >= 0,
   String(reportDocText.length) + ' 字符');
+// 打包分享（C3）：一个文件带走整场。这里真下载一次——只验按钮存在，等于没验「发出去能不能看」。
+const bundleHref = await evalJs('(() => { const a = document.querySelector(\'[data-shot="bundle-html"]\'); return a === null ? "" : a.getAttribute("href"); })()');
+check('头部给出「打包分享」入口', String(bundleHref).indexOf('/bundle.html') >= 0, String(bundleHref));
+const bundleRes = await fetch('http://127.0.0.1:' + PORT + String(bundleHref));
+const bundleText = await bundleRes.text();
+check('打包出来的是单文件 HTML 附件',
+  bundleRes.status === 200
+    && bundleText.indexOf('<!doctype html>') === 0
+    && String(bundleRes.headers.get('content-disposition')).indexOf('attachment') >= 0
+    && String(bundleRes.headers.get('content-disposition')).indexOf('crossexam-bundle-') >= 0,
+  String(bundleText.length) + ' 字符');
+// 硬规矩：没有外链。评委的机器可能断网，一张半白的纸比没有文件更糟。
+check('打包文件里没有任何 http(s) 外链',
+  bundleText.indexOf('http://') < 0 && bundleText.indexOf('https://') < 0,
+  'http:// ' + String(bundleText.split('http://').length - 1) + ' 处 / https:// ' + String(bundleText.split('https://').length - 1) + ' 处');
+check('打包文件里同时有报告正文、简历原文与事件时间线',
+  bundleText.indexOf('主张与判定') >= 0 && bundleText.indexOf('附一、简历原文') >= 0 && bundleText.indexOf('附二、这一场是怎么跑出来的') >= 0,
+  String(bundleText.length) + ' 字符');
 const chips = await evalJs('document.querySelector("header").innerText');
 check('头部遥测显示调用与回放次数', chips.indexOf('调用') >= 0 && chips.indexOf('回放') >= 0 && chips.indexOf('追问') >= 0, chips.replace(/\n/g, ' / ').slice(0, 120));
 await shot('03-done.png');
