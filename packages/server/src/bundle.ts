@@ -43,6 +43,19 @@ const KIND_LABEL: Record<string, string> = {
   error: '出了问题',
 };
 
+/** 阶段名 → 人话。事件里存的是英文键名（编排层的标识符），打包出去要给人读 */
+const STAGE_LABEL: Record<string, string> = {
+  extract: '抽取主张',
+  'jd-extract': '读岗位要求',
+  'jd-merge': '归并同类要求',
+  'jd-match': '要求对照简历',
+  probe: '并发追问',
+  answer: '求职者作答',
+  verdict: '给出判定',
+  suggest: '反推改写',
+  counter: '轮到你反问',
+};
+
 const BUNDLE_CSS = [
   '.bundle-nav { position: sticky; top: 0; z-index: 5; background: rgba(255,255,255,0.96);',
   '  border-bottom: 1px solid #e5e7eb; margin: 0 -30px 18px; padding: 8px 30px; font-size: 12.5px; }',
@@ -112,9 +125,10 @@ function timelineSection(events: readonly EventRow[]): string[] {
 function detailOf(row: EventRow): string {
   const payload = row.payload;
   if (row.kind === 'stage') {
-    const stage = typeof payload['stage'] === 'string' ? String(payload['stage']) : '';
+    const raw = typeof payload['stage'] === 'string' ? String(payload['stage']) : '';
+    const stage = STAGE_LABEL[raw] ?? raw;
     const round = typeof payload['round'] === 'number' ? Number(payload['round']) : null;
-    return round === null ? stage : stage + ' · 第 ' + String(round) + ' 轮';
+    return round === null ? stage : stage + '（第 ' + String(round) + ' 轮）';
   }
   if (row.kind === 'claims') {
     const claims = Array.isArray(payload['claims']) ? payload['claims'] : [];

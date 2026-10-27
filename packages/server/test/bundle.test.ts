@@ -113,8 +113,10 @@ describe('单文件打包', () => {
     expect(html).toContain('附一、简历原文');
     expect(html).toContain('附二、这一场是怎么跑出来的');
     expect(html).toContain(QUOTE);
-    // 时间线读的是真实事件，不是复述结论
+    // 时间线读的是真实事件，不是复述结论；事件里存的是英文键名，打包出去得是人话
     expect(html).toContain('阶段开始');
+    expect(html).toContain('抽取主张');
+    expect(html).not.toContain('· extract');
   });
 
   it('输出里没有任何 http:// 或 https://：断网双击也能看完整场', async () => {
