@@ -7,11 +7,11 @@
 
 | # | 要求 | 现状 | 位置 / 命令 |
 | --- | --- | --- | --- |
-| 1 | GitHub / Gitee 公开仓库，**细粒度 commit**（禁止一次性 initial commit） | ✅ 220 余次提交，每次对应一次具体开发动作 | 见第二节「建远端」 |
-| 2 | **≥3 个核心功能迭代的完整 Prompt 链**（提问 → AI 建议 → 如何引导修 Bug） | ✅ 自动导出，30 份分页快照（约 8.0 MB） | `npm run export:prompt` → `docs/prompt-chain/` |
-| 3 | README 10 分钟极速复现指南（环境、依赖、环境变量模板） | ✅ 干净目录实测 49.7 s | `README.md` + `.env.example` |
+| 1 | GitHub / Gitee 公开仓库，**细粒度 commit**（禁止一次性 initial commit） | ✅ 250 余次提交，每次对应一次具体开发动作 | 见第二节「建远端」 |
+| 2 | **≥3 个核心功能迭代的完整 Prompt 链**（提问 → AI 建议 → 如何引导修 Bug） | ✅ 自动导出，34 份文件（其中 30 份分页快照，约 14 MB） | `npm run export:prompt` → `docs/prompt-chain/` |
+| 3 | README 10 分钟极速复现指南（环境、依赖、环境变量模板） | ✅ 干净目录实测约 50 s | `README.md` + `.env.example` |
 | 4 | 演示视频 5–8 分钟 1080p，含 **≥2 分钟 AI 协同过程复现** | 🔶 脚本已备，**待录制** | `docs/video/script.md` |
-| 5 | 技术文档 PDF ≤30 页 | ✅ 29 页（新增 3.6.9 后重建确认仍是 29 页），一条命令重建 | `npm run docs:pdf` → `docs/CrossExam-技术文档.pdf` |
+| 5 | 技术文档 PDF ≤30 页 | ✅ 30 页（已顶到 30 页上限，构建自身在超限时失败），一条命令重建 | `npm run docs:pdf` → `docs/CrossExam-技术文档.pdf` |
 
 ## 二、建远端仓库（⛔ 需要本人操作）
 
@@ -44,9 +44,9 @@ git push -u origin main
 ## 四、提交前的最后一遍门禁（可自动跑）
 
 ```
-npm run verify        # 类型检查 + 49 个测试文件 / 520 条断言 + 9 项真进程冒烟 + 构建
-npm run repro         # 干净目录复现预演，确认评委会看到同一件事（约 34 s）
-npm run docs:pdf      # 重建技术文档，确认仍是 29 页且不超 30 页
+npm run verify        # 类型检查 + 58 个测试文件 / 598 条断言 + 9 项真进程冒烟 + 构建
+npm run repro         # 干净目录复现预演，确认评委会看到同一件事（约 50 s）
+npm run docs:pdf      # 重建技术文档，确认仍是 30 页、没超上限
 npm run export:prompt # 刷新 Prompt 链快照，把最后一次迭代也带进去
 git status --porcelain  # 必须为空
 ```

@@ -63,8 +63,8 @@ D:\CZB
 │   │
 │   ├── server/        编排与 IO
 │   │   ├── llm/           LLM 适配层：live / record / replay 三态 + 卡带 + 流式包装
-│   │   ├── orchestrator/  八阶段：extract / jd-extract / jd-merge / jd-match /
-│   │   │                 probe / answer / verdict / suggest + run 编排
+│   │   ├── orchestrator/  九阶段：extract / jd-extract / jd-merge / jd-match /
+│   │   │                 probe / answer / verdict / suggest / counter + run 编排
 │   │   ├── store/         node:sqlite 建表、迁移与仓储
 │   │   ├── http/          Hono 路由 + SSE + 静态托管
 │   │   ├── pipeline.ts    编排 → 落库 → 视图 的一体化入口
@@ -84,7 +84,7 @@ D:\CZB
 │   ├── repro/         干净目录复现预演
 │   └── docs/          Markdown → HTML → PDF 技术文档构建
 │
-├── fixtures/llm/      32 盘离线卡带（按提示词指纹寻址）
+├── fixtures/llm/      48 盘离线卡带（按提示词指纹寻址）
 ├── docs/              ADR / 技术文档 / 截图 / Prompt 链快照
 └── data/              运行时 SQLite（已 gitignore，含用户简历隐私）
 ```
@@ -211,7 +211,8 @@ withStageModels(inner, { verdict: 'deepseek-reasoner' })
 | --- | --- | --- |
 | 左：输入与过程 | 简历输入、岗位 JD（1–8 份）、节奏控制、运行模式、意图契约、阶段时间线、实时输出、统计 | 意图控制（契约可摊开） |
 | 中上：主张与追问 | 每条主张一张卡片：原文引文、追问链、作答、判定、改写建议 | 实用价值（结论定位到字） |
-| 中下：岗位要求对照 | 每条岗位要求一张卡片：要求正文、引文、「为什么这么判」、对应哪条主张 | 实用价值（岗位要求也落到字） |
+| 中中：岗位要求对照 | 每条岗位要求一张卡片：要求正文、引文、「为什么这么判」、对应哪条主张 | 实用价值（岗位要求也落到字） |
+| 中下：轮到你了 | 几句可以反问 HR 的话，每句带简历或 JD 原文依据，并写明回答是沙盘模拟的 | 实用价值（材料反着用一次） |
 | 右：简历原文 / 岗位要求原文 | 左右分屏，两边都能点引文聚焦到具体字符区间，用的是同一套聚焦机制 | 证据锚定（两处锚都看得见） |
 | 顶：状态条 | 模式、调用次数、回放次数、token、事件数、追问数 | 可复现性（回放可见） |
 
@@ -236,7 +237,7 @@ withStageModels(inner, { verdict: 'deepseek-reasoner' })
 | 迁移步骤冻结在自己时点，不引用当前 DDL | F24：v1→v2 若用当前 DDL，会一步建成 v3 表却把 user_version 写成 2 |
 | 库版本比代码新时拒绝启动 | 防止老代码写新库，把数据写坏 |
 
-当前 `SCHEMA_VERSION = 7`，表结构：
+当前 `SCHEMA_VERSION = 9`，表结构：
 
 ```
 session(id, createdAt, updatedAt, llmMode, jobTitle, jdText, resumeText,
@@ -254,9 +255,14 @@ requirement_match(session_id, requirement_id, claim_id, status, reason)
                                         PRIMARY KEY (session_id, requirement_id)
 interviewer(id, version, digest, source, domain, contract_json,
       created_at, updated_at)           PRIMARY KEY (id)
-revision(session_id, claim_id, ordinal, start, end, before, after, created_at)
+revision(session_id, ordinal, claim_id, start, end, before, after, created_at)
+                                        PRIMARY KEY (session_id, ordinal)
 revised_resume(session_id, text, digest, accepted_json, pending_json,
       skipped_json, created_at, updated_at)    PRIMARY KEY (session_id)
+supplement(session_id, claim_id, text, digest, created_at, updated_at)
+                                        PRIMARY KEY (session_id, claim_id)
+counter(session_id, id, ordinal, text, kind, reason, reply, source, jd_id,
+      quote, start, end, exact, created_at)    PRIMARY KEY (session_id, id)
 event(session_id, seq, kind, payload_json, createdAt)
 llm_call(id, session_id, digest, purpose, model, replayed, usage_json, elapsedMs, createdAt)
 ```
@@ -267,6 +273,10 @@ llm_call(id, session_id, digest, purpose, model, replayed, usage_json, elapsedMs
 
 复合主键（`session_id, id`）是 v2 迁移引入的。原因很具体：主张编号每场会话都从 `C1` 重新开始，
 全局唯一主键会让同进程第二场会话直接撞 `UNIQUE constraint failed: claim.id`。
+
+`revision` 的主键在 v8 从 `(session_id, claim_id)` 换成了 `(session_id, ordinal)`：P10 之后同一条主张可能同时落下两条改动——
+一条替换（改写建议）加一条零宽插入（用户补的那句真话），旧主键会让第二条把第一条覆盖掉。
+`counter`（反问）与 `supplement`（补充说明）都是 v9/v8 新增的表，前者整批替换、后者只存那句话本身。
 
 ## 3.6 HTTP 层：一个端口，两种响应
 
@@ -289,6 +299,8 @@ llm_call(id, session_id, digest, purpose, model, replayed, usage_json, elapsedMs
 | `GET /api/sessions/:id/report.md` | 下载 Markdown 报告 |
 | `GET /api/sessions/:id/report.html?print=1` | 可打印 HTML 报告（`print=1` 时自动调 `window.print()`，PDF 由浏览器另存） |
 | `GET /api/sessions/:id/report.doc` | Word 报告（同一份 HTML + `application/msword`） |
+| `POST /api/sessions/:id/supplements` | 记下某条主张的补充说明（一句真话）：只存那句话与指纹，**不存坐标**——插入点由主张的锚点现算 |
+| `DELETE /api/sessions/:id/supplements/:claimId` | 删掉这条补充说明（没记过返回 404） |
 | `GET /api/sessions/:id/revisions` | 当前采纳出来的那一版简历（没采纳过是 `null`） |
 | `POST /api/sessions/:id/revisions` | 确认采纳：body 里的 `claims` 是**本次勾选的全部主张**，不是增量 |
 | `DELETE /api/sessions/:id/revisions` | 撤销全部采纳，回到原文 |
@@ -396,7 +408,7 @@ HTML 报告不引用任何外部资源，保存单文件即可离线打开；页
 **一是一张要求清单**（`requirement` 表）。三段链路：`jd-extract` 逐份 JD 并发抽要求（每份一次调用，上限 12 条），
 `jd-merge` 一次把所有 JD 的要求归并（同一件事写在两份 JD 里算一条，`sources` 记来源），
 `jd-match` 一次把全部要求和全部主张摆在一起逐条对照，给出「答得上 / 答得含糊 / 简历里没写」。
-归并和对照各只调一次是权衡后的选择：卡带按提示词指纹寻址，逐条调用会把 32 盘演示卡带变成上百盘，
+归并和对照各只调一次是权衡后的选择：卡带按提示词指纹寻址，逐条调用会把 48 盘演示卡带变成上百盘，
 离线演示的成本与「提示词一改就全部失效」的风险都会失控。
 
 **二是追问的第二处锚点**。对「答得上」和「答得含糊」的要求，追问可以带一个 `requirementId`
@@ -419,6 +431,25 @@ HTML 报告不引用任何外部资源，保存单文件即可离线打开；页
 每条要求一张卡（要求正文、引文、「为什么这么判」、对应哪条主张），点引文右栏就聚焦到 JD 的那一段——
 和简历引文用的是同一套聚焦机制。取舍见 ADR-0012、决策 D43。
 
+### 3.6.10 追问深化：把同一场质询读出四种结论
+
+P10 的四项都在**同一份对话记录上换一个角度**：一律不新增判定口径，也一律从同一处算出来。
+
+- **按类别看短板**（`packages/shared/src/shortfall.ts`）。把每条主张的判定按类别聚合，先排欠得最多的类别，
+  再列出最该补的 3 处。排序与结论文案只在 shared 里写一次，Markdown 报告、可打印 HTML 与界面读同一份——
+  否则会出现「报告说最该补 C3、界面排第一的 C5」这种各算一遍的分裂（决策 D47）。
+- **追问强度三档**（温和 / 常规 / 挑刺）。只换预算（每主张 2/3/4 轮、每人每主张 1/2/2 次、全场 40/60/80 次），
+  **不换人设**：人设一改，两场之间的档案链就断了。档位随会话落库（`session.meta.difficulty`），
+  重开历史会话仍看得出这一场问得多狠。代价是契约指纹随档位变，所以卡带按三档各录了一份（ADR-0014、决策 D46）。
+- **补充说明**。用户可以在任何一条主张上手写一句真话，当作这条主张的新证据。它在数据上就是一次**零宽插入**
+  （`start === end`、`before` 为空串），复用采纳改写的同一条通道——不必为「加一行」再发明一种写操作。
+  它只落那句话本身、不落坐标，插入点由主张的锚点现算（坐标是原文的函数，存下来只会腐烂，见 ADR-0013）。
+- **轮到你了**。跑完给出几句用户可以**反问 HR** 的话，每句都必须把依据锚回简历原话或 JD 原文；锚不回的当场丢弃，
+  在「被丢掉」抽屉里写明理由。回答由沙盘里的求职者 Agent 代答，界面上写明「沙盘模拟，不是真 HR 在答」——
+  不然用户会把它当成真实面试答案背出去（ADR-0015）。
+
+四条链路共用一个前提：**结论必须能由输入唯一确定**，所以它们都是纯函数，也都能在零网络下由仓库里的卡带复现。
+
 ## 3.7 工程质量：门禁四道
 
 `npm run verify` 是提交前必须全绿的一道门，它由四件事组成：
@@ -426,39 +457,39 @@ HTML 报告不引用任何外部资源，保存单文件即可离线打开；页
 | 顺序 | 命令 | 证明什么 | 当前规模 |
 | --- | --- | --- | --- |
 | 1 | `npm run typecheck` | 类型对（`tsc --noEmit`，含各包） | 全仓库 |
-| 2 | `npm run test` | 逻辑对（vitest） | 49 个文件 / 520 条断言 / 5.0 s |
+| 2 | `npm run test` | 逻辑对（vitest） | 58 个文件 / 598 条断言 / 6.1 s |
 | 3 | `npm run smoke` | **产品能跑**（真起进程、真打 HTTP、真等 SSE） | 9 项 |
-| 4 | `npm run build` | 前端能构建 | vite，40 modules（JS 321.07 kB / gzip 99.64 kB） |
+| 4 | `npm run build` | 前端能构建 | vite，42 modules（JS 332.86 kB / gzip 102.80 kB） |
 
 第 3 道是`findings.md` F11 的直接产物：同进程的 `app.request()` 测试全绿，真起服务却第一次写入就报没有表。
-**单元测试证明的是「函数逻辑对」，冒烟证明的是「产品能跑」，这两句话之间隔着一个进程边界，而事故恰好长在边界上。**
+**单元测试证明「函数逻辑对」，冒烟证明「产品能跑」——两句话之间隔着一个进程边界，而事故恰好长在边界上。**
 
 除 verify 之外还有三个可选门禁，都做成了命令：
 
 | 命令 | 作用 | 什么时候跑 |
 | --- | --- | --- |
-| `npm run shots` | 无头浏览器点一遍全流程，出 19 张截图，**控制台有报错即失败** | 改了界面之后 |
+| `npm run shots` | 无头浏览器点一遍全流程，出 23 张截图，**控制台有报错即失败** | 改了界面之后 |
 | `npm run repro` | 干净目录 clone → install → verify → 起服跑一场，逐步计时 | 改复现路径之后 |
-| `npm run seed:demo` | 重新生成 32 盘离线卡带并自检 | 改了提示词之后 |
+| `npm run seed:demo` | 重新生成 48 盘离线卡带并自检 | 改了提示词之后 |
 
 ### 3.7.1 代码规模与测试密度
 
 | 模块 | 源码行 | 测试行 | 说明 |
 | --- | --- | --- | --- |
-| packages/shared/src | 3116 | 1074 | 纯函数与数据（含 36 条岗位模板），测试密度最高 |
-| packages/server/src | 8726 | 4703 | 编排 + IO + 导入解析 + 面试官库 + 岗位要求审阅 + 报告三种形态 + 采纳改写，含脚本化模型夹具 |
-| packages/web/src | 5587 | 1531 | 折叠器、文案、工作室、模板选择器、要求对照与采纳栏（只计 .ts/.tsx，index.css 另 321 行） |
-| tools/ | 3270 | 596 | 导出器 / 冒烟 / 截图 / 界面点测 / 复现 / 文档构建 / 零门槛启动器（只计 .mjs，测试目录另计） |
-| **合计** | **20699** | **7904** | 测试/源码 ≈ 0.38 |
+| packages/shared/src | 3725 | 1583 | 纯函数与数据（含 36 条岗位模板、短板聚合、补充说明、反问依据），测试密度最高 |
+| packages/server/src | 9730 | 5499 | 编排 + IO + 导入解析 + 面试官库 + 岗位要求 + 反问 + 报告三种形态 + 采纳改写，含脚本化模型夹具 |
+| packages/web/src | 6142 | 1733 | 折叠器、文案、工作室、模板选择器、要求对照、短板与反问栏（只计 .ts/.tsx，index.css 另 321 行） |
+| tools/ | 3475 | 596 | 导出器 / 冒烟 / 截图 / 界面点测 / 复现 / 文档构建 / 零门槛启动器（只计 .mjs，测试目录另计） |
+| **合计** | **23072** | **9411** | 测试/源码 ≈ 0.41 |
 
 ### 3.7.2 零门槛入口：双击就能用，判断逻辑可单测
 
 「十分钟复现」是给会敲命令的人写的；第 7 条要求**完全没用过命令行的人也能装起来**。实现是三个入口脚本
 （`启动.cmd` / `启动.sh` / `装个快捷方式.cmd`）+ 纯函数模块 `tools/launcher/src/plan.mjs`，**不打包成 exe**
 （打包要本地编译，且我这台机器打包成功不代表别人机器上双击不被拦住，见 ADR-0010）。`launch.mjs` 只碰文件与起进程，判断全在纯函数里——
-因为这类逻辑没法靠人肉点两遍验证：`launcherSteps({hasDependencies:false,hasWebBuild:false})` 必须是五步、全已装好必须只剩三步，
-一行断言守住（12 条测试，F46）。两个只有真跑才露出来的细节：快捷方式**没给图标就绝不写 `IconLocation`**（空串会让图标变白纸）、
-启动前先 `fetch('/api/health')` 探测（命中就复用，第二个实例不撞端口，F47）。实测首次约 20 秒、之后约 2 秒。
+因为这类逻辑没法靠人肉点两遍验证：`launcherSteps({hasDependencies:false,hasWebBuild:false})` 必须是五步、全装好只剩三步（12 条测试，F46）。
+两个只有真跑才露出来的细节：快捷方式**没给图标就绝不写 `IconLocation`**（空串会让图标变白纸）；
+启动前先探测 `/api/health`（命中就复用，第二个实例不撞端口，F47）。实测首次约 20 秒、之后约 2 秒。
 仓库里 **0 个 TODO / FIXME / HACK、0 处 `as any`、0 处 `@ts-ignore`**（全仓库 grep 实测）。
 console.log 只出现在两个 CLI 入口（serve.ts 与 seed-demo.ts）。
 
@@ -467,5 +498,4 @@ console.log 只出现在两个 CLI 入口（serve.ts 与 seed-demo.ts）。
 - 服务端零构建是整条复现路径的地基，它成立的前提是被实测验证过的，不是查文档查来的。
 - 模块按依赖方向切：shared 无 IO、server 不知前端、web 不引 shared（用测试守漂移）。
 - LLM 适配层一个接口三种实现，卡带用提示词指纹寻址，缺卡带时响亮报错而不是静默降级。
-- 直播与历史共用同一个折叠器，保证「刷新后看到的和刚才看到的是同一场」。
-- 门禁四道，其中真进程冒烟是不可替代的那一道。
+- 直播与历史共用同一个折叠器，保证「刷新后看到的和刚才看到的是同一场」；门禁四道里真进程冒烟不可替代。
