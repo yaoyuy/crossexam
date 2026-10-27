@@ -685,7 +685,7 @@ export function createApp(opts: AppOptions): Hono {
     const id = c.req.param('id');
     const view = assembleSession(db, id);
     if (view === null) return c.json({ error: '会话不存在' }, 404);
-    return c.body(renderReport(view), 200, {
+    return c.body(renderReport(view, revisedOf(db, id)?.applied ?? []), 200, {
       'content-type': 'text/markdown; charset=utf-8',
       'content-disposition': 'attachment; filename="' + reportFileName(view) + '"',
     });
@@ -697,10 +697,11 @@ export function createApp(opts: AppOptions): Hono {
    * 服务端刻意不自己生成 PDF：那需要带上一个无头浏览器，会把「10 分钟复现」变成赌本机装了什么。
    */
   app.get('/api/sessions/:id/report.html', (c) => {
-    const view = assembleSession(db, c.req.param('id'));
+    const id = c.req.param('id');
+    const view = assembleSession(db, id);
     if (view === null) return c.json({ error: '会话不存在' }, 404);
     const print = c.req.query('print') === '1';
-    return c.body(renderReportHtml(view, { print }), 200, {
+    return c.body(renderReportHtml(view, { print, applied: revisedOf(db, id)?.applied ?? [] }), 200, {
       'content-type': 'text/html; charset=utf-8',
       'content-disposition': 'inline; filename="' + reportHtmlFileName(view) + '"',
     });
@@ -708,9 +709,10 @@ export function createApp(opts: AppOptions): Hono {
 
   /** Word（.doc）导出：同一份 HTML，换成 Word 认识的类型与附件名 */
   app.get('/api/sessions/:id/report.doc', (c) => {
-    const view = assembleSession(db, c.req.param('id'));
+    const id = c.req.param('id');
+    const view = assembleSession(db, id);
     if (view === null) return c.json({ error: '会话不存在' }, 404);
-    return c.body(renderReportHtml(view), 200, {
+    return c.body(renderReportHtml(view, { applied: revisedOf(db, id)?.applied ?? [] }), 200, {
       'content-type': 'application/msword; charset=utf-8',
       'content-disposition': 'attachment; filename="' + reportDocFileName(view) + '"',
     });
