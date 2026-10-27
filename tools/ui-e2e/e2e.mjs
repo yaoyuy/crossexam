@@ -735,6 +735,24 @@ check('删掉补充说明再撤销之后，库与界面都回到没有改动的�
   supDeleted.length > 0 && backToOriginal.length > 0 && settled.supplements.length === 0 && settledRev === null,
   String(settled.supplements.length) + ' 句补充说明 / revised ' + String(settledRev));
 
+// C1：改完再跑一遍。这一步走完整链路——采纳改写、点按钮、新开一场、比上次出结论。
+// 只验页面元素存不存在是不够的：这个功能的价值全在「判定真的变了」这句话上，
+// 所以断言落在「比上次」那一栏的实际文字上，而且要求它说出 1 → 5。
+await evalJs('document.querySelector("[data-shot=revision-accept-all]").click()');
+await sleep(250);
+await evalJs('document.querySelector("[data-shot=revision-submit]").click()');
+const rerunNote = await waitFor(async () => { const t = await textOf('revision-note'); return t.indexOf('已按这次勾选改好简历') >= 0 ? t : ''; }, '采纳完成', 20000);
+check('再跑一遍之前先把改写真的采纳了', rerunNote.length > 0, rerunNote.slice(0, 60));
+const preRerunSessions = (await sessions()).length;
+await clickShot('revision-rerun');
+const compareAfter = await waitFor(async () => { const t = await textOf('compare'); return t.indexOf('变好') >= 0 ? t : ''; }, '比上次出结论', 40000);
+check('点「改完再跑一遍」会新开一场并当场比出结论',
+  compareAfter.indexOf('变好 4 条') >= 0 && compareAfter.indexOf('站得住 1 → 5 条') >= 0,
+  compareAfter.replace(/\n/g, ' / ').slice(0, 100));
+const postRerunSessions = (await sessions()).length;
+check('这一场是新的一场，不是把上一场覆盖掉', postRerunSessions === preRerunSessions + 1, String(preRerunSessions) + ' → ' + String(postRerunSessions));
+const rerunCards = await countCards();
+check('新一场的判定全变成了站得住', rerunCards === 5 && compareAfter.indexOf('变差') < 0, String(rerunCards) + ' 张卡 / 变差 0 条');
 const contractBadge = await evalJs('(() => { const b = document.querySelector(String.fromCharCode(91) + "data-shot=" + String.fromCharCode(34) + "contract-toggle" + String.fromCharCode(34) + String.fromCharCode(93) + ""); b.click(); return b.textContent; })()');
 const badgeText = await waitFor(async () => { const t = await bodyText(); return t.indexOf('与运行时一致') >= 0 ? t : ''; }, '契约对账徽章', 8000);
 check('跑完后契约能与运行时对账', badgeText.indexOf('与运行时一致') >= 0, String(contractBadge).slice(0, 30));
