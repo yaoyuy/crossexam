@@ -218,6 +218,12 @@ export function persistResult(db: Db, sessionId: string, result: RunSessionResul
   for (const suggestion of result.suggestions) suggestionByClaim.set(suggestion.claimId, suggestion);
 
 
+  // meta 是**一张表**，装着两类字段：输入侧（source / model / jdDigests / difficulty）
+  // 与产物侧（panel / rounds / usage / contracts）。而 saveSessionMeta 是整段替换，
+  // 直接写产物侧会把输入侧吃掉——跑完之后 session.meta.model 就没了，
+  // 半截会话重跑时读不到当初选的模型，报告也说不清这一场是什么档问的。
+  const previousMeta = getSession(db, sessionId)?.meta ?? {};
+
   withTransaction(db, () => {
     insertClaims(db, sessionId, result.claims);
     for (const probe of result.probes) insertProbe(db, sessionId, probe);
@@ -243,6 +249,7 @@ export function persistResult(db: Db, sessionId: string, result: RunSessionResul
 
     saveSessionBudget(db, sessionId, result.budgetState);
     saveSessionMeta(db, sessionId, {
+      ...previousMeta,
       panel: result.panel,
       // 自定义面试官的契约全文一起留档：它不在代码里，重算不出来
       custom: result.contracts.filter((c) => c.persona.role === 'custom'),
