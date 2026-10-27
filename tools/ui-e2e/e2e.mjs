@@ -205,6 +205,12 @@ async function waitFor(fn, label, timeoutMs) {
 async function waitText(part, timeoutMs) {
   return waitFor(async () => { const t = await bodyText(); return t.indexOf(part) >= 0 ? t : ''; }, '文字 ' + part, timeoutMs);
 }
+// 把锚点换算成界面上的「第 12–28 字」：口径与 packages/web/src/highlight.ts:102 的 describeRange 一致，
+// 断言里就不要再手写数字了（数字一改，测试跟着错）。
+function describeRangeOf(claim) {
+  if (claim === undefined || claim === null || claim.anchor === null || claim.anchor === undefined) return "";
+  return "第 " + String(claim.anchor.start + 1) + "\u2013" + String(claim.anchor.end) + " 字";
+}
 async function shot(name) {
   const r = await send('Page.captureScreenshot', { format: 'png' });
   writeFileSync(join(OUT, name), Buffer.from(r.data, 'base64'));
@@ -481,6 +487,35 @@ const wantRange = '第 ' + String(firstReq.anchor.start + 1) + '\u2013' + String
 check('点要求能跳到 JD 原文那一段并把它标出来',
   quoteClicked === 'ok' && jdFocused.indexOf(wantRange) >= 0 && String(jdMarkText).split(/\s+/).join('') === String(firstReq.anchor.quote).split(/\s+/).join(''),
   wantRange + ' / ' + String(jdMarkText).length + ' 字');
+
+// P10 · A3：按类别看短板。同一份判定的另一种摆法——界面要能直接读出结论与最该补的几处，
+// 而且条数必须与服务端算出来的一致（报告与界面共用 shared/shortfall.ts，不许各排一遍）。
+const shortfallPane = await evalJs('(() => { const el = document.querySelector("[data-shot=shortfall]"); return el === null ? "" : el.innerText; })()');
+check('过程面板多出「按类别看短板」并给出结论',
+  shortfallPane.indexOf('按类别看短板') >= 0 && shortfallPane.indexOf('欠证据') >= 0,
+  shortfallPane.split('\n').join(' / ').slice(0, 80));
+const shortfallCats = await evalJs('document.querySelectorAll("[data-shot^=shortfall-cat-]").length');
+const judgedCats = new Set(view.claims.filter((claim) => claim.verdict !== null).map((claim) => claim.category)).size;
+check('按类别分组，组数等于判定过的类别数',
+  shortfallCats === judgedCats,
+  String(shortfallCats) + ' 组 / 服务端 ' + String(judgedCats) + ' 个类别');
+const weakClaims = view.claims.filter((claim) => claim.verdict !== null && claim.verdict !== 'solid');
+const weakButtons = await evalJs('Array.from(document.querySelectorAll("[data-shot]")).filter((e) => /^shortfall-C[0-9]+$/.test(String(e.getAttribute("data-shot")))).length');
+check('最该补的名单条数等于服务端算出的短板数（上限 3）',
+  weakClaims.length > 0 && weakButtons === Math.min(weakClaims.length, 3),
+  String(weakButtons) + ' 条 / 服务端 ' + String(weakClaims.length) + ' 条短板');
+// 名单只有前 3 条，服务端顺序里的第一条短板未必在榜上（它可能正是被上限挡掉的那条）——
+// 所以要先从页面上取一个真实存在的按钮，再据此查回主张与它应该聚焦的区间。
+const firstWeakShot = await evalJs('(() => { const b = Array.from(document.querySelectorAll("[data-shot]")).find((e) => /^shortfall-C[0-9]+$/.test(String(e.getAttribute("data-shot")))); return b === null ? "" : String(b.getAttribute("data-shot")); })()');
+const firstWeak = view.claims.filter((claim) => 'shortfall-' + claim.id === firstWeakShot)[0];
+const weakRange = describeRangeOf(firstWeak);
+check('名单上的第一条能在主张里找回原文区间', firstWeak !== undefined && weakRange.length > 0, firstWeakShot + ' → ' + weakRange);
+const clickWeak = '(() => { const b = document.querySelector("[data-shot=' + firstWeakShot + ']"); if (b !== null) b.click(); })()';
+await evalJs(clickWeak);
+const resumeFocused = await waitFor(async () => { const t = await evalJs('document.querySelector("[data-shot=resume]").innerText'); return t.indexOf('聚焦') >= 0 ? t : ''; }, '简历聚焦到短板主张', 8000);
+check('点短板名单里的主张，右栏简历跳到它的原文位置',
+  resumeFocused.indexOf('聚焦') >= 0 && resumeFocused.indexOf(weakRange) >= 0,
+  resumeFocused.split('\n').slice(0, 2).join(' / ').slice(0, 70));
 
 
 // 第 8 项：勾选 → 确认采纳 → 简历被真的改掉 → 导出三件套 → 全部撤销退回原文。
