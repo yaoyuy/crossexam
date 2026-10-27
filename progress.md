@@ -1271,3 +1271,32 @@ C2 要在历史栏顶上加一句话结论，并把「哪些类别总被打回�
 `66020f0` 点测对账 · 后续 `docs` 一个提交（ADR-0019 + F69/F70 + D55 + 数字同步 + 技术文档重出）。
 
 **下一步**：P11 的 C3 单文件 HTML 打包。
+## Session 32（2026-10-27）· P11 C3：单文件 HTML 打包
+
+**目标**：整场能打成一个文件发出去，收件人断网双击也能看。
+
+- [x] `packages/server/src/bundle.ts`：`renderBundleHtml(view, {applied, compare, events})` + `bundleFileName`
+- [x] 报告正文不重写，直接嵌 `renderReportHtml` 的输出；后接「附一、简历原文（含本版改动）」与「附二、这一场是怎么跑出来的」
+- [x] `report-html.ts` 把 `STYLE` 与 `esc` 改为 export，两处共用同一套样式与转义
+- [x] `GET /api/sessions/:id/bundle.html`，`content-disposition: attachment`
+- [x] 界面头部第四颗按钮「打包分享」（`data-shot="bundle-html"`）
+- [x] `packages/server/test/bundle.test.ts` 6 条 + e2e 4 条（真下载一次，检查里面没有外链）
+- [x] ADR-0020 / F71 / F72 / D56 / 技术文档 3.6.14 / README / roadmap / 数字同步 / 截图 / PDF 重出
+
+**关键判断**
+
+- 单文件导出真正的敌人是外链，不是排版（F71）：收件人断网就白屏，而发件人永远看不见，
+  所以把「输出里不许出现 `http://` / `https://`」写成断言，而不是写成文档里的一句话。
+- 复用渲染器 ≠ 复用调用方的副作用（F72）：打包函数第一版去读 `view.session.revisedText`——
+  一个不存在的字段，typecheck 当场报错；改成在内部 `applyRevisions` + `movedSpans` 重算，
+  就回到「输入 `SessionView` + `applied`、输出一个字符串」的纯渲染位置。
+- 时间线只摆八类关键事件，并把阶段键名翻成中文；`answers` 与 `budget` 不单列——它们的后果已经在追问与判定里。
+
+**门禁与实测**：`npm run verify` exit 0（**67 个测试文件 / 691 条断言** + 冒烟 9 项 + 构建）；
+`npm run e2e:ui` **140/140** 且控制台 0 报错；`npm run shots` 24 张重出；
+技术文档 PDF **29 页 / 2071 KB**（上限 30 页）；示例场次打包 24 KB、http(s) 出现 0 处。
+
+**提交**：`ea1051b` 打包函数与路由 · `869fb4e` 界面按钮 · `766e7c0` 点测下载与无外链 ·
+`2761ae8` 时间线翻成人话 · 后续 `docs` 一个提交（ADR-0020 + F71/F72 + D56 + 3.6.14 + 数字同步 + 截图 + PDF）。
+
+**下一步**：P12 成长档案（同一份简历跨场次的能力曲线）与一岗一版简历。
