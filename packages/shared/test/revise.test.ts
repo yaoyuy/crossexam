@@ -55,7 +55,8 @@ describe('采纳改写：只认原文区间', () => {
   it('区间越界、空改写、非整数位置一律拒绝', () => {
     const cases: Revision[] = [
       { claimId: 'X1', start: 0, end: RESUME.length + 5, before: 'x', after: 'y' },
-      { claimId: 'X2', start: 3, end: 3, before: '', after: 'y' },
+      // 零宽区间只有在「改前为空串」时才算插入；这里改前非空，仍然拒绝
+      { claimId: 'X2', start: 3, end: 3, before: 'x', after: 'y' },
       { claimId: 'X3', start: 0, end: 4, before: RESUME.slice(0, 4), after: '' },
       { claimId: 'X4', start: 1.5, end: 4, before: 'x', after: 'y' },
     ];
@@ -63,6 +64,22 @@ describe('采纳改写：只认原文区间', () => {
     expect(result.applied).toEqual([]);
     expect(result.text).toBe(RESUME);
     expect(result.skipped.map((item) => item.claimId)).toEqual(['X1', 'X2', 'X3', 'X4']);
+  });
+
+  it('插入型不覆盖原文，也不挡住落在同一位置上的替换', () => {
+    const quote = '学习能力强，抗压能力强。';
+    const at = RESUME.indexOf(quote);
+    const insert: Revision = { claimId: 'C1', start: at, end: at, before: '', after: '日订单 30 万，峰值 QPS 5000。\n' };
+    const replace: Revision = { claimId: 'C1', start: at, end: at + quote.length, before: quote, after: '在 3 个线上故障里担任值班主力。' };
+    const result = applyRevisions(RESUME, [insert, replace]);
+    // 两条都落地：凭空插入的一行 + 同一位置上被改写的原句
+    expect(result.applied).toHaveLength(2);
+    expect(result.skipped).toEqual([]);
+    expect(result.text).toContain('日订单 30 万，峰值 QPS 5000。');
+    expect(result.text).toContain('担任值班主力');
+    expect(result.text).not.toContain(quote);
+    // 原文只多了一行，没有别的位置被挪动
+    expect(result.text.split('\n').length).toBe(RESUME.split('\n').length + 1);
   });
 
   it('「改前」展示的永远是原文逐字内容，不是模型给的那份', () => {

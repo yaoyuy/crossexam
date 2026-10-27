@@ -11,13 +11,20 @@
  * 3. **倒序应用。** 一条建议改完，它后面的所有字符位置都会平移。从后往前改，
  *    前面的区间就不用重算；同时用一个右边界护栏挡住区间重叠的两条建议，
  *    保证结果与「先改哪条」无关。
+ * 4. **插入是区间的特例，不是第二种操作。** 补充说明（用户当场补的那句真话）用
+ *    start === end、before 为空串表达，于是重叠判定、位移重算、导出高亮
+ *    全都只维护一套实现。
  */
 
 import type { Suggestion } from './domain.ts';
 import { normalizeWithMap } from './anchor.ts';
 import { shortHash } from './util.ts';
 
-/** 一条被采纳的改写：区间是**原文**里的位置，before 是原文该区间的逐字内容 */
+/**
+ * 一条被采纳的改写：区间是**原文**里的位置，before 是原文该区间的逐字内容。
+ *
+ * 插入型（补充说明）用 start === end 表达：改前是空串，改后是要新加的那一行。
+ */
 export interface Revision {
   claimId: string;
   start: number;
@@ -103,7 +110,15 @@ export function applyRevisions(resumeText: string, revisions: readonly Revision[
       skips.push({ index: entry.index, skip: { claimId: item.claimId, reason } });
     };
 
-    if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end > resumeText.length || end <= start) {
+    // 插入型：区间长度为零、改前为空串，是合法的（补充说明就是这么进来的）。
+    const insertion = start === end && item.before.length === 0;
+    if (
+      !Number.isInteger(start) ||
+      !Number.isInteger(end) ||
+      start < 0 ||
+      end > resumeText.length ||
+      (insertion ? false : end <= start)
+    ) {
       skip('改写区间不在简历正文范围内');
       continue;
     }
@@ -127,7 +142,9 @@ export function applyRevisions(resumeText: string, revisions: readonly Revision[
     // before 一律取原文该区间的逐字内容：模型给的 before 可能少个空格，
     // 展示时要用原文，否则「改前」那一行会让人以为简历里真有那句。
     applied.push({ claimId: item.claimId, start, end, before: resumeText.slice(start, end), after: item.after });
-    lastEnd = end;
+    // 插入型不推进最右边界：它没有覆盖原文，
+    // 落在同一个位置上的替换型改写不算与它重叠，两条都该落地。
+    if (!insertion) lastEnd = end;
     delta += item.after.length - (end - start);
   }
 
