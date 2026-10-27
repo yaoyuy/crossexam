@@ -2,12 +2,24 @@ import { describe, expect, it } from 'vitest';
 import { PERSONA_PRESETS } from '@crossexam/shared/contract.ts';
 import {
   CLAIM_CATEGORY_LABEL as SHARED_CATEGORY_LABEL,
+  COUNTER_KIND_LABEL as SHARED_COUNTER_KIND_LABEL,
+  COUNTER_SOURCE_LABEL as SHARED_COUNTER_SOURCE_LABEL,
   VERDICT_LABEL as SHARED_VERDICT_LABEL,
 } from '@crossexam/shared/domain.ts';
-import type { ClaimCategory, InterviewerRole, VerdictKind, MatchStatus, RequirementKind } from '@crossexam/shared/domain.ts';
+import type {
+  ClaimCategory,
+  CounterKind,
+  CounterSource,
+  InterviewerRole,
+  MatchStatus,
+  RequirementKind,
+  VerdictKind,
+} from '@crossexam/shared/domain.ts';
 import {
   CLAIM_CATEGORY_LABEL,
   CLAIM_CATEGORY_ORDER,
+  COUNTER_KIND_LABEL,
+  COUNTER_SOURCE_LABEL,
   MATCH_LABEL,
   MATCH_TONE,
   PERSONA_BLURB,
@@ -26,7 +38,9 @@ const VERDICT_KINDS: VerdictKind[] = ['solid', 'overstated', 'unsupported', 'con
 const CATEGORIES: ClaimCategory[] = ['skill', 'experience', 'achievement', 'metric', 'ownership', 'timeline', 'other'];
 const ROLES: InterviewerRole[] = ['tech', 'hr', 'hiring_manager', 'stress', 'domain_expert'];
 /** 与服务端 orchestrator/prompts.ts 的 StageName 同一份清单：漏一个阶段界面上就没名字 */
-const STAGES = ['extract', 'jd-extract', 'jd-merge', 'jd-match', 'probe', 'answer', 'verdict', 'suggest'];
+const STAGES = ['extract', 'jd-extract', 'jd-merge', 'jd-match', 'probe', 'answer', 'verdict', 'suggest', 'counter'];
+const COUNTER_KINDS: CounterKind[] = ['team', 'tech', 'growth', 'business', 'process'];
+const COUNTER_SOURCES: CounterSource[] = ['jd', 'resume'];
 const MATCH_STATUSES: MatchStatus[] = ['hit', 'weak', 'missing'];
 const REQUIREMENT_KINDS: RequirementKind[] = ['must', 'plus', 'duty'];
 
@@ -74,7 +88,7 @@ describe('界面文案不漂移', () => {
     expect(VERDICT_CRITERIA.unsupported.rule).toContain('证据');
   });
 
-  it('八个阶段与会话状态都有中文名，且不多不少', () => {
+  it('九个阶段与会话状态都有中文名，且不多不少', () => {
     for (const stage of STAGES) {
       expect((STAGE_LABEL[stage] ?? '').length).toBeGreaterThan(0);
       expect((STAGE_HINT[stage] ?? '').length).toBeGreaterThan(0);
@@ -101,5 +115,18 @@ describe('界面文案不漂移', () => {
       expect((REQUIREMENT_KIND_LABEL[kind] ?? '').length).toBeGreaterThan(0);
     }
     expect(REQUIREMENT_KIND_LABEL.must).toBe('硬性要求');
+  });
+
+  it('反问的五个类别与两种依据都有中文名，且直接复用领域层那一份', () => {
+    expect(COUNTER_KIND_LABEL).toBe(SHARED_COUNTER_KIND_LABEL);
+    expect(COUNTER_SOURCE_LABEL).toBe(SHARED_COUNTER_SOURCE_LABEL);
+    for (const kind of COUNTER_KINDS) {
+      expect((COUNTER_KIND_LABEL[kind] ?? '').length).toBeGreaterThan(0);
+    }
+    for (const source of COUNTER_SOURCES) {
+      expect((COUNTER_SOURCE_LABEL[source] ?? '').length).toBeGreaterThan(0);
+    }
+    expect(COUNTER_SOURCE_LABEL.jd).toBe('依据岗位要求');
+    expect(COUNTER_SOURCE_LABEL.resume).toBe('依据简历原话');
   });
 });

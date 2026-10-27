@@ -136,6 +136,7 @@ const SUMMARY: RunSummary = {
   verdicts: [verdictOf('C1', 'unanswerable').verdict],
   suggestions: 1,
   rejectedClaims: 1,
+  counters: 0,
   notices: ['服务端的权威提示', '第 2 轮没有任何新的追问，质询到此结束'],
   usage: { inputTokens: 10, outputTokens: 20, cacheReadTokens: 0, reasoningTokens: 0 },
 };
