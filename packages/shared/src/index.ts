@@ -9,6 +9,7 @@ export * from './interviewer.ts';
 export * from './requirements.ts';
 export * from './shortfall.ts';
 export * from './revise.ts';
+export * from './supplement.ts';
 export * from './templates.ts';
 export * from './schemas.ts';
 export * from './util.ts';
