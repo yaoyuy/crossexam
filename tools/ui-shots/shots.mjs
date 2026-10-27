@@ -439,6 +439,14 @@ async function main() {
     await cdp.waitFor("(document.querySelector('[data-shot=\"revision-note\"]')?.innerText ?? '').includes('已按这次勾选改好简历')", '采纳结论', 20000);
     await sleep(300);
     await cdp.shot(opts.out, '17-adopt.png', "document.querySelector('[data-shot=\"revisions\"]').scrollIntoView({ block: 'nearest' })");
+    // B2：并排看改动。点开对照表，把「原文 / 改后」两列连同上下文一起拍下来——
+    // 这一张证明的不只是「有这一节」，而是改动落在简历的什么位置看得见。
+    await cdp.evaluate(click('revision-diff-toggle'));
+    await cdp.waitFor("document.querySelector('[data-shot=\"revision-diff\"]') !== null", '并排对照展开', 8000);
+    await sleep(300);
+    await cdp.shot(opts.out, '24-diff.png', "document.querySelector('[data-shot=\"revision-diff\"]').scrollIntoView({ block: 'center' })");
+    await cdp.evaluate(click('revision-diff-toggle'));
+    await sleep(150);
     // 拍完退回原文：后面几张拍的是「刚跑完一场」的状态，不该带着一版改过的简历。
     await cdp.evaluate(click('revision-discard'));
     await cdp.waitFor("(document.querySelector('[data-shot=\"revision-note\"]')?.innerText ?? '').includes('已撤销全部采纳')", '撤销结论', 20000);
