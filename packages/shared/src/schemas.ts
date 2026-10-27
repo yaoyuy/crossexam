@@ -6,7 +6,7 @@
  */
 
 import { z } from 'zod';
-import type { ClaimCategory, MatchStatus, RequirementKind, VerdictKind } from './domain.ts';
+import type { ClaimCategory, CounterKind, MatchStatus, RequirementKind, VerdictKind } from './domain.ts';
 
 export const CLAIM_CATEGORY_VALUES = [
   'skill',
@@ -30,6 +30,8 @@ export const REQUIREMENT_KIND_VALUES = ['must', 'plus', 'duty'] as const;
 
 export const MATCH_STATUS_VALUES = ['hit', 'weak', 'missing'] as const;
 
+export const COUNTER_KIND_VALUES = ['team', 'tech', 'growth', 'business', 'process'] as const;
+
 type Expect<T extends true> = T;
 /** 编译期断言：下面的枚举必须与 domain.ts 的联合类型逐字一致，改一边忘了另一边会直接编译失败 */
 export type SchemaMatchesDomain = [
@@ -45,6 +47,12 @@ export type SchemaMatchesRequirements = [
   Expect<(typeof REQUIREMENT_KIND_VALUES)[number] extends RequirementKind ? true : false>,
   Expect<MatchStatus extends (typeof MATCH_STATUS_VALUES)[number] ? true : false>,
   Expect<(typeof MATCH_STATUS_VALUES)[number] extends MatchStatus ? true : false>,
+];
+
+/** 同上：反问的五类取向也必须与 domain.ts 逐字一致 */
+export type SchemaMatchesCounters = [
+  Expect<CounterKind extends (typeof COUNTER_KIND_VALUES)[number] ? true : false>,
+  Expect<(typeof COUNTER_KIND_VALUES)[number] extends CounterKind ? true : false>,
 ];
 
 /** 模型给出的锚点候选。start/end 允许给，但我们不会信——见 anchor.ts 的 resolveAnchor */
@@ -166,6 +174,25 @@ export const jdMatchListSchema = z.object({
   matches: z.array(jdMatchDraftSchema).max(40),
 });
 
+/**
+ * 反问环节的一条草稿。
+ * sourceId 是「这句反问的依据出自哪儿」：简历主张编号（C1）或 JD 编号（J1）。
+ * 指不出依据的当场丢弃——与追问同一个口径，见 counters.ts。
+ */
+export const counterDraftSchema = z.object({
+  text: z.string().min(4).max(200),
+  kind: z.enum(COUNTER_KIND_VALUES),
+  reason: z.string().min(4).max(300),
+  reply: z.string().min(2).max(400),
+  /** 依据原文的逐字片段，代码拿它回原文重新定位，不信模型给的坐标 */
+  quote: z.string().min(4).max(400),
+  sourceId: z.string().min(1).max(24),
+});
+
+export const counterListSchema = z.object({
+  counters: z.array(counterDraftSchema).max(10),
+});
+
 export type ClaimDraft = z.infer<typeof claimDraftSchema>;
 export type ClaimList = z.infer<typeof claimListSchema>;
 export type ProbeDraft = z.infer<typeof probeDraftSchema>;
@@ -181,6 +208,8 @@ export type JdGroupDraft = z.infer<typeof jdGroupDraftSchema>;
 export type JdGroupList = z.infer<typeof jdGroupListSchema>;
 export type JdMatchDraft = z.infer<typeof jdMatchDraftSchema>;
 export type JdMatchList = z.infer<typeof jdMatchListSchema>;
+export type CounterDraft = z.infer<typeof counterDraftSchema>;
+export type CounterList = z.infer<typeof counterListSchema>;
 
 /** 把 zod 的错误压成一行能写进日志的中文说明 */
 export function formatIssues(error: z.ZodError): string {
