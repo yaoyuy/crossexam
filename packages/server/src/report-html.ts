@@ -9,8 +9,8 @@
  * 事实只有一个来源；多写一个薄呈现层，好过让服务端去依赖一个工具目录。
  */
 
-import { CLAIM_CATEGORY_LABEL, COUNTER_KIND_LABEL, COUNTER_SOURCE_LABEL, MATCH_LABEL, PERSONA_PRESETS, REQUIREMENT_KIND_LABEL, VERDICT_LABEL, categoryLine, shortfallPlan } from '@crossexam/shared';
-import type { Anchor, Verdict, VerdictKind } from '@crossexam/shared';
+import { CLAIM_CATEGORY_LABEL, COUNTER_KIND_LABEL, COUNTER_SOURCE_LABEL, MATCH_LABEL, PERSONA_PRESETS, REQUIREMENT_KIND_LABEL, VERDICT_LABEL, categoryLine, shortfallPlan, sideBySide } from '@crossexam/shared';
+import type { Anchor, Revision, Verdict, VerdictKind } from '@crossexam/shared';
 import type { ProbeRow } from './store/index.ts';
 import type { SessionView } from './pipeline.ts';
 
@@ -62,6 +62,11 @@ const STYLE = [
   '.answer { background: #f9fafb; border-radius: 6px; padding: 6px 10px; margin-top: 5px; font-size: 13px; white-space: pre-wrap; }',
   '.advice { border: 1px solid #fed7aa; background: #fff7ed; border-radius: 8px; padding: 12px 14px; margin: 10px 0 16px; break-inside: avoid; }',
   '.req { border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px 14px; margin: 10px 0 16px; break-inside: avoid; }',
+  '.side { width: 100%; border-collapse: collapse; margin: 8px 0 18px; font-size: 12.5px; }',
+  '.side th, .side td { border: 1px solid #e5e7eb; padding: 5px 7px; vertical-align: top; text-align: left; }',
+  '.side tr.same td { color: #6b7280; }',
+  '.side td.before { background: #fef2f2; color: #7f1d1d; }',
+  '.side td.after { background: #f0fdf4; color: #14532d; }',
   '.before { color: #9ca3af; text-decoration: line-through; }',
   '.after { color: #047857; font-weight: 600; }',
   '.notice { background: #f3f4f6; border-radius: 6px; padding: 8px 12px; font-size: 12.5px; }',
@@ -401,10 +406,25 @@ function adviceSection(view: SessionView): string[] {
   return out;
 }
 
-function reproSection(view: SessionView): string[] {
+function sideSection(view: SessionView, applied: readonly Revision[]): string[] {
+  if (applied.length === 0) return [];
+  const out: string[] = ['<h2>六、改前改后对照（本版采纳了 ' + String(applied.length) + ' 处改写）</h2>'];
+  out.push('<p class="tagline">左边是简历原文里的那一段，右边是改完后的那一段。「上下文」行两侧相同，用来看清改动落在什么位置。</p>');
+  out.push('<table class="side">');
+  out.push('<thead><tr><th>条目</th><th>原文</th><th>改后</th></tr></thead><tbody>');
+  for (const row of sideBySide(view.session.resumeText, applied)) {
+    const label = row.kind === 'same' ? '上下文' : row.claimId === null ? '改动' : row.claimId;
+    const cls = row.kind === 'same' ? 'same' : 'changed';
+    out.push('<tr class="' + cls + '"><td>' + esc(label) + '</td><td class="before">' + (row.left === '' ? '（新增一行）' : esc(row.left)) + '</td><td class="after">' + esc(row.right) + '</td></tr>');
+  }
+  out.push('</tbody></table>');
+  return out;
+}
+
+function reproSection(view: SessionView, hasSide: boolean): string[] {
   const s = view.session;
   return [
-    '<h2>六、复现方式</h2>',
+    '<h2>' + (hasSide ? '七' : '六') + '、复现方式</h2>',
     '<ul class="facts">',
     '<li>本次跑法：' + esc(s.llmMode) + '</li>',
     '<li>事件条数：' + String(view.events.length) + '（全部落本地 SQLite，可按 seq 重放）</li>',
@@ -417,6 +437,8 @@ function reproSection(view: SessionView): string[] {
 export interface ReportHtmlOptions {
   /** 打开就调起浏览器打印（另存为 PDF 一步到位），默认 false */
   print?: boolean;
+  /** 已采纳的改写：给了才有「改前改后对照」这一节，没给就整段不出现 */
+  applied?: readonly Revision[];
 }
 
 export function renderReportHtml(view: SessionView, options: ReportHtmlOptions = {}): string {
@@ -441,7 +463,8 @@ export function renderReportHtml(view: SessionView, options: ReportHtmlOptions =
   for (const block of transcriptSection(view)) out.push(block);
   for (const block of counterSection(view)) out.push(block);
   for (const block of adviceSection(view)) out.push(block);
-  for (const block of reproSection(view)) out.push(block);
+  for (const block of sideSection(view, options.applied ?? [])) out.push(block);
+  for (const block of reproSection(view, (options.applied ?? []).length > 0)) out.push(block);
   out.push('<div class="footer">本报告由本地服务生成（简历与报告都没有离开这台机器）。报告是事实的转述：结论只来自数据库里的事件与判定，不做润色、不补写。</div>');
   out.push('</div>');
   if (options.print === true) {

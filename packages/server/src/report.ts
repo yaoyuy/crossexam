@@ -8,8 +8,8 @@
  * 所以它只读数据库里的事实，不做任何润色或补写。
  */
 
-import { CLAIM_CATEGORY_LABEL, COUNTER_KIND_LABEL, COUNTER_SOURCE_LABEL, MATCH_LABEL, PERSONA_PRESETS, REQUIREMENT_KIND_LABEL, VERDICT_LABEL, categoryLine, shortfallPlan } from '@crossexam/shared';
-import type { Anchor, Verdict, VerdictKind } from '@crossexam/shared';
+import { CLAIM_CATEGORY_LABEL, COUNTER_KIND_LABEL, COUNTER_SOURCE_LABEL, MATCH_LABEL, PERSONA_PRESETS, REQUIREMENT_KIND_LABEL, VERDICT_LABEL, categoryLine, shortfallPlan, sideBySide } from '@crossexam/shared';
+import type { Anchor, Revision, Verdict, VerdictKind } from '@crossexam/shared';
 import type { ProbeRow } from './store/index.ts';
 import type { SessionView } from './pipeline.ts';
 
@@ -231,7 +231,37 @@ function probeLines(probes: readonly ProbeRow[]): string[] {
   return out;
 }
 
-export function renderReport(view: SessionView): string {
+/**
+ * 改前改后并排对照。
+ *
+ * 只在**真的采纳过**之后才有内容：没采纳时这一节整段不出现，
+ * 免得读者以为「报告里有对照」就等于简历已经改过了。
+ */
+function sideBySideLines(view: SessionView, applied: readonly Revision[]): string[] {
+  if (applied.length === 0) return [];
+  const out: string[] = [];
+  out.push('## 六、改前改后对照（本版采纳了 ' + String(applied.length) + ' 处改写）');
+  out.push('');
+  out.push('左边是简历原文里的那一段，右边是改完后的那一段。「上下文」行两侧相同，用来看清改动落在什么位置。');
+  out.push('');
+  out.push('| 条目 | 原文 | 改后 |');
+  out.push('| --- | --- | --- |');
+  for (const row of sideBySide(view.session.resumeText, applied)) {
+    const label = row.kind === 'same' ? '上下文' : row.claimId === null ? '改动' : row.claimId;
+    out.push('| ' + label + ' | ' + sideCell(row.left) + ' | ' + sideCell(row.right) + ' |');
+  }
+  out.push('');
+  return out;
+}
+
+/** 表格单元格：压掉换行、转义竖线；插入型没有「原文」就明说 */
+function sideCell(text: string): string {
+  if (text === '') return '（新增一行）';
+  const pipe = String.fromCharCode(92) + '|';
+  return text.split(String.fromCharCode(10)).join(' ').split('|').join(pipe);
+}
+
+export function renderReport(view: SessionView, applied: readonly Revision[] = []): string {
   const s = view.session;
   const out: string[] = [];
   const used = s.budget.totalProbes;
@@ -324,7 +354,10 @@ export function renderReport(view: SessionView): string {
     out.push('');
   }
 
-  out.push('## 六、复现方式');
+  for (const line of sideBySideLines(view, applied)) out.push(line);
+
+  // 章节编号跟着上一节走：没采纳过就没有「六、改前改后对照」，复现方式就还是六
+  out.push('## ' + (applied.length > 0 ? '七' : '六') + '、复现方式');
   out.push('');
   out.push('- 本次跑法：' + s.llmMode);
   out.push('- 事件条数：' + String(view.events.length) + '（全部落本地 SQLite，可按 seq 重放）');
