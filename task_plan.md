@@ -110,6 +110,7 @@
 | P12 大功能 | ② 成长档案 ✅（沿 `parent_session_id` 把整条版本链读出来，用相邻两版配对串成「一条主张改了几回」的轨迹：`packages/shared/src/growth.ts` 纯函数 + `GROWTH_MAX_VERSIONS = 12` + `GET /api/sessions/:id/growth` + 界面覆盖层「成长档案」（头部常驻入口 + 「比上次」栏第二版后的「看全部版本」）；`persistent` 口径写死四条，链断在中间单列 `broken`/`brokenAt`，12 + 7 条单测与 7 项点测断言，见 ADR-0021、D57、F73/F74）· ③ 一岗一版 ✅（按岗位只做「留下 / 去掉」，一个字都不改：行级归属靠主张锚点算、匹配口径复用要求对照、一条都对不上就整版拒筛、筛过的文本一律不画锚点、不落库每次现算；`packages/shared/src/tailor.ts` 纯函数 + `packages/server/src/tailor.ts` + `GET /api/sessions/:id/tailor?jd=` 与 `tailored.txt/.html/.doc` 三件套 + 界面「一岗一版」栏与岗位原文栏的入口，13 + 9 条单测与 10 项点测断言，见 ADR-0022、D58、F75/F76） | ✅ done |
 | P13 工程收口 | E1 CI 门禁 ✅（`.github/workflows/ci.yml`：ubuntu 跑同一套 `verify` + 卡带漂移门禁 `seed:demo` → `git diff --exit-code -- fixtures/llm`；windows 另起 `browser` job 跑点测；e2e 里写死的卡带目录与浏览器路径改掉）· E2 性能预算 ✅（`tools/perf/budget.mjs`，14 项上界，接入 `npm run budget` 并进 `verify`；见效 ADR-0023 / F77 / F78） | ✅ done |
 | P14 冻结交付 | 功能冻结 ✅（**2026-10-28 提前冻结**，原定 11-08；见 `docs/release-checklist.md` 第六节）→ 演示视频 🔶 脚本 + 录前检查 + 提词卡已备、**待录制** → 五项提交物终检 ✅（除视频外全部核对完）；补齐 `LICENSE`（MIT，署名 `yaoyuy`）；冻结后补记三件（都不动提示词、不重录 149 盘卡带、不动 schema）：JD 文件导入（D62）· 历史仪表盘按岗位分组（D64 / ADR-0024）· 判定台账导出 Excel（D65 / ADR-0025） | 🔶 只剩演示视频 |
+| P15 桌面端 | 左栏六页导航 ✅（首页 / 投料台 / 质询台 / 报告 / 历史 / 设置，每页一件事，哈希深链可直达，不引路由库；见 ADR-0027）· 五步新手向导 ✅（欢迎 → 材料 → 阵容 → 开跑 → 带结论走，走一步背景页面跟着换，首开弹向导、教程改为按钮打开）· 桌面端 = 没有地址栏的应用窗口 ✅（启动器挑 Edge/Chrome 的 `--app=` 打开，找不到就退回系统默认浏览器；不是 exe，因为打包 exe 要引原生依赖，见 ADR-0028）· 截图 26 → 30 张、点测 165 → 177 项 | ✅ done |
 
 ## 5. 遇到的错误（Errors Encountered）
 
