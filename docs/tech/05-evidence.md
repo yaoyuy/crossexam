@@ -10,7 +10,7 @@ npm run verify
   1/5 typecheck   tsc --noEmit（根 + shared + server + web）
   2/5 test        72 个测试文件 / 752 条断言
   3/5 smoke       9 项真进程冒烟
-  4/5 build       vite 8.3.5 / 48 modules / CSS 30.46 kB / JS 360.12 kB（gzip 109.82 kB）
+  4/5 build       vite 8.3.5 / 48 modules / CSS 30.46 kB / JS 360.24 kB（gzip 109.91 kB）
   5/5 budget      14 项性能预算（起服 285 ms / 整场回放 93 ms / 打包 22 KB / JS gzip 105 kB）
   exit 0
 ```
