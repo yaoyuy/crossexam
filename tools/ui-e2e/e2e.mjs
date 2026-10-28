@@ -990,6 +990,10 @@ const wantBars = apiOverview.trend.length > 5 ? 5 : apiOverview.trend.length;
 check('趋势柱子的根数等于接口给的场次数（最多五根）', barCount === wantBars, String(barCount) + ' 根 / 接口 ' + String(apiOverview.trend.length) + ' 场');
 const resumeNoteText = await textOf('overview-resume');
 check('同一份简历跑过几场时点名这件事，只跑一场时不硬凑', apiOverview.sameResumeRuns > 1 ? resumeNoteText.indexOf('最多跑过') >= 0 : resumeNoteText.length === 0, String(resumeNoteText).slice(0, 60));
+// 按岗位分组与按简历分组是两件事：一份简历配一份 JD 是常规用法，
+// 而「同一个岗位跑过几场」才是版本对比的入口——所以这一行也必须由接口说了算。
+const jdNoteText = await textOf('overview-jd');
+check('同一个岗位跑过几场时点名这个岗位', apiOverview.sameJdRuns > 1 ? jdNoteText.indexOf('最多跑过') >= 0 : jdNoteText.length === 0, String(jdNoteText).slice(0, 60));
 
 const clicked = await evalJs('(() => { const btns = Array.from(document.querySelectorAll(String.fromCharCode(91) + "data-shot=" + String.fromCharCode(34) + "intake" + String.fromCharCode(34) + String.fromCharCode(93) + " button")); const b = btns.find((x) => (x.textContent || "").indexOf("演示简历") >= 0); if (!b) return "没找到"; b.click(); return "ok"; })()');
 check('点历史里的那一条能载回来', clicked === 'ok', String(clicked));
