@@ -52,3 +52,5 @@
 - 真机验收（`.tmp/report-check.mjs`，12/12 通过）：服务端 HTML 经 Edge 打印得到 438305 B / 6 页 PDF；
   真界面上三个按钮的 href 分别指向 `report.md` / `report.html?print=1` / `report.doc`。
 
+> **现状（2026-10-28）**：决策 2 里的「同一份 HTML + `.doc` 后缀 + `application/msword`」已被 [ADR-0026](0026-real-docx-instead-of-html-renamed.md) 取代——三条导出路由现在出真 `.docx`（自写 OOXML + Word 内置样式），上面第 53 行那份真机验收的第三个网址随之变成 `report.docx`。决策与取舍原文保留，作为当时的记录；ADR-0006 关于「服务端不生成 PDF」的结论不变。
+

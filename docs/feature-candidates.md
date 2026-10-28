@@ -22,6 +22,7 @@
 | D1 | 行业模板库：一键凑齐 JD 与面试官（36 条原创模板） | P9 | [ADR-0011](adr/0011-job-templates.md) · `packages/shared/src/templates.ts` |
 | E1 | 卡带漂移门禁搬进 CI（重跑 seed + 比对 git diff） | P13 | [ADR-0023](adr/0023-ci-gate-and-performance-budget.md) · `.github/workflows/ci.yml` |
 | E2 | 性能预算断言（起服 / 整场回放 / 报告 / 打包的耗时与体积上界） | P13 | [ADR-0023](adr/0023-ci-gate-and-performance-budget.md) · `tools/perf/budget.mjs` |
+| B3 | 导出真 .docx：自写 OOXML 写入器 + Word 内置样式（Word 打开不再提示格式与扩展名不一致） | P14 补记（2026-10-28） | [ADR-0026](adr/0026-real-docx-instead-of-html-renamed.md) · `packages/server/src/docx.ts` |
 | 新 | 多 JD 上传 + 岗位要求驱动追问（三个新阶段） | P8（大功能②） | [ADR-0012](adr/0012-jd-requirement-review.md) · `packages/shared/src/requirements.ts` |
 | 新 | 历史仪表盘按岗位要求分组：同一个岗位跑过几场 | P14 补记（2026-10-28） | [ADR-0024](adr/0024-jd-grouping-in-history-overview.md) · `packages/shared/src/overview.ts` 的 `groupByJd` |
 | 新 | 判定台账导出 Excel：一场导成五张表的 `.xlsx`，两次导出逐字节相同 | P14 补记（2026-10-28） | [ADR-0025](adr/0025-ledger-is-a-flat-table.md) · `packages/server/src/ledger.ts` / `xlsx.ts` |
@@ -33,12 +34,6 @@
 ## 二、还没做的（按性价比排序）
 
 下面这些是**截止功能冻结（2026-10-28）确实没有做**的，连同当时的判断一起留档。
-
-### B3. 导出真 .docx 而不是 .doc（推荐 ★★）
-
-**问题**：现在 Word 是 HTML 加 `.doc` 后缀，Word 打开会提示「格式与扩展名不一致」（能打开，但会弹一次警告）。
-**怎么加**：自己拼 OOXML（`word/document.xml` 加最小 zip），不引第三方库。
-**成本**：约 6–8 小时。**判断**：不做。提示那一下警告，比一个可能打不开的 docx 更安全。
 
 ### D2. 英文简历与英文追问（推荐 ★★）
 
