@@ -1438,3 +1438,24 @@ C2 要在历史栏顶上加一句话结论，并把「哪些类别总被打回�
 
 门禁：`npm run verify` 全绿（71 文件 / 746 条断言 + 9 项冒烟 + 48 modules + 14 项性能预算）·
 `npm run e2e:ui` 162/162（新增一条：同一个岗位跑过几场时点名这个岗位）。
+
+## Session 39 · 判定台账导出 Excel
+
+用户把「还能加什么」交给我定（m16388），这是本轮第二件：**判定台账**。报告按段落讲故事，台账按行摆事实，
+同一场的判定、追问、岗位对照与三类「被拦下的」记录摊成五张表，导出成 `.xlsx` 直接拿去排序、筛选、逐条改简历。
+
+- 新建 `packages/server/src/xlsx.ts`（约 293 行）：五份固定 XML + 自写 zip 容器，时间戳写死 1980-01-01，
+  CRC32 自己算（公认向量 `crc32("123456789") === 0xCBF43926` 进测试）。
+- 新建 `packages/server/src/ledger.ts`：`ledgerSheets(view)` 出五张表，字段全部取自 `SessionView`，不新判一次；
+  `ledgerFileName(view)` → `crossexam-ledger-<id>.xlsx`。
+- `packages/server/src/http/app.ts` 加 `GET /api/sessions/:id/ledger.xlsx`（attachment + 官方 MIME）；
+  头部多一颗「台账 Excel」（`data-shot="ledger-xlsx"`）。
+- 测试：`packages/server/test/ledger.test.ts` 6 条（含**两次下载逐字节相同**）；点测 2 条（真 fetch 一次，校验头与前两字节 `PK`）。
+
+**没动的东西**：提示词、149 盘卡带、schema（仍 v10）。新增单测 6 条（server 28 → 29 个测试文件，共 752 条断言）。
+
+门禁：`npm run verify` 全绿（72 文件 / 752 条断言 + 9 项冒烟 + 48 modules + 14 项性能预算）·
+`npm run e2e:ui` 164/164。
+
+顺带记两条教训（F84 / F85 / F86）：产物确定下来才谈得上验收；脚本化替换代码要以真实行原文为锚并断言命中；
+投影只认上游类型里存在的字段。
