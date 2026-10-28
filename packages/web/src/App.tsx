@@ -1192,9 +1192,12 @@ export function App() {
           {/*
             质询台：三列与以前一样（实时过程与阶段轨 / 三栏结论 / 两份原文与改写），
             区别只是「投料」不在这里了——贴材料属于投料台那一页。
+            三列在宽屏下各占满一屏高、各自滚动（xl:h-full）：少了这个约束，
+            三栏就会各自长到内容那么高，整页变成一个长条，左栏阶段轨、
+            中栏主张、右栏原文会被整页一起卷走。
           */}
           {page === 'interview' ? (
-            <div className="grid min-h-0 gap-3 xl:grid-cols-[300px_minmax(0,1fr)_minmax(0,660px)]">
+            <div className="grid min-h-0 gap-3 xl:h-full xl:grid-cols-[300px_minmax(0,1fr)_minmax(0,660px)]">
               <aside className="flex min-h-0 flex-col gap-3">
                 <StageRail state={sandbox} panel={panel} health={health} contracts={contracts} onFocusClaim={handleFocusClaim} />
               </aside>
