@@ -1,3 +1,5 @@
+import type { PageId } from './pages.ts';
+
 /**
  * 新手教程与模式说明的文案。
  *
@@ -152,5 +154,107 @@ export function markHelpSeen(): void {
     store.setItem(HELP_SEEN_KEY, '1');
   } catch {
     // 无痕模式下写不进去，大不了下次再弹一次
+  }
+}
+
+/**
+ * 多步新手向导的文案。
+ *
+ * 与教程面板的分工：教程是「随时可查的说明书」，向导是「第一次进来有人牵着你走一遍」。
+ * 每一步只讲一件事，并且直接把人送到该去的那一页——
+ * 一次把六个页面都摊开讲，等于什么都没讲。
+ */
+export const WIZARD_SEEN_KEY = 'crossexam.seen-wizard';
+
+export interface WizardStep {
+  id: string;
+  title: string;
+  body: string;
+  /** 两三条要点：向导一屏只讲一件事 */
+  points: string[];
+  /** 点「下一步」时先切到哪一页；不填表示停在当前页 */
+  page?: PageId;
+}
+
+export const WIZARD_STEPS: WizardStep[] = [
+  {
+    id: 'welcome',
+    title: '欢迎来到质询室',
+    body:
+      '这是一个面试沙盘：把你简历里的每一句话当成主张，让几位面试官 Agent 围着它追问，再逐条告诉你哪一句站得住、哪一句撑不起来。全程不需要 API Key——仓库里带着录好的卡带。',
+    points: [
+      '提问必须锚定原文：没有原文出处的问题，界面直接拒收',
+      '追问有预算上限：到顶就停，不会出现问不完的循环',
+      '判定可以被代码改写：模型说要证据却拿不出来，会被降级',
+    ],
+  },
+  {
+    id: 'material',
+    title: '第一步 · 把材料放进去',
+    page: 'intake',
+    body:
+      '在投料台贴上简历正文与目标岗位的 JD。两边都能从文件导入（PDF / Word / 文本；JD 一次可以选多份）。手边没有简历，就点「一键示例」用内置的合成简历先看一遍。',
+    points: [
+      '简历至少 30 个字符；JD 可以留空，也可以给一到八份',
+      '行业模板库有 12 个行业 × 3 个岗位，挑一套会连带简历、JD、面试官一起换',
+      '上传的字节只在本机解析，不落盘、不外发',
+    ],
+  },
+  {
+    id: 'panel',
+    title: '第二步 · 挑面试官与强度',
+    page: 'intake',
+    body:
+      '默认三位：技术面试官、HR 面试官、业务主管。想更狠一点就加上压力面试官，想抠术语就加领域专家；也可以自己写一句话生成一位。',
+    points: [
+      '追问强度只有三档：温和 / 常规 / 挑刺，改的是预算，不是人设',
+      '改写风格只管建议改得多狠，不改判定、不许新增事实',
+      '第一次看建议点「慢放」，否则离线回放整场不到一秒就结束',
+    ],
+  },
+  {
+    id: 'run',
+    title: '第三步 · 开始质询',
+    page: 'interview',
+    body:
+      '点「开始质询」之后，质询台会实时直播：抽出的主张、每一位面试官的追问、求职者 Agent 的回答、逐条判定与改写建议。点任何一条引文，右边的原文会高亮到那一句。',
+    points: [
+      '离线回放读仓库里的卡带，同一份卡带在谁机器上都是同一结果',
+      '联网直连真调模型；联网录制会把这一场存成新卡带，下次能原样重演',
+      '跑完可以补一句真话、采纳改写，再点「改完再跑一遍」',
+    ],
+  },
+  {
+    id: 'takeaway',
+    title: '第四步 · 把结论带走',
+    page: 'report',
+    body:
+      '报告页把这一场的结论摊成五种带走方式：Markdown、PDF、真 .docx、单文件打包、台账 Excel。改完的简历还能导出三种格式，也能按目标岗位筛出一版只留得上的行。',
+    points: [
+      '「比上次」与「成长档案」会告诉你哪几条主张从站不住变成了站得住',
+      '同一条版本链跑过的每一场都留在历史里，随时翻回来重看过程',
+      '想换一套材料重来：直接再点一次「开始质询」，会新建一场而不是覆盖',
+    ],
+  },
+];
+
+/** 第一次打开就自动走一遍向导；走完或跳过之后不再打扰 */
+export function shouldAutoOpenWizard(): boolean {
+  const store = storage();
+  if (store === null) return false;
+  try {
+    return store.getItem(WIZARD_SEEN_KEY) !== '1';
+  } catch {
+    return false;
+  }
+}
+
+export function markWizardSeen(): void {
+  const store = storage();
+  if (store === null) return;
+  try {
+    store.setItem(WIZARD_SEEN_KEY, '1');
+  } catch {
+    // 无痕模式下写不进去，大不了下次再走一遍
   }
 }
