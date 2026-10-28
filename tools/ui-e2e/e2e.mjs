@@ -936,6 +936,41 @@ const jdRemoved = await evalJs('(() => { const b = document.querySelector("[data
 await sleep(300);
 const jdRowsBack = await evalJs('document.querySelectorAll("[data-shot^=jd-row-]").length');
 check('删掉第二份之后回到一份', jdRemoved === 'ok' && jdRowsBack === 1, String(jdRowsBack) + ' 行');
+// 岗位要求也能从文件导入：一次选两份，标题取文件名。
+// 放在这里是因为上一段刚把第二份删掉，投料台上正好只剩一份 JD，新加进来的两份编号就是 2 与 3。
+const JD_ONE = '负责医学影像设备的上位机软件设计与开发；三年以上 C++ 经验；熟悉 DICOM 标准与设备通信协议，能独立排查现场问题。';
+const JD_TWO = '负责连锁药房的处方审核流程与用药交代规范；五年以上医院药房工作经验；熟悉药事管理法规与抗菌药物分级管理制度。';
+const jdImportScript = [
+  '(function () {',
+  '  var input = document.querySelector("[data-shot=jd-import-file]");',
+  '  if (input === null) return "no-input";',
+  '  var dt = new DataTransfer();',
+  '  dt.items.add(new File([' + JSON.stringify(JD_ONE) + '], "医学影像-C++上位机.txt", { type: "text/plain" }));',
+  '  dt.items.add(new File([' + JSON.stringify(JD_TWO) + '], "药房主管.md", { type: "text/markdown" }));',
+  '  input.files = dt.files;',
+  '  input.dispatchEvent(new Event("change", { bubbles: true }));',
+  '  return "ok";',
+  '})()',
+].join('\n');
+const jdImportState = await evalJs(jdImportScript);
+const jdRowsImported = await waitFor(async () => {
+  const n = await evalJs('document.querySelectorAll("[data-shot^=jd-row-]").length');
+  return n === 3 ? '3' : '';
+}, '导入两份 JD 之后的行数', 10000);
+const jdTitleTwo = await evalJs('(document.querySelector("[data-shot=jd-title-2]") || { value: "" }).value');
+const jdTextTwo = await evalJs('(document.querySelector("[data-shot=jd-text-2]") || { value: "" }).value');
+const jdTextThree = await evalJs('(document.querySelector("[data-shot=jd-text-3]") || { value: "" }).value');
+const jdKeepOne = await evalJs('(document.querySelector("[data-shot=jd-text-1]") || { value: "" }).value');
+const jdImportNoteText = await evalJs('(document.querySelector("[data-shot=jd-import-note]") || { textContent: "" }).textContent');
+check('从文件导入岗位要求：两份文件变成两行，按选中顺序排', jdImportState === 'ok' && jdRowsImported === '3' && jdTextTwo === JD_ONE && jdTextThree === JD_TWO, String(jdImportState) + ' / ' + String(jdRowsImported) + ' 行');
+check('标题默认取文件名，已有的那一份一个字没动', jdTitleTwo === '医学影像-C++上位机' && jdKeepOne.indexOf('Node.js') >= 0, jdTitleTwo + ' / 原有 ' + String(jdKeepOne.length) + ' 字');
+check('导入结果说清进来了几份、标题从哪来', jdImportNoteText.indexOf('已导入 2 份') >= 0 && jdImportNoteText.indexOf('文件名') >= 0, jdImportNoteText.slice(0, 60));
+await clickShot('jd-remove-3');
+await sleep(300);
+await clickShot('jd-remove-2');
+await sleep(300);
+const jdRowsAfterCleanup = await evalJs('document.querySelectorAll("[data-shot^=jd-row-]").length');
+check('把导入的两份删掉之后回到一份，原来的那份还在', jdRowsAfterCleanup === 1, String(jdRowsAfterCleanup) + ' 行');
 // 收尾：把这一轮填进去的简历一起清掉，后面的历史与删除不该带着一版半成品。
 await clickText('清空');
 await sleep(400);
