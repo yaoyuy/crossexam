@@ -336,15 +336,24 @@ async function main() {
     await cdp.send('Emulation.setDeviceMetricsOverride', { width: VIEWPORT.width, height: VIEWPORT.height, deviceScaleFactor: 1, mobile: false });
     await cdp.send('Page.navigate', { url: base + '/' });
     await sleep(700);
+    // P15 起界面分页：第一次打开落在首页。首页本身就是一张要拍的图（六页导航 + 一键示例 +
+    // 向导入口），所以先等首页、拍 00-home，再进投料台拍正片。
+    await cdp.waitFor("document.querySelector('[data-shot=\"home-page\"]') !== null", '首页出现', 20000);
+    await sleep(300);
+    // 首次打开自动弹的是多步向导（教程从 P15 起改成手动打开）。首页那张不能被它盖住，
+    // 所以先收掉它；最后回头从首页那个「带我看一遍」按钮打开，补拍 27-wizard.png。
+    const wizardSkip = "document.querySelector('[data-shot=\"wizard-skip\"]')";
+    if ((await cdp.evaluate(wizardSkip + " !== null")) === true) {
+      await cdp.evaluate(wizardSkip + ".click()");
+      await sleep(350);
+    }
+    await cdp.shot(opts.out, '00-home.png');
+    await cdp.evaluate("document.querySelector('[data-shot=\"nav-intake\"]').click()");
+    await sleep(300);
     await cdp.waitFor("document.querySelector('[data-shot=\"use-demo\"]') !== null", '投料台出现', 20000);
 
-    // 第一次打开会自动弹一次新手教程。截图要的是界面本身，先关掉它，
-    // 最后再把教程本身拍一张（它就是「刚装上的人怎么开始用」的证据）。
-    const helpClose = "document.querySelector('[data-shot=\"help-close\"]')";
-    if ((await cdp.evaluate(helpClose + " !== null")) === true) {
-      await cdp.evaluate(helpClose + ".click()");
-      await sleep(250);
-}
+    // 教程（HelpPanel）现在是手动打开的，这里没有自动弹层要关；
+    // 12-help.png 仍然是快结束时从头部按钮回头补拍的。
 
     // 表达式里刻意不声明变量：CDP 的 Runtime.evaluate 共用同一个全局作用域，
     // 第二次 const 同名会直接抛 SyntaxError（第一版就踩了）。
@@ -352,12 +361,17 @@ async function main() {
     const top = (name) => pane(name) + '.scrollTop = 0';
     const bottom = (name) => pane(name) + '.scrollTop = ' + pane(name) + '.scrollHeight';
     const click = (shot) => "document.querySelector('[data-shot=\"" + shot + "\"]').click()";
+
+    // 分页之后「点哪一页」和「点什么」一样重要：差一页就是等不到元素。
+    // 导航按钮的锚点是 nav-<page>，点击会写 location.hash，刷新也不会丢页。
+    const goto = (name) => "document.querySelector('[data-shot=\"nav-" + name + "\"]').click()";
+    const gotoPage = async (name) => { await cdp.evaluate(goto(name)); await sleep(300); };
     // 按 data-shot 往输入框里写字：直接改 .value React 收不到，要用原生 setter 再补一个 input 事件。
     // 选择器整段过 JSON.stringify，既躲开引号嵌套，也保证它真的是属性选择器（写成 querySelector("supplement-input-C1") 会变成找标签名）。
     const setField = (shot, text) => "(() => { const el = document.querySelector(" + JSON.stringify('[data-shot="' + shot + '"]') + "); if (el === null) return -1; const proto = el.tagName === 'TEXTAREA' ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype; const setter = Object.getOwnPropertyDescriptor(proto, 'value').set; setter.call(el, " + JSON.stringify(text) + "); el.dispatchEvent(new Event('input', { bubbles: true })); return el.value.length; })()";
 
     log('界面截图输出到：' + opts.out);
-    await cdp.shot(opts.out, '01-intake.png', top('claims'));
+    await cdp.shot(opts.out, '01-intake.png');
 
     // 运行模式三选一：默认离线回放（不联网），切到联网才出现模型输入框。
     // 这一张是「页面里能自己选回放还是联网、用哪个模型」的直接证据。
@@ -373,12 +387,15 @@ async function main() {
     // 这一张拍的是挑刺档：契约卡片展开着，预算已经是每主张 4 轮 / 全场 80 次。
     await cdp.evaluate("document.querySelector(\"[data-shot=difficulty-hard]\").scrollIntoView({ block: 'center' })");
     await cdp.evaluate(click('difficulty-hard'));
+    // 契约卡片在质询台的左栏（StageRail），所以换完档位要切过去看它。
+    await gotoPage('interview');
     await cdp.evaluate(click('contract-toggle'));
-    await cdp.waitFor("document.querySelector(\"[data-shot=contract-toggle]\").parentElement.innerText.indexOf('全场最多 80 次') >= 0", '契约换成挑刺档', 10000);
+    await cdp.waitFor("document.querySelector('[data-shot=\"contracts\"]').innerText.indexOf('全场最多 80 次') >= 0", '契约换成挑刺档', 10000);
     await sleep(350);
     await cdp.shot(opts.out, '21-difficulty.png');
-    await cdp.evaluate(click('difficulty-normal'));
     await cdp.evaluate(click('contract-toggle'));
+    await gotoPage('intake');
+    await cdp.evaluate(click('difficulty-normal'));
     await sleep(200);
     // 面试官工作室：自定义面试官是「任何专业都能用」那条要求的入口。
     // 走本地规则这条路（不联网、确定性），拍下来的正好是「没有 API Key 也能配出面试官」。
@@ -419,7 +436,14 @@ async function main() {
     await cdp.shot(opts.out, '06-done-top.png', top('claims'));
     await cdp.shot(opts.out, '07-verdicts.png', bottom('claims'));
     await cdp.shot(opts.out, '08-resume-focus.png', "(" + pane('claims') + ".querySelector('button.quote') ?? { click: () => undefined }).click(), " + pane('claims') + '.scrollTop = ' + pane('claims') + '.scrollHeight * 0.55');
-    await cdp.shot(opts.out, '09-history.png', bottom('intake'));
+    // P15：历史从「投料台底部那一块」独立成历史页（概览条 + 会话列表 + 载入/删除）。
+    await cdp.evaluate(click('nav-history'));
+    await cdp.waitFor("document.querySelector('[data-shot=\"history-page\"]') !== null", '历史页出现', 10000);
+    await sleep(400);
+    await cdp.shot(opts.out, '09-history.png');
+    // 拍完切回质询台：后面几张（短板、岗位要求对照、采纳改写）都在这一页上。
+    await cdp.evaluate(click('nav-interview'));
+    await sleep(300);
     // P10 · A3：按类别看短板。同一份判定的另一种摆法——左边过程面板滚到这一块，
     // 拍下结论句、每个类别欠几条、以及最该先补的那几条（它们点一下就能跳回简历原文）。
     await cdp.shot(opts.out, '20-shortfall.png', "document.querySelector('[data-shot=\"shortfall\"]').scrollIntoView({ block: 'center' })");
@@ -525,6 +549,13 @@ async function main() {
     await cdp.shot(opts.out, '26-tailor.png');
     await cdp.evaluate(click('resume-show-original'));
     await sleep(250);
+    // P15：报告页在界面里也是独立一页——五种带走方式（md / PDF / Word / 单文件 HTML / 台账 Excel）
+    // 加上报告预览。这一张和后面 14-report.png（服务端渲染的那一页）是两份不同的证据。
+    await cdp.evaluate(click('nav-report'));
+    await cdp.waitFor("document.querySelector('[data-shot=\"report-page\"]') !== null", '报告页出现', 10000);
+    await sleep(450);
+    await cdp.shot(opts.out, '28-report-page.png');
+
     // 报告导出：同一份结果有三种形态（Markdown 便于携带、可打印 HTML 便于阅读、Word 便于改）。
     // 这一张拍的是服务端渲染出来的可打印 HTML——PDF 就是它经浏览器打印得到的，服务端不自己造 PDF。
     const sid = await cdp.evaluate("fetch('/api/sessions').then((r) => r.json()).then((data) => (data.sessions[0] ?? {}).id ?? '')");
@@ -536,11 +567,30 @@ async function main() {
     // 岗位模板库：不熟悉某个行业的人，点一下就能得到一份「有东西可问」的料。
     // 放最后：它会往库里加一位面试官并把料填满投料台，而前面几张要的是干净状态。
     await cdp.send('Page.navigate', { url: base + '/' });
+    await cdp.waitFor("document.querySelector('[data-shot=\"home-page\"]') !== null", '首页出现', 20000);
+    // 多步新手向导：从首页那个「带我看一遍」按钮打开，拍第 2 步——它会把背景页面切到投料台，
+    // 所以这一张同时证明「向导不是孤零零的弹层，它在带着人换页」。
+    await cdp.evaluate(click('home-wizard'));
+    await cdp.waitFor("document.querySelector('[data-shot=\"wizard\"]') !== null", '向导打开', 10000);
+    await cdp.evaluate(click('wizard-next'));
+    await sleep(450);
+    await cdp.shot(opts.out, '27-wizard.png');
+    await cdp.evaluate(click('wizard-skip'));
+    await sleep(250);
+    await cdp.evaluate(click('nav-intake'));
+    await sleep(300);
     await cdp.waitFor("document.querySelector('[data-shot=\"tpl-med-pharmacy-lead\"]') !== null", '模板选择器出现', 20000);
     await cdp.evaluate("document.querySelector('[data-shot=\"tpl-med-pharmacy-lead\"]').click()");
     await cdp.waitFor("(document.querySelectorAll('textarea')[0]?.value ?? '').length >= 200", '模板把料填好', 20000);
     await sleep(300);
     await cdp.shot(opts.out, '18-templates.png', top('intake'));
+
+    // 设置页：配色、教程、向导、隐私口径、启动方式都收在这一页。
+    // 它是「完全没用过计算机的人也能装起来」那一组要求的入口，也该有一张图。
+    await cdp.evaluate(click('nav-settings'));
+    await cdp.waitFor("document.querySelector('[data-shot=\"settings-page\"]') !== null", '设置页出现', 10000);
+    await sleep(400);
+    await cdp.shot(opts.out, '29-settings.png');
 
     const problems = cdp.problems();
     log(NL + '控制台/日志问题：' + (problems.length === 0 ? '无' : String(problems.length) + ' 条'));
