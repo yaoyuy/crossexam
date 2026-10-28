@@ -1200,3 +1200,42 @@ P16 那一场主会话（`session-9791af4a-18f0-4e22-86e6-5dbe200db248`，日志
   看是不是有两条；有就删旧的，不要靠加 `!important` 或加更多内联类去压。
 - 顺带：这轮只有 `.tile` 一个选择器重复，其余磁贴相关的 `.tile-ico` 仍在被四个组件使用（InterviewerStudio / TemplatePicker / ReportPage），
   所以删的是 `.tile` 的旧块，不是整个段。删之前用 `grep` 把类名的使用点列一遍。
+
+## F96：node_modules 里的 .ts 跑不起来——Node 的类型剥离有一条路径红线
+
+便携包第一版把工作区包复制进 `node_modules/@crossexam/*`，服务端一启动就崩：
+
+```
+ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING: Stripping types is currently unsupported for files
+under node_modules, for "…/node_modules/@crossexam/shared/src/index.ts"
+```
+
+原因：Node 22.6+ 的原生类型剥离**明确跳过 node_modules 下的文件**（防止有人把 TS 源码当发布包发出去）。
+开发机上之所以能跑，是因为 npm workspaces 把 `packages/*` 软链进 node_modules，**真实路径在 node_modules 之外**——
+`node packages/server/src/bin/serve.ts` 解析出来的是 `D:\CZB\packages\…`，不在红线内。
+
+- 不能用 `NODE_PATH`（ESM 不认）、不能让 `exports` 指到包根之外（Node 直接报 `ERR_INVALID_PACKAGE_TARGET`）、
+  也没有开关能关掉这条红线。
+- 正确修法：`tools/portable/register.mjs` 用 `registerHooks` 注册同步 resolve 钩子，把 `@crossexam/<pkg>/<rest>`
+  重写到 `packages/<pkg>/src/<rest>`（`shortCircuit: true`），并在 `启动.cmd` 里 `set NODE_OPTIONS=--import ./tools/portable/register.mjs`，
+  子进程（启动器起的 serve.ts）继承。
+- 教训：**「开发机能跑」不等于「换一种布局也能跑」**。打包类改动必须在「没有 node_modules 的目录」里验收，
+  在仓库里点一遍不算数——这条和 F92（相邻截图逐字节相同）是同一类：门禁要能看见布局差异。
+
+## F97：打包与打包验收里的两个小坑——PATH 里的 tar 不是 bsdtar、卡带只录了默认面板
+
+**坑一：`tar` 不一定是 bsdtar。** `tar -a -c -f x.zip dir` 在 Git for Windows 的 GNU tar 下会报
+`tar: Cannot connect to D: resolve failed`——它把 `D:\CZB\…` 里的冒号当成了「远程主机:路径」。
+必须显式用 `C:\Windows\System32\tar.exe`（bsdtar），或用 PowerShell 的 `Compress-Archive`。
+
+**坑二：验收脚本断言了一个产品本来就没承诺的东西。** 便携包验收原本打 `POST /api/sessions/:id/run?panel=tech`
+然后找 `event: result`，实际收到：
+
+```
+回放模式找不到这一条记录。用途「probe」的指纹是 5a6b53fd94e1386b03e957a9，请用 CROSSEXAM_MODE=record 联网跑一次把它录下来。
+```
+
+原因是那 149 盘卡带录的是**默认面板（三位面试官）**，单面板（`panel=tech`）本来就没录；开发机上跑同样的请求也一样失败。
+也就是说失败的是断言口径，不是便携包。改成默认面板后 `event: result` 出现、claims 5、verdicts 5，8/8 通过。
+
+- 教训：**验收脚本写错时，报错信息会指向产品**。遇到「新环境才失败」，先在开发机上跑同一个请求——两边都失败就是口径问题。
