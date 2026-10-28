@@ -1,8 +1,89 @@
 import type { ReactNode } from 'react';
+import { Icon } from './Icon.tsx';
+import type { IconName } from './Icon.tsx';
+import type { Accent } from '../pages.ts';
 import { VERDICT_GLOSS, VERDICT_LABEL, VERDICT_TONE } from '../labels.ts';
 import { describeRange } from '../highlight.ts';
 import type { Anchor, VerdictKind } from '../api.ts';
 
+/**
+ * 页头：每个页面顶上那一行「标题 + 一句话说明 + 右侧动作」。
+ *
+ * 参考物里每一页都是这个结构（标题下面一行灰字说清楚这页干什么），
+ * 所以抽成组件而不是每页各写一遍——不然六页会长出六种字号。
+ */
+export function PageHead(props: {
+  icon: IconName;
+  title: string;
+  sub?: ReactNode;
+  accent?: Accent;
+  actions?: ReactNode;
+}) {
+  return (
+    <header className="page-head" data-shot="page-head">
+      <div className="min-w-0">
+        <h1 className="page-title">
+          <span className={'inline-flex h-8 w-8 items-center justify-center rounded-[10px] ' + accentBox(props.accent ?? 'ember')}>
+            <Icon name={props.icon} size={18} />
+          </span>
+          <span className="truncate">{props.title}</span>
+        </h1>
+        {props.sub === undefined ? null : <p className="page-sub">{props.sub}</p>}
+      </div>
+      {props.actions === undefined ? null : <div className="page-head-actions">{props.actions}</div>}
+    </header>
+  );
+}
+
+/** 图标底色的三种例子都写成静态类名，Tailwind 才不会把动态拼出来的类名扫掉 */
+function accentBox(accent: Accent): string {
+  if (accent === 'sky') return 'bg-sky-500/15 text-sky-400';
+  if (accent === 'violet') return 'bg-violet-500/15 text-violet-400';
+  if (accent === 'mint') return 'bg-mint-500/15 text-mint-400';
+  if (accent === 'teal') return 'bg-teal-500/15 text-teal-400';
+  if (accent === 'slate') return 'bg-ink-700/40 text-ink-300';
+  return 'bg-ember-500/15 text-ember-400';
+}
+
+/**
+ * 文档流里的卡片（不是固定高度的 pane）：页面滚动时它跟着滚。
+ *
+ * 左边缘那条色条是参考物里最显眼的一处：一眼能看出这张卡属于哪个板块。
+ */
+export function SectionCard(props: {
+  title: ReactNode;
+  desc?: ReactNode;
+  icon?: IconName;
+  accent?: Accent;
+  actions?: ReactNode;
+  children: ReactNode;
+  bodyClassName?: string;
+  dataShot?: string;
+  /** 关掉左侧色条（默认开着） */
+  plain?: boolean;
+}) {
+  const accent = props.accent ?? 'ember';
+  return (
+    <section
+      data-shot={props.dataShot}
+      className={'card ' + (props.plain === true ? '' : 'accent-bar accent-' + accent)}
+    >
+      <div className="card-head">
+        <div className="min-w-0">
+          <h2 className="card-title flex items-center gap-2">
+            {props.icon === undefined ? null : <Icon name={props.icon} size={16} className="text-ink-400" />}
+            <span className="truncate">{props.title}</span>
+          </h2>
+          {props.desc === undefined ? null : <p className="card-desc">{props.desc}</p>}
+        </div>
+        {props.actions === undefined ? null : <div className="flex shrink-0 items-center gap-2">{props.actions}</div>}
+      </div>
+      <div className={'card-pad ' + (props.bodyClassName ?? '')}>{props.children}</div>
+    </section>
+  );
+}
+
+/** 固定高度的分栏（质询台那种）：头部简朴、正文自己滚 */
 export function Pane(props: {
   title: ReactNode;
   subtitle?: ReactNode;
@@ -29,7 +110,9 @@ export function Pane(props: {
   );
 }
 
-export function Badge(props: { tone: 'solid' | 'warn' | 'danger' | 'muted' | 'ember'; children: ReactNode; title?: string }) {
+export type Tone = 'solid' | 'warn' | 'danger' | 'muted' | 'ember' | 'sky' | 'violet' | 'teal';
+
+export function Badge(props: { tone: Tone; children: ReactNode; title?: string }) {
   return (
     <span className={'badge badge-' + props.tone} title={props.title}>
       {props.children}
@@ -93,11 +176,28 @@ export function WeightBar(props: { value: number }) {
   );
 }
 
-export function Empty(props: { title: string; hint?: string }) {
+/** 空状态：一句说明 + 一行提示，带一张「虚线插画」的位置（参考物里都是这个形状） */
+export function Empty(props: { title: string; hint?: string; icon?: IconName }) {
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-2 px-6 py-10 text-center">
-      <p className="text-sm text-ink-300">{props.title}</p>
-      {props.hint === undefined ? null : <p className="max-w-md text-xs leading-relaxed text-ink-400">{props.hint}</p>}
+    <div className="empty">
+      <span className="empty-art">
+        <Icon name={props.icon ?? 'file'} size={26} />
+      </span>
+      <p className="empty-title">{props.title}</p>
+      {props.hint === undefined ? null : <p className="empty-hint">{props.hint}</p>}
+    </div>
+  );
+}
+
+/** 提示条：蓝=说明、黄=注意 */
+export function Note(props: { tone?: 'info' | 'warn' | 'plain'; icon?: IconName; children: ReactNode }) {
+  const tone = props.tone ?? 'plain';
+  const cls = tone === 'info' ? 'note note-info' : tone === 'warn' ? 'note note-warn' : 'note';
+  const icon: IconName = props.icon ?? (tone === 'warn' ? 'alert' : 'info');
+  return (
+    <div className={cls}>
+      <Icon name={icon} size={15} className="note-ico" />
+      <div className="min-w-0">{props.children}</div>
     </div>
   );
 }
@@ -123,11 +223,13 @@ export function ErrorNotes(props: { errors: { message: string; fatal: boolean }[
   );
 }
 
-export function Stat(props: { label: string; value: ReactNode; hint?: string }) {
+/** 统计小卡：参考物里每页顶部那排数字块 */
+export function Stat(props: { label: string; value: ReactNode; hint?: string; accent?: Accent }) {
   return (
-    <div className="flex flex-col" title={props.hint}>
-      <span className="text-[10px] uppercase tracking-wide text-ink-400">{props.label}</span>
-      <span className="text-sm font-semibold text-ink-100">{props.value}</span>
+    <div className={'stat-card accent-' + (props.accent ?? 'ember')} title={props.hint}>
+      <span className="stat-label">{props.label}</span>
+      <span className="stat-value">{props.value}</span>
+      {props.hint === undefined ? null : <span className="stat-hint">{props.hint}</span>}
     </div>
   );
 }
