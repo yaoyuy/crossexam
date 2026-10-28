@@ -47,6 +47,21 @@ describe('新手教程', () => {
     }
   });
 
+  it('FAQ 里的判定口径与服务端代码一致，不再说「一律改判无法回答」', () => {
+    const answer = FAQ.find((item) => item.title.includes('判定'))?.body ?? '';
+    // 这条真实发过：verdict.ts 早就把「全体未答」从 unanswerable 改成 unsupported，
+    // 界面上却还写着「强制为无法回答」——文案漂移必须有测试钉住（见 findings F80）。
+    expect(answer).toContain('证据缺失');
+    expect(answer).not.toContain('所有追问都没答上来的强制为');
+  });
+
+  it('四步上手提得到后来落成的入口，否则新手找不到', () => {
+    const all = HELP_STEPS.map((step) => step.body).join(' ');
+    expect(all).toContain('打包分享');
+    expect(all).toContain('一岗一版');
+    expect(all).toContain('改完再跑一遍');
+  });
+
   it('第一次打开自动弹教程，看过一次就不再弹', () => {
     install('localStorage', undefined);
     expect(shouldAutoOpenHelp()).toBe(false);
