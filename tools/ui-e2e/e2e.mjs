@@ -280,20 +280,96 @@ await send('Runtime.enable');
 await send('Log.enable');
 await send('Network.enable');
 await send('Page.navigate', { url: 'http://127.0.0.1:' + PORT + '/' });
-const first = await waitText('开始质询', 30000);
+const homeReady = await waitFor(async () => {
+  const ok = await evalJs('document.querySelector("[data-shot=home-page]") !== null');
+  return ok === true ? 'home' : '';
+}, '首页渲染出来', 30000);
 events.length = 0;
 await sleep(400);
-check('首屏渲染出投料台与三栏', first.indexOf('投料台') >= 0 && first.indexOf('意图契约') >= 0 && first.indexOf('主张与追问') >= 0, '');
-check('空状态列了四条机制', first.indexOf('证据锚定') >= 0 && first.indexOf('追问预算') >= 0 && first.indexOf('意图契约') >= 0 && first.indexOf('可复现回放') >= 0, '');
-const runDisabledEmpty = await evalJs('document.querySelector(String.fromCharCode(91) + "data-shot=" + String.fromCharCode(34) + "run" + String.fromCharCode(34) + String.fromCharCode(93) + "").disabled');
-check('简历为空时「开始质询」是灰的', runDisabledEmpty === true, String(runDisabledEmpty));
+const homeText = await bodyText();
+check('首屏落在首页，并且一句话说清这是什么', homeReady === 'home' && homeText.indexOf('把简历放到火上烤一遍') >= 0, homeText.slice(0, 40));
+const homeCards = await evalJs('document.querySelectorAll("[data-shot^=home-card-]").length');
+check('首页把其余五个页面各做成一张卡片，点得进去', homeCards === 5, String(homeCards) + ' 张');
 
-// 新手教程：这份浏览器 profile 是本次新建的，所以第一次打开必然自动弹一次。
-// 按内容断言，而不是只断言「有个弹层」——教程的价值就在那几句话里。
-const firstHelp = await bodyText();
-check('第一次打开自动弹出新手教程', firstHelp.indexOf('新手教程') >= 0 && firstHelp.indexOf('四步用起来') >= 0, '');
-check('教程里讲了三种模式的区别', firstHelp.indexOf('离线回放') >= 0 && firstHelp.indexOf('联网录制') >= 0 && firstHelp.indexOf('联网直连') >= 0, '');
-check('教程里写明隐私口径（只在联网时才发给模型服务商）', firstHelp.indexOf('模型服务商') >= 0 && firstHelp.indexOf('SQLite') >= 0, '');
+// 多步新手向导：这份浏览器 profile 是本轮新建的，所以第一次打开必然自动走一遍。
+// 这里要证明的是「一步只讲一件事」：每一步标题不同，而且走一步背景页面就跟着换一页——
+// 否则向导讲「第二步 · 挑面试官」，人还得自己去找那几个按钮在哪。
+const wizardText = await waitFor(async () => {
+  const t = await evalJs('(document.querySelector("[data-shot=wizard]") || { innerText: "" }).innerText');
+  return t.length > 0 ? t : '';
+}, '新手向导自动弹出', 15000);
+check('第一次打开自动弹出多步向导', wizardText.indexOf('第 1 / 5 步') >= 0 && wizardText.indexOf('欢迎来到质询室') >= 0, wizardText.slice(0, 40));
+const wizardNext = async () => {
+  await evalJs('document.querySelector("[data-shot=wizard-next]").click()');
+  await sleep(320);
+};
+await wizardNext();
+const step2Title = await evalJs('(document.querySelector("[data-shot=wizard-title]") || { innerText: "" }).innerText');
+const step2Page = await evalJs('document.querySelector("[data-shot=nav-intake]").getAttribute("aria-current")');
+check('走到「把材料放进去」这一步，背后的页面已经切到投料台', step2Title.indexOf('把材料放进去') >= 0 && step2Page === 'page', String(step2Title) + ' / ' + String(step2Page));
+await wizardNext();
+const step3Title = await evalJs('(document.querySelector("[data-shot=wizard-title]") || { innerText: "" }).innerText');
+check('第三步单独讲挑面试官与追问强度', step3Title.indexOf('挑面试官') >= 0, String(step3Title));
+await wizardNext();
+const step4Body = await evalJs('(document.querySelector("[data-shot=wizard-body]") || { innerText: "" }).innerText');
+check('第四步讲开始质询，并说明三种运行模式', step4Body.indexOf('实时直播') >= 0, String(step4Body).slice(0, 40));
+await wizardNext();
+const step5Title = await evalJs('(document.querySelector("[data-shot=wizard-title]") || { innerText: "" }).innerText');
+const step5Page = await evalJs('document.querySelector("[data-shot=nav-report]").getAttribute("aria-current")');
+check('最后一步把结论带走，并把页面带到报告页', step5Title.indexOf('把结论带走') >= 0 && step5Page === 'page', String(step5Title) + ' / ' + String(step5Page));
+await evalJs('document.querySelector("[data-shot=wizard-next]").click()');
+const wizardGone = await waitFor(async () => {
+  const gone = await evalJs('document.querySelector("[data-shot=wizard]") === null');
+  return gone === true ? 'gone' : '';
+}, '向导收起', 8000);
+const wizardStored = await evalJs("localStorage.getItem('crossexam.seen-wizard')");
+check('点「开始用」之后向导收起，并记住不再自动弹', wizardGone === 'gone' && wizardStored === '1', String(wizardGone) + ' / ' + String(wizardStored));
+
+// 左侧栏六个页面：每一页只回答一个问题，所以上一页的东西在下一页不该还在。
+const gotoPage = async (name) => {
+  await evalJs('(() => { const b = document.querySelector("[data-shot=nav-' + name + ']"); if (b === null) return "no-nav"; b.click(); return "ok"; })()');
+  await sleep(300);
+};
+// 契约卡住在质询台（StageRail 属于那一页），所以要数契约就得切过去数一条再切回来。
+const contractCount = async () => {
+  await gotoPage('interview');
+  await sleep(200);
+  const n = await evalJs('document.querySelectorAll("[data-shot=contract-toggle]").length');
+  await gotoPage('intake');
+  await sleep(150);
+  return n;
+};
+const navCount = await evalJs('document.querySelectorAll("[data-shot^=nav-]").length');
+check('左侧栏给出六个页面入口', navCount === 6, String(navCount) + ' 个');
+await gotoPage('interview');
+const interviewEmpty = await bodyText();
+check('还没开跑时质询台列了四条机制，而不是一片空白', interviewEmpty.indexOf('证据锚定') >= 0 && interviewEmpty.indexOf('追问预算') >= 0 && interviewEmpty.indexOf('意图契约') >= 0 && interviewEmpty.indexOf('可复现回放') >= 0, interviewEmpty.slice(0, 40));
+const noCardsOnEmpty = await countCards();
+check('空质询台一张主张卡片都没有', noCardsOnEmpty === 0, String(noCardsOnEmpty) + ' 张');
+await gotoPage('report');
+const reportEmpty = await bodyText();
+check('没有会话时报告页给出一个明确的去处', reportEmpty.indexOf('先跑一场质询') >= 0, reportEmpty.slice(0, 40));
+await gotoPage('history');
+const historyEmpty = await evalJs('(document.querySelector("[data-shot=history]") || { innerText: "" }).innerText');
+check('历史页在还没跑过时说清这件事', historyEmpty.indexOf('还没有跑过') >= 0, historyEmpty.slice(0, 40));
+await gotoPage('settings');
+const settingsText = await bodyText();
+check('设置页把配色、隐私与启动方式集中在一处', settingsText.indexOf('配色：') >= 0 && settingsText.indexOf('数据库：') >= 0 && settingsText.indexOf('CROSSEXAM_PORT') >= 0, settingsText.slice(0, 40));
+// 投料台才是「喂材料、定档位」的地方：简历为空时按钮该是灰的。
+await gotoPage('intake');
+const intakeRows = await evalJs('document.querySelectorAll("[data-shot=jd-row-1]").length');
+const runDisabledEmpty = await evalJs('document.querySelector("[data-shot=run]").disabled');
+check('投料台里简历为空时「开始质询」是灰的', intakeRows === 1 && runDisabledEmpty === true, String(intakeRows) + ' 行 JD / 灰 ' + String(runDisabledEmpty));
+
+// 新手教程：首开让位给向导，不再自动弹；但顶部入口随时能打开，内容也还讲三种模式。
+await evalJs('document.querySelector("[data-shot=help-open]").click()');
+const helpText = await waitFor(async () => {
+  const t = await evalJs('(document.querySelector("[data-shot=help]") || { innerText: "" }).innerText');
+  return t.indexOf('新手教程') >= 0 ? t : '';
+}, '教程弹层', 8000);
+check('顶部的「新手教程」随时能打开', helpText.indexOf('四步用起来') >= 0, helpText.slice(0, 40));
+check('教程里讲了三种模式的区别', helpText.indexOf('离线回放') >= 0 && helpText.indexOf('联网录制') >= 0 && helpText.indexOf('联网直连') >= 0, '');
+check('教程里写明隐私口径（只在联网时才发给模型服务商）', helpText.indexOf('模型服务商') >= 0 && helpText.indexOf('SQLite') >= 0, '');
 await evalJs("document.querySelector('[data-shot=\"help-close\"]').click()");
 await sleep(250);
 const helpGone = await evalJs("document.querySelector('[data-shot=\"help\"]') === null");
@@ -369,14 +445,15 @@ const noteOf = () => evalJs('(document.querySelector("[data-shot=difficulty-note
 const normalNote = await noteOf();
 check('默认是常规档，并把这一档的预算说成人话', normalNote.indexOf('最多 3 轮') >= 0, normalNote.slice(0, 50));
 // 契约卡片的正文在按钮的父节点里，指纹与预算都在展开后的 dl 里。
-const cardText = () => evalJs('(function () { var b = document.querySelector("[data-shot=contract-toggle]"); return b === null ? "" : String(b.parentElement.innerText); })()');
+// 预算与指纹就摆在两个旋钮下面（P15 之后不必再先展开质询台的契约卡）。
+// 这一段是一组对照实验：换追问强度它会变，换改写风格它不该变。
+const cardText = () => evalJs('(document.querySelector("[data-shot=intake-contract]") || { innerText: "" }).innerText');
+await sleep(250);
 const digestOf = (text) => { const hit = /指纹 ([0-9a-f]{8})/.exec(String(text)); return hit === null ? '' : hit[1]; };
 const budgetOf = (text) => {
   const hit = /每主张最多 ([0-9]+) 轮追问 · 每人每主张最多 ([0-9]+) 次 · 全场最多 ([0-9]+) 次/.exec(String(text));
   return hit === null ? '' : hit[1] + '/' + hit[2] + '/' + hit[3];
 };
-await evalJs('(function () { var b = document.querySelector("[data-shot=contract-toggle]"); if (b !== null) b.click(); return "ok"; })()');
-await sleep(300);
 const cardBefore = await cardText();
 check('展开契约能看到这一档的预算与指纹', budgetOf(cardBefore) === '3/2/60' && digestOf(cardBefore).length === 8, budgetOf(cardBefore) + ' / ' + digestOf(cardBefore));
 await evalJs('document.querySelector("[data-shot=difficulty-hard]").click()');
@@ -390,8 +467,6 @@ check('温和档连「每人每主张几次」都更小（1 次）', budgetOf(ge
 await evalJs('document.querySelector("[data-shot=difficulty-normal]").click()');
 const backCard = await waitFor(async () => { const text = await cardText(); return budgetOf(text) === '3/2/60' ? text : ''; }, '回到常规档', 8000);
 check('切回常规档：预算与指纹都回到原样', budgetOf(backCard) === '3/2/60' && digestOf(backCard) === digestOf(cardBefore), budgetOf(backCard) + ' / ' + digestOf(backCard));
-await evalJs('(function () { var b = document.querySelector("[data-shot=contract-toggle]"); if (b !== null) b.click(); return "ok"; })()');
-await sleep(200);
 
 // 改写风格：三档只调「改得多狠」，所以它**不该**动契约指纹——
 // 这一条正是与追问强度的对照实验：那边换档指纹必须变，这边换档指纹必须不变。
@@ -404,11 +479,8 @@ await evalJs('document.querySelector("[data-shot=style-bold]").click()');
 await sleep(300);
 const boldStyleNote = await styleNoteOf();
 check('切到敢改档，说明换成另一句话', boldStyleNote.indexOf('不新增任何事实') >= 0, boldStyleNote.slice(0, 40));
-await evalJs('(function () { var b = document.querySelector("[data-shot=contract-toggle]"); if (b !== null) b.click(); return "ok"; })()');
-await sleep(300);
 const styleCard = await cardText();
 check('换改写风格不改契约指纹（与追问强度相反，它不属于契约）', digestOf(styleCard) === digestOf(backCard), digestOf(backCard) + ' → ' + digestOf(styleCard));
-await evalJs('(function () { var b = document.querySelector("[data-shot=contract-toggle]"); if (b !== null) b.click(); return "ok"; })()');
 await evalJs('document.querySelector("[data-shot=style-normal]").click()');
 await sleep(300);
 
@@ -428,23 +500,24 @@ const cardsAfterFail = await countCards();
 check('失败时不产出主张卡片', cardsAfterFail === 0, String(cardsAfterFail));
 await shot('02-fatal.png');
 
+// 一键示例在投料台；上一场是失败的，页面停在质询台，所以先回去。
+await gotoPage('intake');
 await clickText('一键示例');
 await sleep(300);
 const demoLen = await evalJs('document.querySelectorAll("textarea")[0].value.length');
 check('一键示例把 361 字示例简历填了进来', demoLen === 361, String(demoLen) + ' 字');
 await waitText('合成素材', 5000);
-const contractCountBefore = await evalJs('document.querySelectorAll(String.fromCharCode(91) + "data-shot=" + String.fromCharCode(34) + "contract-toggle" + String.fromCharCode(34) + String.fromCharCode(93) + "").length');
+const contractCountBefore = await contractCount();
 check('开跑前面板契约可见（三条）', contractCountBefore === 3, String(contractCountBefore) + ' 条');
 await clickIncludes('压力面试官');
-const contractCountAdded = await waitFor(async () => { const n = await evalJs('document.querySelectorAll(String.fromCharCode(91) + "data-shot=" + String.fromCharCode(34) + "contract-toggle" + String.fromCharCode(34) + String.fromCharCode(93) + "").length'); return n === 4 ? '4' : ''; }, '契约变四条', 8000);
+const contractCountAdded = await waitFor(async () => { const n = await contractCount(); return n === 4 ? '4' : ''; }, '加一位面试官后契约多一条', 25000);
 check('加一位面试官，契约跟着多一条', contractCountAdded === '4', contractCountAdded);
 await clickIncludes('压力面试官');
-await waitFor(async () => { const n = await evalJs('document.querySelectorAll(String.fromCharCode(91) + "data-shot=" + String.fromCharCode(34) + "contract-toggle" + String.fromCharCode(34) + String.fromCharCode(93) + "").length'); return n === 3 ? '3' : ''; }, '契约回到三条', 8000);
 await clickIncludes('HR 面试官');
-await waitFor(async () => { const n = await evalJs('document.querySelectorAll(String.fromCharCode(91) + "data-shot=" + String.fromCharCode(34) + "contract-toggle" + String.fromCharCode(34) + String.fromCharCode(93) + "").length'); return n === 2 ? '2' : ''; }, '契约变两条', 8000);
 await clickIncludes('HR 面试官');
 await sleep(400);
-check('面试官面板可以增减', true, '三位 → 四位 → 两位 → 三位');
+const contractCountBack = await contractCount();
+check('面试官面板可以增减', contractCountBack === 3, '三位 → 四位 → 两位 → 三位，末尾 ' + String(contractCountBack) + ' 条');
 
 // 面试官工作室：这是「所有专业都能用」那条要求最直接的验收点。
 // 走「只用本地规则」这条路，因为它不联网、确定性强，而且正好证明没有 API Key 也能配出面试官。
@@ -481,9 +554,11 @@ await sleep(400);
 const customChip = await waitFor(async () => { const n = await evalJs('document.querySelectorAll("[data-shot^=role-custom-]").length'); return n > 0 ? String(n) : ''; }, '面板出现自建面试官', 8000);
 check('存下来的自定义面试官出现在面板里', customChip !== '', customChip + ' 位');
 const customToggled = await evalJs('(() => { const b = document.querySelector("[data-shot^=role-custom-]"); if (b === null) return "no-chip"; b.click(); return "ok"; })()');
-const contractFive = await waitFor(async () => { const n = await evalJs('document.querySelectorAll("[data-shot=contract-toggle]").length'); return n === 4 ? '4' : ''; }, '自定义面试官的契约', 8000);
-check('自建面试官进面板后契约跟着多一条', customToggled === 'ok' && contractFive === '4', contractFive);
+await sleep(350);
+const contractFive = await contractCount();
+check('自建面试官进面板后契约跟着多一条', customToggled === 'ok' && contractFive === 4, String(customToggled) + ' / ' + String(contractFive) + ' 条');
 await evalJs('(() => { const b = document.querySelector("[data-shot^=role-custom-]"); if (b !== null) b.click(); return "ok"; })()');
+await sleep(350);
 await sleep(400);
 
 await clickText('即时');
@@ -890,6 +965,8 @@ await evalJs('(() => { const b = document.querySelector(String.fromCharCode(91) 
 const promptText = await waitFor(async () => { const t = await evalJs('(() => { const pre = document.querySelector(String.fromCharCode(91) + "data-shot=" + String.fromCharCode(34) + "contracts" + String.fromCharCode(34) + String.fromCharCode(93) + " pre"); return pre === null ? "" : pre.innerText; })()'); return t.length > 200 ? t : ''; }, 'System Prompt 正文', 8000);
 check('能展开这位面试官实际拿到的 System Prompt', promptText.indexOf('## 追问预算') >= 0, String(promptText.length) + ' 字');
 
+// 清空按钮在投料台（这一段之前页面停在质询台）。
+await gotoPage('intake');
 await clickText('清空');
 await sleep(500);
 const clearedLen = await evalJs('document.querySelectorAll("textarea")[0].value.length');
@@ -926,7 +1003,8 @@ const tplFilled = await waitFor(async () => {
 check('点一下模板：岗位名、JD、示例简历一起填好', tplClicked === 'ok' && tplFilled.length > 0, String(tplClicked) + ' / ' + tplFilled);
 const tplNote = await evalJs('(document.querySelector("[data-shot=tpl-note]") || { textContent: "" }).textContent');
 check('提示一次说清装了什么、换了谁', tplNote.indexOf('已装好') >= 0 && tplNote.indexOf('药房主管') >= 0, tplNote.slice(0, 80));
-const tplContracts = await evalJs('document.querySelectorAll("[data-shot=contract-toggle]").length');
+// 契约卡在质询台：装了模板之后切过去数一条，再回来接着点模板。
+const tplContracts = await contractCount();
 const tplCustom = await evalJs('document.querySelectorAll("[data-shot^=role-custom-]").length');
 check('模板自带的面试官进了阵容并渲染出契约', tplContracts === 3 && tplCustom === tplCustomBefore + 1, String(tplContracts) + ' 条契约 / ' + String(tplCustom) + ' 位自建（此前 ' + String(tplCustomBefore) + ' 位）');
 await evalJs('(function () { var b = document.querySelector("[data-shot=tpl-med-pharmacy-lead]"); if (b !== null) b.click(); return "ok"; })()');
@@ -959,8 +1037,11 @@ check('一份 JD 太短就点名是哪一份，并把开始按钮压灰', jdProb
 await setShot('jd-text-2', '负责处方审核与用药交代；五年以上医院药房工作经验；熟悉药事管理法规与抗菌药物分级管理制度。');
 const jdRecovered = await waitFor(async () => { const t = await evalJs('(document.querySelector("[data-shot=jd-problem]") || { textContent: "" }).textContent'); const d = await evalJs('document.querySelector("[data-shot=run]").disabled'); return t.length === 0 && d === false ? 'ok' : ''; }, '补够字数后重新可跑', 8000);
 check('补够字数之后提示自己消失、按钮自己变回来', jdRecovered === 'ok', String(jdRecovered));
+// 右栏的岗位切换按钮属于质询台（JdPane 在那一页），切过去看一眼再回来继续改投料台。
+await gotoPage('interview');
 const jdPickChips = await evalJs('document.querySelectorAll("[data-shot^=jd-pick-]").length');
 check('两份 JD 在右栏给出切换按钮', jdPickChips === 2, String(jdPickChips) + ' 个');
+await gotoPage('intake');
 const jdRemoved = await evalJs('(() => { const b = document.querySelector("[data-shot=jd-remove-2]"); if (b === null) return "no-button"; b.click(); return "ok"; })()');
 await sleep(300);
 const jdRowsBack = await evalJs('document.querySelectorAll("[data-shot^=jd-row-]").length');
@@ -1005,8 +1086,10 @@ await clickText('清空');
 await sleep(400);
 
 
-const historyText = await evalJs('document.querySelector(String.fromCharCode(91) + "data-shot=" + String.fromCharCode(34) + "intake" + String.fromCharCode(34) + String.fromCharCode(93) + "").innerText');
-check('历史会话列出刚才两场', historyText.indexOf('高级后端工程师（Node.js） · 演示简历') >= 0 && historyText.indexOf('已完成') >= 0 && historyText.indexOf('失败') >= 0, historyText.replace(/\n/g, ' / ').slice(-160));
+await gotoPage('history');
+await sleep(300);
+const historyText = await evalJs('(document.querySelector("[data-shot=history]") || { innerText: "" }).innerText');
+check('历史会话列出刚才两场', historyText.indexOf('高级后端工程师（Node.js） · 演示简历') >= 0 && historyText.indexOf('已完成') >= 0 && historyText.indexOf('失败') >= 0, historyText.slice(-80));
 // C2 历史仪表盘：界面上的数字必须等于接口值。统计块自己算一套数字，
 // 迟早会和报告里的「站得住 N 条」对不上——这里点测的就是这条纪律。
 const apiOverview = await (await fetch('http://127.0.0.1:' + PORT + '/api/sessions/overview')).json();
@@ -1024,7 +1107,7 @@ check('同一份简历跑过几场时点名这件事，只跑一场时不硬凑'
 const jdNoteText = await textOf('overview-jd');
 check('同一个岗位跑过几场时点名这个岗位', apiOverview.sameJdRuns > 1 ? jdNoteText.indexOf('最多跑过') >= 0 : jdNoteText.length === 0, String(jdNoteText).slice(0, 60));
 
-const clicked = await evalJs('(() => { const btns = Array.from(document.querySelectorAll(String.fromCharCode(91) + "data-shot=" + String.fromCharCode(34) + "intake" + String.fromCharCode(34) + String.fromCharCode(93) + " button")); const b = btns.find((x) => (x.textContent || "").indexOf("演示简历") >= 0); if (!b) return "没找到"; b.click(); return "ok"; })()');
+const clicked = await evalJs('(() => { const btns = Array.from(document.querySelectorAll(String.fromCharCode(91) + "data-shot=" + String.fromCharCode(34) + "history" + String.fromCharCode(34) + String.fromCharCode(93) + " button")); const b = btns.find((x) => (x.textContent || "").indexOf("演示简历") >= 0); if (!b) return "没找到"; b.click(); return "ok"; })()');
 check('点历史里的那一条能载回来', clicked === 'ok', String(clicked));
 const loaded = await waitText('置信度', 15000);
 const loadedCards = await countCards();
@@ -1032,6 +1115,9 @@ const resumeLen = await evalJs('(() => { const p = document.querySelector(String
 check('载回来后棋盘与简历原文都回来了', loadedCards === 5 && resumeLen > 100, '卡片 ' + String(loadedCards) + ' / 原文 ' + String(resumeLen) + ' 字');
 await shot('04-history-loaded.png');
 
+// 删除按钮在历史页（每页各管一件事），先切回去再点 ×。
+await gotoPage('history');
+await sleep(300);
 const before = (await sessions()).length;
 await evalJs('(() => { const bs = Array.from(document.querySelectorAll("button[title=" + String.fromCharCode(34) + "删除这一场" + String.fromCharCode(34) + "]")); bs[0].click(); return bs.length; })()');
 const afterOne = await waitSessionsBelow(before - 1, 10000);
@@ -1040,12 +1126,17 @@ const delCount = () => evalJs('document.querySelectorAll("button[title=" + Strin
 // 一行一行删到空。连点两下删除曾经会留下一条幽灵会话（两次刷新的响应乱序回来，
 // 先发的那份把已删的行又写回列表），所以 App 里给刷新加了序号闸门，这里断言的就成了真话。
 for (let i = 0; i < 6; i += 1) {
+  // 界面是乐观删除：点下去先把那一行摘掉、请求还在路上，所以 DOM 少了一行
+  // 不等于服务端已经删掉。上一轮就栽在这里——最后一次点击的请求还没落地，
+  // 循环已经按 DOM 退出了，紧接着的终局断言读到了那个还没删掉的会话。
+  const serverBefore = (await sessions()).length;
   const beforeRows = await delCount();
-  if (beforeRows === 0) break;
+  if (serverBefore === 0 || beforeRows === 0) break;
   await evalJs('(() => { const bs = Array.from(document.querySelectorAll("button[title=" + String.fromCharCode(34) + "删除这一场" + String.fromCharCode(34) + "]")); if (bs.length > 0) bs[0].click(); return bs.length; })()');
   await waitFor(async () => { const n = await delCount(); return n < beforeRows ? 'ok' : ''; }, '列表少一行', 12000);
+  await waitSessionsBelow(serverBefore - 1, 12000);
 }
-const finalList = await sessions();
+const finalList = await waitSessionsBelow(0, 12000);
 check('可以把历史清空', finalList.length === 0, String(finalList.length) + ' 场');
 
 const problems = [];
