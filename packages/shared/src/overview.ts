@@ -22,6 +22,11 @@ export interface SessionFacts {
   jobTitle: string;
   /** 简历正文指纹：同一份简历改都没改再跑一遍，指纹相同 */
   resumeHash: string;
+  /**
+   * 这一场对照过的岗位要求（可以为空：只喂简历不喂 JD 是合法的）。
+   * key 由调用方算好传进来，这里不自己拼：同一件事只允许一个作者。
+   */
+  jds: readonly SessionJdFact[];
   claims: readonly JudgedClaimLike[];
   probes: number | null;
 }
@@ -48,6 +53,28 @@ export interface ResumeGroup {
   latestCreatedAt: string;
 }
 
+/**
+ * 一场会话对照过的岗位要求（一台沙盘可以有 1-8 份）。
+ * key 由调用方按正文算：同一份 JD 同键，改一个字就是另一个岗位。
+ */
+export interface SessionJdFact {
+  key: string;
+  title: string;
+}
+
+/**
+ * 同一份岗位要求下跑过的几场归成一组。
+ * 「这个岗位我改了几版简历」要看的就是这一组，与按简历分的组正交：
+ * 一组顺着简历改，一组顺着岗位看。
+ */
+export interface JdGroup {
+  jdKey: string;
+  jdTitle: string;
+  sessions: number;
+  latestId: string;
+  latestCreatedAt: string;
+}
+
 export interface HistoryOverview {
   sessions: number;
   claims: number;
@@ -63,6 +90,10 @@ export interface HistoryOverview {
   resumeGroups: ResumeGroup[];
   /** 同一份简历最多跑过几场（改完再跑一遍会 +1） */
   sameResumeRuns: number;
+  /** 按岗位要求归的组，场次多的在前；没填过 JD 的场次不进任何组 */
+  jdGroups: JdGroup[];
+  /** 同一份岗位要求最多跑过几场 */
+  sameJdRuns: number;
   /** 一句话结论，界面与报告共用 */
   headline: string;
 }
@@ -132,6 +163,37 @@ export function trendLine(trend: readonly TrendPoint[]): string | null {
   return '最近 ' + String(trend.length) + ' 场：站得住 ' + trend.map((point) => String(point.solid)).join(' → ') + ' 条';
 }
 
+/**
+ * 按岗位要求分组：一场会话对照过几份 JD，就进几个组——多 JD 的场次本来就在回答几个岗位，
+ * 塞进其中一个才是撒谎。只数场次、只记最近那一场，不给「这个岗位进步了多少分」这种单一分数。
+ * 排序写死：场次多的在前，一样多则更近的在前，再一样按 key 升序——同一批输入永远同一顺序。
+ */
+function groupByJd(sessions: readonly SessionFacts[]): JdGroup[] {
+  const groups = new Map<string, JdGroup>();
+  for (const session of sessions) {
+    for (const jd of session.jds) {
+      const found = groups.get(jd.key);
+      if (found === undefined) {
+        groups.set(jd.key, {
+          jdKey: jd.key,
+          jdTitle: jd.title,
+          sessions: 1,
+          latestId: session.id,
+          latestCreatedAt: session.createdAt,
+        });
+      } else {
+        found.sessions += 1;
+      }
+    }
+  }
+  return [...groups.values()].sort((a, b) => {
+    if (a.sessions !== b.sessions) return b.sessions - a.sessions;
+    if (a.latestCreatedAt !== b.latestCreatedAt) return a.latestCreatedAt < b.latestCreatedAt ? 1 : -1;
+    if (a.jdKey === b.jdKey) return 0;
+    return a.jdKey < b.jdKey ? -1 : 1;
+  });
+}
+
 /** 把一批场次聚合成仪表盘。入参顺序不限，输出顺序由 newestFirst 定死。 */
 export function overviewOf(sessions: readonly SessionFacts[]): HistoryOverview {
   const ordered = [...sessions].sort(newestFirst);
@@ -156,6 +218,9 @@ export function overviewOf(sessions: readonly SessionFacts[]): HistoryOverview {
   const resumeGroups = [...groups.values()];
   let sameResumeRuns = 0;
   for (const group of resumeGroups) if (group.sessions > sameResumeRuns) sameResumeRuns = group.sessions;
+  const jdGroups = groupByJd(ordered);
+  let sameJdRuns = 0;
+  for (const group of jdGroups) if (group.sessions > sameJdRuns) sameJdRuns = group.sessions;
   const recent = ordered.slice(0, TREND_POINTS).reverse();
   const partial = {
     sessions: ordered.length,
@@ -166,6 +231,8 @@ export function overviewOf(sessions: readonly SessionFacts[]): HistoryOverview {
     trend: recent.map(trendPointOf),
     resumeGroups,
     sameResumeRuns,
+    jdGroups,
+    sameJdRuns,
   };
   const trendNote =
     partial.trend.length < 2
