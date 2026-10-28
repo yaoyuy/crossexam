@@ -1580,3 +1580,19 @@ sha256 去重检查 **0 个相邻重复**（F92 那条坑没有复发）。
 
 **没动的东西**：提示词、149 盘卡带、schema（仍 v10）。
 
+
+
+## Session 44 · 2026-10-28 · P16 第二轮：首页焦点 + 单栏页放宽
+
+用户看过 P16 第一版截图后给了两条：**再修一版**、**有没有安装包**。这一条只做前者（安装包见下）。
+
+- 首页原来六块卡片一样重，眼睛没有落点。改法：主视觉卡换成 `SectionCard` + `.card-hero`（底色掺 7% 强调色、描边掺 24%），
+  主按钮放大到 `px-4 py-2 text-[13px] font-semibold`；五个页面入口改成磁贴（`.tile` + `IconTile` 彩色图标方块 + 右侧箭头），
+  强调色直接取 `pages.ts` 里每页已有的 `accent`，于是「投料台天蓝、质询台紫」从左侧栏一路对到首页。
+- 单栏页在 1600 宽下有约 700px 空白：`App.tsx` 的容器从 `max-w-4xl` 改成 `w-full max-w-4xl xl:max-w-5xl`（intake 从 `max-w-2xl` 提到同档，settings 到 `xl:max-w-4xl`）。
+- 踩到 F95（同名 `.tile` 两份，后一条静默覆盖前一条，箭头掉到左侧）。
+- 门禁：`npm run verify` exit 0（56 modules / JS gzip 124.68 kB 预算 128 / CSS gzip 9.20 kB 预算 16）·
+  `npm run e2e:ui` 177/177 · `npm run shots` 30 张、控制台 0 问题。
+- 关于「安装包」：**没有 exe/msi，也不打算做**。桌面形态是 `tools/launcher/launch.mjs` 起本地服务 + 用系统 Edge/Chrome 的 `--app=` 开一个无地址栏窗口，
+  分发靠 `git clone` + 双击 `启动.cmd`（须 Node ≥ 22.5.0）。理由见 ADR-0028：打包成原生安装包要么引入需本地编译的工具链、
+  要么把整个运行时塞进仓库，两者都会打破「十分钟复现」，而 AGENTS.md §6 对原生依赖是明确禁止的。
