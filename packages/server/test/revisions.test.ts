@@ -12,6 +12,7 @@
 
 import { afterEach, describe, expect, it } from 'vitest';
 import { createApp } from '../src/http/app.ts';
+import { readZipEntry } from '../src/import/zip.ts';
 import { closeDatabase, migrate, openDatabase } from '../src/store/index.ts';
 import type { Db } from '../src/store/index.ts';
 import { createScriptedClient } from './scripted.ts';
@@ -222,20 +223,23 @@ describe('简历导出三件套', () => {
     expect(html).toContain(AFTER);
   });
 
-  it('.doc 走 Word 的类型与附件名，内容是同一份 HTML', async () => {
+  it('导出的 .docx 是真 Word 文件，改后的正文在部件里', async () => {
     const t = rig();
     const id = await ranSession(t);
     await accept(t, id, ['C1']);
-    const res = await t.app.request('/api/sessions/' + id + '/resume.doc?marks=1');
+    const res = await t.app.request('/api/sessions/' + id + '/resume.docx?marks=1');
     expect(res.status).toBe(200);
-    expect(res.headers.get('content-type')).toContain('application/msword');
-    expect(res.headers.get('content-disposition')).toContain('.doc');
-    expect(await res.text()).toContain(AFTER);
+    expect(res.headers.get('content-type')).toContain('openxmlformats-officedocument.wordprocessingml.document');
+    expect(res.headers.get('content-disposition')).toContain('.docx');
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    expect(bytes[0]).toBe(0x50);
+    const document = readZipEntry(bytes, 'word/document.xml');
+    expect(Buffer.from(document ?? new Uint8Array()).toString('utf8')).toContain(AFTER);
   });
 
   it('导出不存在的会话返回 404', async () => {
     const t = rig();
-    for (const path of ['/resume.txt', '/resume.html', '/resume.doc']) {
+    for (const path of ['/resume.txt', '/resume.html', '/resume.docx']) {
       const res = await t.app.request('/api/sessions/nope' + path);
       expect(res.status).toBe(404);
     }
@@ -298,7 +302,8 @@ describe('报告里的改前改后对照', () => {
     const t = rig();
     const id = await ranSession(t);
     await accept(t, id, ['C1']);
-    const doc = await (await t.app.request('/api/sessions/' + id + '/report.doc')).text();
-    expect(doc).toContain('改前改后对照');
+    const res = await t.app.request('/api/sessions/' + id + '/report.docx');
+    const document = readZipEntry(new Uint8Array(await res.arrayBuffer()), 'word/document.xml');
+    expect(Buffer.from(document ?? new Uint8Array()).toString('utf8')).toContain('改前改后对照');
   });
 });

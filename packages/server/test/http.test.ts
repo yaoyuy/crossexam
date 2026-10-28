@@ -11,6 +11,7 @@ import { readFileSync } from 'node:fs';
 const NL = String.fromCharCode(10);
 import { afterEach, describe, expect, it } from 'vitest';
 import { createApp } from '../src/http/app.ts';
+import { readZipEntry } from '../src/import/zip.ts';
 import { closeDatabase, migrate, openDatabase } from '../src/store/index.ts';
 import type { Db } from '../src/store/index.ts';
 import { createScriptedClient } from './scripted.ts';
@@ -252,23 +253,29 @@ describe('HTTP 层', () => {
     expect(printableHtml).toContain('window.print()');
   });
 
-  it('报告能导出成 Word 认识的 .doc，附件名与正文都在', async () => {
+  it('报告能导出成真正的 .docx：zip 容器里翻得到 Word 的部件与正文', async () => {
     const t = rig();
     const id = await newSessionId(t);
     await t.app.request('/api/sessions/' + id + '/run?stream=0&panel=tech', { method: 'POST' });
 
-    const res = await t.app.request('/api/sessions/' + id + '/report.doc');
+    const res = await t.app.request('/api/sessions/' + id + '/report.docx');
     expect(res.status).toBe(200);
-    expect(res.headers.get('content-type')).toContain('application/msword');
+    expect(res.headers.get('content-type')).toContain('openxmlformats-officedocument.wordprocessingml.document');
     const disposition = res.headers.get('content-disposition') ?? '';
     expect(disposition).toContain('attachment');
-    expect(disposition).toContain('.doc');
-    expect(await res.text()).toContain('CrossExam 质询报告');
+    expect(disposition).toContain('.docx');
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    // 后缀叫 .docx 不算数：里面得先是 zip 容器（PK 魔数），再真的翻得到 Word 的正文部件
+    expect(bytes[0]).toBe(0x50);
+    expect(bytes[1]).toBe(0x4b);
+    const document = readZipEntry(bytes, 'word/document.xml');
+    expect(document).not.toBeNull();
+    expect(Buffer.from(document ?? new Uint8Array()).toString('utf8')).toContain('CrossExam 质询报告');
   });
 
   it('没有这一场会话时，报告接口如实说会话不存在', async () => {
     const t = rig();
-    for (const path of ['/report.html', '/report.doc']) {
+    for (const path of ['/report.html', '/report.docx']) {
       const res = await t.app.request('/api/sessions/s_不存在' + path);
       expect(res.status).toBe(404);
       const body = (await res.json()) as { error: string };
