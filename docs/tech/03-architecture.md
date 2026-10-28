@@ -298,7 +298,7 @@ llm_call(id, session_id, digest, purpose, model, replayed, usage_json, elapsedMs
 | `GET /api/sessions/:id/events?from=` | 事件续传 |
 | `GET /api/sessions/:id/report.md` | 下载 Markdown 报告（采纳过改写就多一节「改前改后对照」） |
 | `GET /api/sessions/:id/report.html?print=1` | 可打印 HTML 报告（`print=1` 时自动调 `window.print()`，PDF 由浏览器另存；采纳过才带并排对照表） |
-| `GET /api/sessions/:id/report.doc` | Word 报告（同一份 HTML + `application/msword`，同上） |
+| `GET /api/sessions/:id/report.docx` | Word 报告（真 OOXML：自写容器 + Word 内置样式，见 ADR-0026） |
 | `POST /api/sessions/:id/supplements` | 记下某条主张的补充说明（一句真话）：只存那句话与指纹，**不存坐标**——插入点由主张的锚点现算 |
 | `DELETE /api/sessions/:id/supplements/:claimId` | 删掉这条补充说明（没记过返回 404） |
 | `GET /api/sessions/:id/revisions` | 当前采纳出来的那一版简历（没采纳过是 `null`） |
@@ -306,7 +306,7 @@ llm_call(id, session_id, digest, purpose, model, replayed, usage_json, elapsedMs
 | `DELETE /api/sessions/:id/revisions` | 撤销全部采纳，回到原文 |
 | `GET /api/sessions/:id/resume.txt` | 改完的简历（纯文本，逐字就是要发出去的那一版） |
 | `GET /api/sessions/:id/resume.html?print=1&marks=1` | 可打印简历（`marks=1` 把改动段标绿并附「本版改了什么」） |
-| `GET /api/sessions/:id/resume.doc` | Word 简历（同一份 HTML + `application/msword`） |
+| `GET /api/sessions/:id/resume.docx` | Word 简历（同一份 OOXML 写入器，改动段标高亮色） |
 | `GET /api/stats?session=` | 调用账本统计 |
 
 ### 3.6.1 SSE 的收尾承诺
@@ -330,7 +330,7 @@ SSE 有三个终止事件，任何一个发生都意味着这一场结束了：
 ### 3.6.3 报告导出：服务端出 HTML，PDF 交给浏览器
 
 同一份 `SessionView` 有三种呈现：Markdown（`report.ts`，便于携带与 diff）、可打印 HTML（`report-html.ts`，便于阅读与打印）、
-Word（`.doc` 后缀 + `application/msword`，便于接着改）。**服务端不生成 PDF**：那需要带一个无头浏览器或 PDF 库，
+Word（真 `.docx`：自写 OOXML + Word 内置样式，便于接着改，见 ADR-0026）。**服务端不生成 PDF**：那需要带一个无头浏览器或 PDF 库，
 前者把「十分钟复现」变成赌评委机器上装了什么，后者违反零原生依赖。取舍详见 ADR-0006。
 
 HTML 报告不引用任何外部资源，保存单文件即可离线打开；页脚写明「简历与报告都没有离开这台机器」。
@@ -386,7 +386,7 @@ HTML 报告不引用任何外部资源，保存单文件即可离线打开；页
 2. **每次都从原文重算，采纳记录是集合不是叠加**。先采纳 C1 再采纳 C3，与一次采纳 [C1, C3]，结果**逐字节相同**。这样一来「撤销」不需要反向操作，`DELETE` 清空集合就从原文重算一遍；也就不存在「改了两遍、间距越改越乱」。
 3. **改不动的要说出理由**。建议引文在原简历里锚不住（原文被用户改过）、这条主张本来就没有建议、用户点名了不存在的主张——三类都进 `skipped` 并给一句中文原因，界面上直接显示「勾了但没改成：…」，而不是静默少改一处。
 
-导出复用报告那条路：服务端出 HTML，PDF 交给浏览器（ADR-0006），Word 是同一份 HTML + `.doc` 后缀。简历导出与报告导出**分两个渲染器**（`resume-export.ts` / `report-html.ts`）：报告是质询结论，简历是要发给 HR 的东西，混在一起会让简历带上满屏判定徽章。`marks=1` 时才把改动段标绿并附「本版改了什么（N 处）」——默认导出的就是干净的一版。改动坐标用的是 `movedSpans(applied)`：采纳会让后文整体平移，标记位置必须按累计位移重算，不能直接套原文坐标（见 `packages/shared/src/revise.ts`）。
+导出复用报告那条路：服务端出 HTML，PDF 交给浏览器（ADR-0006），Word 是真 `.docx`（自写 OOXML，见 ADR-0026）。简历导出与报告导出**分两个渲染器**（`resume-export.ts` / `report-html.ts`）：报告是质询结论，简历是要发给 HR 的东西，混在一起会让简历带上满屏判定徽章。`marks=1` 时才把改动段标绿并附「本版改了什么（N 处）」——默认导出的就是干净的一版。改动坐标用的是 `movedSpans(applied)`：采纳会让后文整体平移，标记位置必须按累计位移重算，不能直接套原文坐标（见 `packages/shared/src/revise.ts`）。
 
 ### 3.6.8 岗位模板库：12 个行业 × 3 个岗位，点一下把料装好
 
@@ -562,9 +562,9 @@ schema v10 刻意没给这一列加外键——删掉上一版不该把这一版
 | 顺序 | 命令 | 证明什么 | 当前规模 |
 | --- | --- | --- | --- |
 | 1 | `npm run typecheck` | 类型对（`tsc --noEmit`，含各包） | 全仓库 |
-| 2 | `npm run test` | 逻辑对（vitest） | 72 个文件 / 752 条断言 |
+| 2 | `npm run test` | 逻辑对（vitest） | 73 个文件 / 759 条断言 |
 | 3 | `npm run smoke` | **产品能跑**（真起进程、真打 HTTP、真等 SSE） | 9 项 |
-| 4 | `npm run build` | 前端能构建 | vite，48 modules（CSS 30.46 kB / JS 360.71 kB，gzip 110.09 kB） |
+| 4 | `npm run build` | 前端能构建 | vite，48 modules（CSS 30.46 kB / JS 360.80 kB，gzip 110.13 kB） |
 | 5 | `npm run budget` | **够快**（起服 / 整场回放 / 报告 / 打包的耗时与体积上界） | 14 项 |
 
 第 3 道是`findings.md` F11 的直接产物：同进程的 `app.request()` 测试全绿，真起服务却第一次写入就报没有表。
@@ -584,10 +584,10 @@ schema v10 刻意没给这一列加外键——删掉上一版不该把这一版
 | 模块 | 源码行 | 测试行 | 说明 |
 | --- | --- | --- | --- |
 | packages/shared/src | 4885 | 2402 | 纯函数与数据（含 36 条岗位模板、短板聚合、补充说明、反问依据、并排对照、版本对比、历史聚合与按岗位分组、成长轨迹、一岗一版的留与去），测试密度最高 |
-| packages/server/src | 11779 | 7253 | 编排 + IO + 导入解析 + 面试官库 + 岗位要求 + 反问 + 报告三种形态 + 采纳改写 + 版本对比与历史聚合、成长档案接口、一岗一版接口与三件套导出、单文件打包、判定台账导出与自写 xlsx 写入器，含脚本化模型夹具 |
+| packages/server/src | 12232 | 7398 | 编排 + IO + 导入解析 + 面试官库 + 岗位要求 + 反问 + 报告三种形态 + 采纳改写 + 版本对比与历史聚合、成长档案接口、一岗一版接口与三件套导出、单文件打包、判定台账导出与自写 xlsx 写入器、真 .docx 写入器（自写 OOXML + Word 内置样式，与 zip 容器共用），含脚本化模型夹具 |
 | packages/web/src | 7716 | 2022 | 折叠器、文案、工作室、模板选择器、要求对照、短板与反问栏、并排对照表、「比上次」、历史仪表盘与成长档案抽屉、一岗一版栏、台账入口（只计 .ts/.tsx，index.css 另 321 行） |
-| tools/ | 3975 | 597 | 导出器 / 冒烟 / 截图 / 界面点测 / 复现 / 文档构建 / 零门槛启动器 / 代码规模统计（只计 .mjs，测试目录另计） |
-| **合计** | **28355** | **12274** | 测试/源码 ≈ 0.43 |
+| tools/ | 3989 | 597 | 导出器 / 冒烟 / 截图 / 界面点测 / 复现 / 文档构建 / 零门槛启动器 / 代码规模统计（只计 .mjs，测试目录另计） |
+| **合计** | **28822** | **12419** | 测试/源码 ≈ 0.43 |
 
 这张表不是手工量的：它是 `npm run stats`（`tools/stats/lines.mjs`）的输出，口径写在脚本注释里（只数行，按路径里的 `test` 目录分源码与测试）。
 

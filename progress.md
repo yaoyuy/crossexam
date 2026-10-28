@@ -1474,3 +1474,30 @@ F88 固定调试端口会连上上一轮的孤儿浏览器（第二次假失败�
 
 对应改动：`packages/web/src/components/RevisionBar.tsx`（新增 `rerunHint` 与 `data-shot="revision-rerun-hint"`）、`packages/web/src/App.tsx`（按 `runMode === 'replay'` 下发）。
 门禁：`npm run e2e:ui` **165/165**（新增 1 条点测：那一行必须同时出现「离线回放只录了」与「联网」）。
+
+## Session 41 · 2026-10-28 · 真 .docx：导出的 Word 不再是改后缀的网页
+
+用户要求「加上真 .docx 导出」（m17248 ①）。在这之前三颗「导出 Word」按钮给的都是同一份 HTML 换 `.doc` 后缀，
+Word 打开会提示「格式与扩展名不一致」，而且段落是 `div`、结构是假的。
+
+- 新建 `packages/server/src/docx.ts`（约 350 行）：五份固定部件的 OOXML 写入器，
+  段落辅助（`titleParagraph` / `subtitleParagraph` / `headingParagraph` / `bodyParagraph` / `bulletParagraph` / `quoteParagraph` / `noteParagraph`）
+  与一层保守的 `markdownParagraphs` 映射。
+- 新建 `packages/server/src/zip.ts`：把 zip 容器从 `xlsx.ts` 里抽出来（`crc32` / `zipArchive` / DOS 时间戳写死 1980-01-01），
+  `.xlsx` 与 `.docx` 共用；`xlsx.ts` 瘦身约 2.4 KB。
+- 段落挂 Word **内置样式**而不是只写直接格式：`styleIdOf` + `styles.xml` 里的 `Title` / `Subtitle` /
+  `Heading1/2/3`（带 `outlineLvl` 与 `keepNext`）/ `Quote`；`runXml` 改成「只有明确给字号时才写 `w:sz`」，
+  否则会把样式的字号钉死。
+- 三条路由改名并换 MIME：`/report.docx` / `/resume.docx` / `/tailored.docx`（`application/vnd.openxmlformats-officedocument.wordprocessingml.document`）；
+  界面三颗按钮改成 `data-shot="report-docx" / "resume-docx" / "tailor-docx"`，文案「导出 Word (.docx)」。
+- 测试：新建 `packages/server/test/docx.test.ts` 8 条（容器名清单、转义、空段落、Markdown 映射、样式名与 `w:pStyle`）；
+  `http.test.ts` / `revisions.test.ts` / `tailor.test.ts` / `report-urls.test.ts` 的 `.doc` 断言全改成 `.docx` +
+  PK 魔数 + openxml 类型 + 从 `word/document.xml` 里读正文。
+- **跨实现验收**：用 bundled python 的 `python-docx` 打开三份导出，逐段打印样式名——
+  报告标题报 `Heading 1`、章标题报 `Heading 2`，简历与一岗一版的标题报 `Title`、副标题报 `Subtitle`，中文逐字正确。
+  这是「真 .docx」与「HTML 换后缀」的判定标准（F90 / F91）。
+
+门禁：`npm run typecheck` exit 0 · `npx vitest run` **73 个文件 / 759 条断言** · `npm run build` 48 modules
+（CSS 30.46 kB / JS 360.80 kB，gzip 110.13 kB）· `npm run e2e:ui` **165/165**（断言数不变，只把三处 `.doc` 断言换成真文件校验）。
+
+**没动的东西**：提示词、149 盘卡带、schema（仍 v10）、性能预算的上界。见 ADR-0026。
