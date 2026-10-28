@@ -97,8 +97,60 @@ export function makeShortcutScript(input) {
   return lines.join('\n');
 }
 
-/** 用系统默认浏览器打开一个地址：三个平台各一条命令，都是系统自带。 */
-export function browserOpenArgs(url, platform = process.platform) {
+/** 应用窗口的尺寸：够放下四栏（投料台 / 主张与追问 / 原文 / 过程面板）。 */
+export const APP_WINDOW_SIZE = '1440,960';
+
+/**
+ * 「没有地址栏的窗口」要找哪个浏览器。
+ *
+ * 用 Chromium 家族的 --app= 开法：窗口里只有页面，没有地址栏、没有标签页，
+ * 关掉窗口就等于关掉这个应用——这正是「桌面端」在零依赖打包下能做到的样子。
+ * 顺序是「最可能装着的在前」：Windows 必带 Edge，所以 Edge 排在最前面；
+ * 找不到任何一个就由调用方退回系统默认浏览器（有地址栏，但至少能看）。
+ */
+export function appBrowserCandidates(platform = process.platform, env = process.env) {
+  const list = [];
+  const push = (base, tail) => {
+    if (typeof base === 'string' && base.trim() !== '') list.push(join(base, ...tail));
+  };
+  if (platform === 'win32') {
+    const pf = env['ProgramFiles'];
+    const pf86 = env['ProgramFiles(x86)'];
+    const local = env['LOCALAPPDATA'];
+    for (const base of [pf86, pf, local]) {
+      push(base, ['Microsoft', 'Edge', 'Application', 'msedge.exe']);
+      push(base, ['Google', 'Chrome', 'Application', 'chrome.exe']);
+    }
+    push(pf, ['BraveSoftware', 'Brave-Browser', 'Application', 'brave.exe']);
+    push(pf86, ['BraveSoftware', 'Brave-Browser', 'Application', 'brave.exe']);
+    return list;
+  }
+  if (platform === 'darwin') {
+    return [
+      '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
+      '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+      '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser',
+    ];
+  }
+  return ['/usr/bin/microsoft-edge', '/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser'];
+}
+
+/** 取第一个真的存在的候选。exists 由调用方注入——这里不碰文件系统，才能被单测覆盖。 */
+export function chooseAppBrowser(platform = process.platform, env = process.env, exists = () => false) {
+  for (const path of appBrowserCandidates(platform, env)) {
+    if (exists(path)) return path;
+  }
+  return null;
+}
+
+/**
+ * 两种开法：给了浏览器就用应用窗口，没给就退回系统默认浏览器。
+ * 第三个参数是可选的：不传时的行为与以前完全一样（有地址栏的普通窗口）。
+ */
+export function browserOpenArgs(url, platform = process.platform, appPath = null) {
+  if (typeof appPath === 'string' && appPath.trim() !== '') {
+    return { command: appPath, args: ['--app=' + url, '--window-size=' + APP_WINDOW_SIZE] };
+  }
   if (platform === 'win32') return { command: 'cmd', args: ['/c', 'start', '', url] };
   if (platform === 'darwin') return { command: 'open', args: [url] };
   return { command: 'xdg-open', args: [url] };
