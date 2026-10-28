@@ -511,10 +511,10 @@ const whyLines = await evalJs('(document.body.innerText.match(/为什么这样�
 check('每条判定都写了判定口径', whyLines === view.verdicts.length, String(whyLines) + ' 条 / 判定 ' + String(view.verdicts.length) + ' 条');
 // 报告有三种形态：Markdown 便于携带、可打印 HTML（浏览器另存为 PDF）、Word 便于接着改。
 // 三种都要真取一遍：只看按钮存在，等于没验证「点下去拿得到东西」。
-const reportHrefs = await evalJs('(() => { const pick = (name) => { const a = document.querySelector(\'[data-shot="\' + name + \'"]\'); return a === null ? "" : a.getAttribute("href"); }; return { md: pick("report-md"), pdf: pick("report-pdf"), doc: pick("report-doc") }; })()');
+const reportHrefs = await evalJs('(() => { const pick = (name) => { const a = document.querySelector(\'[data-shot="\' + name + \'"]\'); return a === null ? "" : a.getAttribute("href"); }; return { md: pick("report-md"), pdf: pick("report-pdf"), doc: pick("report-docx") }; })()');
 const hrefOf = (key) => String((reportHrefs ?? {})[key] ?? '');
 check('头部给出 Markdown / PDF / Word 三个导出入口',
-  hrefOf('md').indexOf('/report.md') >= 0 && hrefOf('pdf').indexOf('/report.html?print=1') >= 0 && hrefOf('doc').indexOf('/report.doc') >= 0,
+  hrefOf('md').indexOf('/report.md') >= 0 && hrefOf('pdf').indexOf('/report.html?print=1') >= 0 && hrefOf('doc').indexOf('/report.docx') >= 0,
   JSON.stringify(reportHrefs));
 const report = await fetch('http://127.0.0.1:' + PORT + hrefOf('md'));
 const reportText = await report.text();
@@ -524,11 +524,18 @@ const reportHtmlText = await reportHtml.text();
 check('PDF 入口给的是带打印脚本的可打印 HTML',
   reportHtml.status === 200 && reportHtmlText.indexOf('window.print()') >= 0 && reportHtmlText.indexOf('CrossExam 质询报告') >= 0,
   String(reportHtmlText.length) + ' 字符');
+// 真 .docx：后缀谁都改得了，这里查的是「里面装的是不是 zip 容器 + Word 的部件」。
+// zip 把文件名存在未压缩的头部里，所以不用解压就能确认 word/document.xml 真的在场。
 const reportDoc = await fetch('http://127.0.0.1:' + PORT + hrefOf('doc'));
-const reportDocText = await reportDoc.text();
-check('Word 入口给的是 application/msword 附件',
-  reportDoc.status === 200 && String(reportDoc.headers.get('content-type')).indexOf('msword') >= 0 && String(reportDoc.headers.get('content-disposition')).indexOf('.doc') >= 0,
-  String(reportDocText.length) + ' 字符');
+const reportDocBytes = new Uint8Array(await reportDoc.arrayBuffer());
+const reportDocRaw = Buffer.from(reportDocBytes).toString('latin1');
+check('Word 入口给的是真 .docx（zip 容器 + Word 部件 + openxml 类型）',
+  reportDoc.status === 200
+    && String(reportDoc.headers.get('content-type')).indexOf('openxmlformats-officedocument.wordprocessingml.document') >= 0
+    && String(reportDoc.headers.get('content-disposition')).indexOf('.docx') >= 0
+    && reportDocBytes[0] === 0x50 && reportDocBytes[1] === 0x4b
+    && reportDocRaw.indexOf('word/document.xml') >= 0,
+  String(reportDocBytes.length) + ' 字节');
 // 打包分享（C3）：一个文件带走整场。这里真下载一次——只验按钮存在，等于没验「发出去能不能看」。
 const bundleHref = await evalJs('(() => { const a = document.querySelector(\'[data-shot="bundle-html"]\'); return a === null ? "" : a.getAttribute("href"); })()');
 check('头部给出「打包分享」入口', String(bundleHref).indexOf('/bundle.html') >= 0, String(bundleHref));
@@ -680,10 +687,10 @@ check('服务端真的把简历改了（不是只在前端画一下）',
   revisedResume === null ? 'null' : String(revisedResume.applied.length) + ' 处 / ' + String(revisedResume.text.length) + ' 字');
 const paneRevised = await evalJs('document.querySelector("[data-shot=resume]").innerText');
 check('右栏换成改完的版本并标出改动', paneRevised.indexOf('改完的简历') >= 0 && paneRevised.indexOf('改动 ') >= 0, paneRevised.replace(/\n/g, ' / ').slice(0, 70));
-const exportHrefs = await evalJs('(() => { const pick = (n) => { const a = document.querySelector("[data-shot=" + n + "]"); return a === null ? "" : a.getAttribute("href"); }; return { txt: pick("resume-txt"), pdf: pick("resume-pdf"), doc: pick("resume-doc") }; })()');
+const exportHrefs = await evalJs('(() => { const pick = (n) => { const a = document.querySelector("[data-shot=" + n + "]"); return a === null ? "" : a.getAttribute("href"); }; return { txt: pick("resume-txt"), pdf: pick("resume-pdf"), doc: pick("resume-docx") }; })()');
 const resumeHref = (key) => String((exportHrefs ?? {})[key] ?? '');
 check('改完之后才出现 txt / PDF / Word 三个导出入口',
-  resumeHref('txt').indexOf('/resume.txt') >= 0 && resumeHref('pdf').indexOf('/resume.html?') >= 0 && resumeHref('doc').indexOf('/resume.doc') >= 0,
+  resumeHref('txt').indexOf('/resume.txt') >= 0 && resumeHref('pdf').indexOf('/resume.html?') >= 0 && resumeHref('doc').indexOf('/resume.docx') >= 0,
   JSON.stringify(exportHrefs));
 const resumeTxt = await fetch('http://127.0.0.1:' + PORT + resumeHref('txt'));
 const resumeTxtText = await resumeTxt.text();
@@ -694,10 +701,13 @@ check('PDF 入口给的是带改动标记与打印脚本的可打印 HTML',
   resumeHtml.status === 200 && resumeHtmlText.indexOf('mark class') >= 0 && resumeHtmlText.indexOf('本版改了什么') >= 0 && resumeHtmlText.indexOf('window.print()') >= 0,
   String(resumeHtmlText.length) + ' 字符');
 const resumeDoc = await fetch('http://127.0.0.1:' + PORT + resumeHref('doc'));
-const resumeDocText = await resumeDoc.text();
-check('简历的 Word 入口给的是 application/msword 附件',
-  resumeDoc.status === 200 && String(resumeDoc.headers.get('content-type')).indexOf('msword') >= 0 && String(resumeDoc.headers.get('content-disposition')).indexOf('.doc') >= 0,
-  String(resumeDocText.length) + ' 字符');
+const resumeDocBytes = new Uint8Array(await resumeDoc.arrayBuffer());
+check('简历的 Word 入口给的是真 .docx（不是网页换个后缀）',
+  resumeDoc.status === 200
+    && String(resumeDoc.headers.get('content-type')).indexOf('openxmlformats-officedocument.wordprocessingml.document') >= 0
+    && resumeDocBytes[0] === 0x50 && resumeDocBytes[1] === 0x4b
+    && Buffer.from(resumeDocBytes).toString('latin1').indexOf('word/document.xml') >= 0,
+  String(resumeDocBytes.length) + ' 字节');
 // B2：并排看改动。默认收起，展开后每条改动一行，左边原文右边改后。
 const hasDiffBefore = await evalJs('document.querySelector("[data-shot=revision-diff]") === null');
 check('并排对照默认收起，不占这一栏的地方', hasDiffBefore === true, String(hasDiffBefore));
@@ -847,19 +857,23 @@ const squeeze = (s) => String(s).replace(/\s+/g, '');
 check('右栏正文与接口返回的正文逐字相同（筛的时候没有偷偷改字）',
   String(paneText).length > 0 && squeeze(paneText) === squeeze(tailorView.text),
   String(String(paneText).length) + ' 字 / 接口 ' + String(tailorView.text.length) + ' 字');
-const tailorHrefs = await evalJs('(() => { const pick = (n) => { const a = document.querySelector("[data-shot=" + n + "]"); return a === null ? "" : a.getAttribute("href") || ""; }; return { txt: pick("tailor-txt"), pdf: pick("tailor-pdf"), doc: pick("tailor-doc") }; })()');
+const tailorHrefs = await evalJs('(() => { const pick = (n) => { const a = document.querySelector("[data-shot=" + n + "]"); return a === null ? "" : a.getAttribute("href") || ""; }; return { txt: pick("tailor-txt"), pdf: pick("tailor-pdf"), doc: pick("tailor-docx") }; })()');
 const tailorHref = (key) => String((tailorHrefs ?? {})[key] ?? '');
 check('这一版有 txt / PDF / Word 三个导出入口',
-  tailorHref('txt').indexOf('/tailored.txt') >= 0 && tailorHref('pdf').indexOf('/tailored.html') >= 0 && tailorHref('doc').indexOf('/tailored.doc') >= 0,
+  tailorHref('txt').indexOf('/tailored.txt') >= 0 && tailorHref('pdf').indexOf('/tailored.html') >= 0 && tailorHref('doc').indexOf('/tailored.docx') >= 0,
   JSON.stringify(tailorHrefs));
 const tailorTxtRes = await fetch('http://127.0.0.1:' + PORT + tailorHref('txt'));
 const tailorTxt = await tailorTxtRes.text();
 check('导出的 txt 就是筛出来的那一版', tailorTxtRes.status === 200 && squeeze(tailorTxt) === squeeze(tailorView.text), String(tailorTxt.length) + ' 字');
 const tailorDocRes = await fetch('http://127.0.0.1:' + PORT + tailorHref('doc'));
-const tailorDoc = await tailorDocRes.text();
-check('导出的 Word 是 application/msword 附件',
-  tailorDocRes.status === 200 && String(tailorDocRes.headers.get('content-type')).indexOf('msword') >= 0 && String(tailorDocRes.headers.get('content-disposition')).indexOf('tailored') >= 0,
-  String(tailorDoc.length) + ' 字符');
+const tailorDocBytes = new Uint8Array(await tailorDocRes.arrayBuffer());
+check('导出的 Word 是真 .docx 附件，文件名标着是筛出来的一版',
+  tailorDocRes.status === 200
+    && String(tailorDocRes.headers.get('content-type')).indexOf('openxmlformats-officedocument.wordprocessingml.document') >= 0
+    && String(tailorDocRes.headers.get('content-disposition')).indexOf('tailored') >= 0
+    && tailorDocBytes[0] === 0x50
+    && Buffer.from(tailorDocBytes).toString('latin1').indexOf('word/document.xml') >= 0,
+  String(tailorDocBytes.length) + ' 字节');
 const tailorHtmlRes = await fetch('http://127.0.0.1:' + PORT + tailorHref('pdf'));
 const tailorHtml = await tailorHtmlRes.text();
 check('导出的 PDF 入口给的是可打印 HTML，且整份档案没有一条外链',
