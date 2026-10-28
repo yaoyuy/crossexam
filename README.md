@@ -52,6 +52,19 @@ CrossExam 把这件事提前：喂入简历 + 目标岗位 JD，系统抽出简�
 **前置条件**：Node.js ≥ 22.5（`node -v` 看一眼）。不需要 API Key，不需要数据库，不需要 Docker，
 不需要管理员权限，全仓库**没有任何需要本地编译的原生依赖**。
 
+### 方式零：连 Node 都不用装（便携版）
+
+评委的机器上通常没有 Node。`tools/portable` 能打一个**免安装的 zip**：里面自带 `node.exe`、已构建好的界面和 149 盘演示卡带，
+解压后双击 `启动.cmd` 就能跑，**不写注册表、不装服务、不改 PATH**，不用了删掉文件夹即可。
+
+```bash
+npm run portable:build     # 产出 dist/portable/crossexam-portable-0.1.0-win-x64.zip（约 36 MB）
+npm run portable:verify    # 解压到 .tmp/ 后真启动一遍，八项验收
+```
+
+它不是 exe/msi 安装包：没有安装向导、没有后台服务——只是把运行时和程序装进同一个文件夹（为什么这么选，见 ADR-0030）。
+仅 Windows x64；如果你要的是完整证据链（提交历史、Prompt 链、门禁数字），仍请按下面的方式一 clone 仓库。
+
 ### 方式一：不用命令行（给完全没用过命令行的人）
 
 1. 打开 https://nodejs.org/zh-cn/download ，下载写着 **LTS** 的那个安装包，一路「下一步」装完。
@@ -131,12 +144,14 @@ cp .env.example .env   # 填 LLM_BASE_URL / LLM_API_KEY / LLM_MODEL（任何 Ope
 | `npm run budget` | 性能预算：起服 / 整场回放 / 报告 / 打包的耗时与体积上界，14 项（已含在 `verify` 里） |
 | `npm run shots` | 真浏览器（Edge/Chrome + CDP）截 30 张图，控制台有报错即失败 |
 | `npm run stats` | 量一遍代码规模与测试密度（技术文档 3.7.1 那张表就是它的输出） |
-| `npm run e2e:ui` | 真浏览器把每个功能点一遍（177 项断言 + 零控制台报错），红了退出码 1 |
+| `npm run e2e:ui` | 真浏览器把每个功能点一遍（178 项断言 + 零控制台报错），红了退出码 1 |
 | `npm run seed:demo` | 重新合成 149 盘离线演示卡带（改了提示词就必须重跑） |
 | `npm run repro` | 干净目录复现预演，逐步计时并与 10 分钟上限比对 |
 | `npm run export:prompt` | 导出 AI 协同的 Prompt 链快照到 `docs/prompt-chain/` |
 | `npm run docs:pdf` | 从 `docs/tech/*.md` 重新生成技术文档 PDF（超过 30 页直接失败） |
 | `npm run docs:html` | 只渲染 HTML（排查排版用，不调浏览器） |
+| `npm run portable:build` | 打一个自带 `node.exe` 的免安装 zip（约 36 MB，Windows x64；见 ADR-0030） |
+| `npm run portable:verify` | 把便携包解压到 `.tmp/` 真启动一遍，八项验收 |
 
 ---
 
