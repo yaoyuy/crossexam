@@ -52,7 +52,7 @@ import type {
 import { DEFAULT_DIFFICULTY, DEFAULT_STYLE, nextPanel, PANEL_ORDER } from './contract.ts';
 import { MODEL_NOTE_PENDING, modelNoteOf } from './runmode.ts';
 import { personaBlurbOf, personaLabelOf } from './labels.ts';
-import { markHelpSeen, shouldAutoOpenHelp } from './help.ts';
+import { markHelpSeen, markWizardSeen, shouldAutoOpenWizard } from './help.ts';
 import { applyTheme, nextTheme, readStoredTheme, saveTheme, THEME_LABEL } from './theme.ts';
 import type { Theme } from './theme.ts';
 import { allAnchors, anchorsOfJd, initialSandbox, sandboxReducer, stateFromHistory, totalProbes } from './state.ts';
@@ -76,6 +76,14 @@ import { ResumePane } from './components/ResumePane.tsx';
 import { StageRail } from './components/StageRail.tsx';
 import { TailorBar } from './components/TailorBar.tsx';
 import { TemplatePicker } from './components/TemplatePicker.tsx';
+import { HistoryPanel } from './components/HistoryPanel.tsx';
+import { HomePage } from './components/HomePage.tsx';
+import { OnboardingWizard } from './components/OnboardingWizard.tsx';
+import { ReportPage } from './components/ReportPage.tsx';
+import { SettingsPage } from './components/SettingsPage.tsx';
+import { SideNav } from './components/SideNav.tsx';
+import { DEFAULT_PAGE, pageOf } from './pages.ts';
+import type { PageId } from './pages.ts';
 
 /** 初始投料：一份空简历、一行空 JD。JD 列表先摆一行，让人知道这里可以贴。 */
 const emptyIntake = (): IntakeDraft => ({ resumeText: '', jds: emptyDraftList(), jobTitle: '' });
@@ -84,6 +92,12 @@ const DEFAULT_PANEL: string[] = ['tech', 'hr', 'hiring_manager'];
 // 比阶段事件（220 ms）快得多，所以字是连着出来的，而阶段仍在慢慢推进。
 const STREAM_TICK_MS = 40;
 const STREAM_BATCH = 3;
+
+/** 从地址栏的 #/xxx 读页名。读不出来就是首页（没有 hash 也是首页）。 */
+function readPageFromHash(): PageId {
+  if (typeof location === 'undefined') return DEFAULT_PAGE;
+  return pageOf(location.hash.replace(/^#\/?/, ''));
+}
 
 /** 投料台上的运行模式三选一。文案与新手教程里的模式对照表同一套口径。 */
 const MODE_CHOICES: { value: LlmMode; label: string; hint: string }[] = [
@@ -164,8 +178,9 @@ export function App() {
   const [style, setStyle] = useState<string>(DEFAULT_STYLE);
   const [styleChoices, setStyleChoices] = useState<{ id: string; label: string; hint: string }[]>([]);
   const [theme, setTheme] = useState<Theme>(readStoredTheme);
-  // 第一次打开自动弹一次教程；点过「知道了」之后就不再打扰
-  const [helpOpen, setHelpOpen] = useState(() => shouldAutoOpenHelp());
+  // 第一次打开自动弹一次**向导**；点过「开始用」或「跳过」之后就不再打扰。
+  // 教程改成手动打开（头部与设置页各有一个入口）：首开只弹一层，不然两层弹层会打架。
+  const [helpOpen, setHelpOpen] = useState(false);
   const [sandbox, dispatch] = useReducer(sandboxReducer, initialSandbox);
   // 改完的简历（没采纳过是 null）。它与「原文」是同一份材料的两种视图，
   // 所以只存一份状态，显示哪一版由 viewing 决定，而不是缓存两段文本。
@@ -196,6 +211,10 @@ export function App() {
   // 因为「打开抽屉」是一次读库，「点了才取」比每次跑完都取省事也省流量。
   const [growth, setGrowth] = useState<GrowthView | null>(null);
   const [growthOpen, setGrowthOpen] = useState(false);
+  // 左侧栏现在有六页（P15）。页名写进地址栏：刷新停原地，也能把某一页直接发给别人。
+  const [page, setPage] = useState<PageId>(readPageFromHash);
+  // 多步新手向导：第一次打开自动走一遍，之后从首页或设置页手动重看
+  const [wizardOpen, setWizardOpen] = useState(() => shouldAutoOpenWizard());
 
   const queueRef = useRef<SseEvent[]>([]);
   const timerRef = useRef<number | null>(null);
@@ -416,6 +435,8 @@ export function App() {
         queueRef.current = [];
         streamingRef.current = true;
         dispatch({ type: 'begin', sessionId: created.id });
+        // 开跑就切到质询台：这一页是看过程的地方，留在投料台只会看到按钮变灰
+        setPage('interview');
         void refreshSessions();
 
         const id = created.id;
@@ -544,6 +565,8 @@ export function App() {
       if (typeof view.difficulty === 'string' && view.difficulty !== '') setDifficulty(view.difficulty);
       if (typeof view.style === 'string' && view.style !== '') setStyle(view.style);
       setHint('这是历史会话：过程由事件表重放，和当时直播看到的是同一条代码路径。');
+      // 翻历史是为了看过程：直接把质询台摆出来，而不是让人回来再点一次
+      setPage('interview');
     } catch (error) {
       setHint(error instanceof Error ? error.message : '打不开这条会话');
     } finally {
@@ -584,6 +607,8 @@ export function App() {
     }
     setDraft({ resumeText: demo.resume, jds: [{ title: '', text: demo.jd }], jobTitle: demo.title });
     setActiveJdId(null);
+    // 从首页点进来时人还在首页：把材料摊开在投料台，下一步就是那颗「开始质询」
+    setPage('intake');
     setHint('已填入内置示例简历。这是合成素材，刻意留了两处「经不起追问」的表述给面试官抓。');
   }, [demo]);
 
@@ -794,6 +819,27 @@ export function App() {
   }, []);
 
   /**
+   * 切页：同时把页名写进地址栏。这样刷新停在原地，也能把某一页直接发链接给别人。
+   * 页名不另存状态——地址栏就是它唯一的事实来源。
+   */
+  const handlePickPage = useCallback((next: PageId) => {
+    setPage(next);
+    if (typeof location !== 'undefined') location.hash = '/' + next;
+  }, []);
+
+  // 浏览器前进/后退、手改地址栏都要跟着换页；否则「后退」只动地址栏不动界面
+  useEffect(() => {
+    const onHash = () => setPage(readPageFromHash());
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
+
+  const handleCloseWizard = useCallback(() => {
+    setWizardOpen(false);
+    markWizardSeen();
+  }, []);
+
+  /**
    * 打开成长档案。点了才读库——它不像「比上次」每次跑完都得有，
    * 少一次后台请求也少一处要维护的时序；取不到就带着 null 打开，面板会说清为什么是空的。
    */
@@ -962,6 +1008,13 @@ export function App() {
   const bundleHref = hasReport && sandbox.sessionId !== null ? bundleUrl(sandbox.sessionId) : null;
   // 台账 Excel：把这一场的判断摊成能筛选的表，与打包分享同一个条件
   const ledgerHref = hasReport && sandbox.sessionId !== null ? ledgerUrl(sandbox.sessionId) : null;
+  // 报告页里嵌的全文预览：用不打打印对话框的那一份（?print=1 那份会自己弹打印）
+  const reportPreviewHref = sandbox.sessionId === null ? null : reportHtmlUrl(sandbox.sessionId, false);
+  // 左侧栏角标：只标「有东西可看」的页，0 不显示（0 是个会让人以为坏了的信息）
+  const navBadges: Partial<Record<PageId, string>> = {};
+  if (sessions.length > 0) navBadges.history = String(sessions.length);
+  if (sandbox.claims.length > 0) navBadges.interview = String(sandbox.claims.length) + ' 条主张';
+  if (hasReport) navBadges.report = '可导出';
   const telemetry = sandbox.telemetry;
 
   return (
@@ -1063,9 +1116,32 @@ export function App() {
         </div>
       </header>
 
-      <main className="grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-auto p-3 xl:grid-cols-[330px_minmax(0,1fr)_minmax(0,660px)] xl:overflow-hidden">
-        <aside className="flex min-h-0 flex-col gap-3">
-          <IntakePanel
+      {/*
+        从 P15 起界面分页：左侧栏只管「去哪一页」，每页只放这一页该有的东西。
+        以前六件事挤在同一屏，跑完一场要往下滚很久才够得到报告。
+      */}
+      <div className="flex min-h-0 flex-1 flex-col xl:flex-row">
+        <SideNav page={page} onPick={handlePickPage} badges={navBadges} />
+
+        <main className="min-h-0 flex-1 overflow-auto p-3">
+          {page === 'home' ? (
+            <div className="mx-auto max-w-4xl">
+              <HomePage
+                health={health}
+                overview={overview}
+                sessions={sessions}
+                busy={busy}
+                onUseDemo={handleUseDemo}
+                onOpenPage={handlePickPage}
+                onLoadSession={(id) => void handleLoadSession(id)}
+                onOpenWizard={() => setWizardOpen(true)}
+              />
+            </div>
+          ) : null}
+
+          {page === 'intake' ? (
+            <div className="mx-auto max-w-2xl">
+              <IntakePanel
             templatePicker={
               <TemplatePicker
                 industries={templateLib?.industries ?? []}
@@ -1095,11 +1171,6 @@ export function App() {
             importNote={importNote}
             onImportJds={handleImportJds}
             jdImportNote={jdNote}
-            sessions={sessions}
-            overview={overview}
-            activeSessionId={sandbox.sessionId}
-            onLoadSession={(id) => void handleLoadSession(id)}
-            onDeleteSession={(id) => void handleDeleteSession(id)}
             runMode={runMode}
             onRunModeChange={handleRunModeChange}
             runModel={runModel}
@@ -1113,9 +1184,20 @@ export function App() {
             style={style}
             styleChoices={styleChoices}
             onStyleChange={setStyle}
-          />
-          <StageRail state={sandbox} panel={panel} health={health} contracts={contracts} onFocusClaim={handleFocusClaim} />
-        </aside>
+            contractView={contracts === null || contracts.length === 0 ? null : contracts[0]!}
+              />
+            </div>
+          ) : null}
+
+          {/*
+            质询台：三列与以前一样（实时过程与阶段轨 / 三栏结论 / 两份原文与改写），
+            区别只是「投料」不在这里了——贴材料属于投料台那一页。
+          */}
+          {page === 'interview' ? (
+            <div className="grid min-h-0 gap-3 xl:grid-cols-[300px_minmax(0,1fr)_minmax(0,660px)]">
+              <aside className="flex min-h-0 flex-col gap-3">
+                <StageRail state={sandbox} panel={panel} health={health} contracts={contracts} onFocusClaim={handleFocusClaim} />
+              </aside>
 
         {/*
           中栏放三栏结论：谁被追问、追出了什么（主张与追问）／岗位要求对上了几条（要求对照）／
@@ -1219,9 +1301,58 @@ export function App() {
             「比上次」摆在采纳改写下面：它的因是「改完」，它的果是「这一版的判定」，
             两栏挨着才看得出这是一条闭环。没有上一版时它整栏不渲染。
           */}
-          <CompareBar view={compare} onOpenGrowth={handleOpenGrowth} />
-        </div>
-      </main>
+                <CompareBar view={compare} onOpenGrowth={handleOpenGrowth} />
+              </div>
+            </div>
+          ) : null}
+
+          {page === 'report' ? (
+            <div className="mx-auto max-w-4xl">
+              <ReportPage
+                sessionId={sandbox.sessionId}
+                jobTitle={material.title}
+                hasReport={hasReport}
+                hrefs={{
+                  md: reportHref,
+                  print: reportPrintHref,
+                  docx: reportDocHref,
+                  bundle: bundleHref,
+                  ledger: ledgerHref,
+                  html: reportPreviewHref,
+                }}
+                onOpenGrowth={handleOpenGrowth}
+                onOpenPage={handlePickPage}
+              />
+            </div>
+          ) : null}
+
+          {page === 'history' ? (
+            <div className="mx-auto max-w-4xl">
+              <HistoryPanel
+                sessions={sessions}
+                overview={overview}
+                activeSessionId={sandbox.sessionId}
+                onLoadSession={(id) => void handleLoadSession(id)}
+                onDeleteSession={(id) => void handleDeleteSession(id)}
+              />
+            </div>
+          ) : null}
+
+          {page === 'settings' ? (
+            <div className="mx-auto max-w-3xl">
+              <SettingsPage
+                theme={theme}
+                onToggleTheme={handleToggleTheme}
+                onOpenHelp={() => setHelpOpen(true)}
+                onOpenWizard={() => setWizardOpen(true)}
+                health={health}
+              />
+            </div>
+          ) : null}
+        </main>
+      </div>
+
+      <OnboardingWizard open={wizardOpen} onClose={handleCloseWizard} onPage={handlePickPage} />
 
       <HelpPanel open={helpOpen} onClose={handleCloseHelp} />
       <GrowthPanel view={growth} open={growthOpen} onClose={() => setGrowthOpen(false)} />

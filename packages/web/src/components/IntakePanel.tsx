@@ -1,12 +1,11 @@
 import { useRef } from 'react';
 import type { ReactNode } from 'react';
-import { SESSION_STATUS_LABEL } from '../labels.ts';
 import { IMPORT_ACCEPT } from '../api.ts';
-import type { HistoryOverview, LlmMode, SessionSummary } from '../api.ts';
+import type { ContractView, LlmMode } from '../api.ts';
+import { budgetText } from '../contract.ts';
 import { emptyJd, filledJds, jdDraftProblem, MAX_JDS } from '../jds.ts';
 import type { JdDraft } from '../jds.ts';
-import { Chip, Pane } from './Bits.tsx';
-import { OverviewBar } from './OverviewBar.tsx';
+import { Pane } from './Bits.tsx';
 
 export interface IntakeDraft {
   resumeText: string;
@@ -28,13 +27,11 @@ export const PACE_CHOICES: { value: number; label: string; hint: string }[] = [
   { value: 220, label: '慢放', hint: '按 220 毫秒一条播放，录演示视频时看得清过程；不改变任何结果' },
 ];
 
-function shortId(id: string): string {
-  return id.length <= 10 ? id : id.slice(0, 10);
-}
-
 /**
- * 左栏投料台：贴简历、贴 JD、挑面试官、开始质询。
- * 顺带把历史会话列在这里——评委复现时可以点开我们录好的那一场，不必自己跑。
+ * 投料台这一页：贴简历、贴 JD、挑面试官、选这一场怎么跑，然后开始质询。
+ *
+ * 它刻意只做「喂材料与定档位」这一件事：历史会话与跨场次统计搬去了历史页
+ * （它们不是投料的一部分，摆在下面还会把「开始质询」挤出屏幕）。
  */
 export function IntakePanel(props: {
   draft: IntakeDraft;
@@ -75,6 +72,12 @@ export function IntakePanel(props: {
   style: string;
   styleChoices: { id: string; label: string; hint: string }[];
   onStyleChange: (id: string) => void;
+  /**
+   * 当前阵容第一位的契约。把预算与指纹摆在两个旋钮下面：
+   * 换追问强度它会变、换改写风格它不该变——这件事要在选档的地方看得见，
+   * 而不是等跑到质询台展开契约卡才发现。
+   */
+  contractView: ContractView | null;
   onUseDemo: () => void;
   onRun: () => void;
   onClear: () => void;
@@ -85,12 +88,6 @@ export function IntakePanel(props: {
   /** 从文件导入岗位要求：一次可以选多个文件，选中的顺序就是 J1..Jn 的顺序 */
   onImportJds: (files: File[]) => void;
   jdImportNote: ImportNote | null;
-  sessions: SessionSummary[];
-  /** 跨场次聚合。null 表示还没取到，整块不渲染 */
-  overview: HistoryOverview | null;
-  activeSessionId: string | null;
-  onLoadSession: (id: string) => void;
-  onDeleteSession: (id: string) => void;
 }) {
   const draft = props.draft;
   const tooShort = draft.resumeText.trim().length < MIN_RESUME_CHARS;
@@ -442,6 +439,17 @@ export function IntakePanel(props: {
         )}
       </div>
 
+      {props.contractView === null ? null : (
+        <div className="flex flex-col gap-1 rounded-lg border border-ink-800 bg-ink-850/40 px-2.5 py-2">
+          <span className="text-[11px] text-ink-400">
+            这一档的契约（换追问强度会跟着换，换改写风格不会）
+          </span>
+          <p data-shot="intake-contract" className="text-[11px] leading-relaxed text-ink-300">
+            {budgetText(props.contractView) + ' · 指纹 ' + props.contractView.digest.slice(0, 8)}
+          </p>
+        </div>
+      )}
+
       <div className="flex flex-col gap-1.5">
         <span className="text-[11px] text-ink-400">播放节奏</span>
         <div className="flex flex-wrap gap-1.5">
@@ -476,47 +484,6 @@ export function IntakePanel(props: {
             ? jdProblem
             : props.hint ?? '每个会话只跑一次：想换面试官或改简历，直接再点一次「开始质询」，会新建一场。'}
       </p>
-
-      <OverviewBar view={props.overview} />
-
-      <div className="flex flex-col gap-1.5 border-t border-ink-800 pt-2.5">
-        <span className="text-[11px] text-ink-400">历史会话 {props.sessions.length === 0 ? '' : '(' + String(props.sessions.length) + ')'}</span>
-        {props.sessions.length === 0 ? (
-          <p className="text-[11.5px] text-ink-500">还没有跑过。跑完一场就会出现在这里，可以随时翻回来重看过程。</p>
-        ) : (
-          <ul className="flex flex-col gap-1">
-            {props.sessions.map((session) => (
-              <li
-                key={session.id}
-                className={
-                  'flex items-center gap-2 rounded-lg border px-2 py-1.5 ' +
-                  (session.id === props.activeSessionId ? 'border-ember-500/40 bg-ember-500/5' : 'border-ink-800 bg-ink-850/50')
-                }
-              >
-                <button
-                  type="button"
-                  className="min-w-0 flex-1 text-left"
-                  onClick={() => props.onLoadSession(session.id)}
-                >
-                  <span className="block truncate text-[12px] text-ink-100">{session.jobTitle}</span>
-                  <span className="block truncate font-mono text-[10.5px] text-ink-500">
-                    {shortId(session.id)} · {session.llmMode}
-                  </span>
-                </button>
-                <Chip>{SESSION_STATUS_LABEL[session.status] ?? session.status}</Chip>
-                <button
-                  type="button"
-                  title="删除这一场"
-                  className="px-1 text-[13px] text-ink-500 hover:text-rose-ink"
-                  onClick={() => props.onDeleteSession(session.id)}
-                >
-                  {'\u00d7'}
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
     </Pane>
   );
 }
