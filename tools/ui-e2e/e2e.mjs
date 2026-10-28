@@ -341,6 +341,17 @@ const contractCount = async () => {
 };
 const navCount = await evalJs('document.querySelectorAll("[data-shot^=nav-]").length');
 check('左侧栏给出六个页面入口', navCount === 6, String(navCount) + ' 个');
+// 键盘能停在入口磁贴上、而且看得见焦点框——这一条鼠标点测永远看不见。
+// 从主视觉卡的「我自己贴简历」往下一格就是第一块磁贴，所以 Tab 一次即可。
+await gotoPage('home');
+await sleep(200);
+await evalJs('(() => { const b = document.querySelector("[data-shot=home-to-intake]"); if (b === null) return "no-btn"; b.focus(); return "ok"; })()');
+await send('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 });
+await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 });
+await sleep(150);
+const tabbedShot = await evalJs('(document.activeElement && document.activeElement.getAttribute("data-shot")) || ""');
+const tabbedOutline = await evalJs('(() => { const s = getComputedStyle(document.activeElement); return s.outlineStyle + "/" + s.outlineWidth; })()');
+check('Tab 键能落到首页磁贴上，焦点框看得见', tabbedShot === 'home-card-intake' && tabbedOutline.indexOf('none') !== 0, tabbedShot + ' · ' + tabbedOutline);
 await gotoPage('interview');
 const interviewEmpty = await bodyText();
 check('还没开跑时质询台列了四条机制，而不是一片空白', interviewEmpty.indexOf('证据锚定') >= 0 && interviewEmpty.indexOf('追问预算') >= 0 && interviewEmpty.indexOf('意图契约') >= 0 && interviewEmpty.indexOf('可复现回放') >= 0, interviewEmpty.slice(0, 40));
