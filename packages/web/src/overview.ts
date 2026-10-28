@@ -36,6 +36,8 @@ export interface OverviewFacts {
   categoryLines: string[];
   /** 同一份简历跑过几场，只有 >1 才值得说 */
   sameResumeNote: string | null;
+  /** 同一个岗位跑过几场，只有 >1 才值得说 */
+  sameJdNote: string | null;
   /** 空库时整块收起，只留一句话 */
   empty: boolean;
 }
@@ -91,6 +93,17 @@ export function sameResumeNote(view: Pick<HistoryOverview, 'sameResumeRuns'>): s
   return '同一份简历最多跑过 ' + String(view.sameResumeRuns) + ' 场，改完之后的变化可以直接比。';
 }
 
+/**
+ * 同一个岗位跑过几场：与「同一份简历」正交——一组顺着简历改，一组顺着岗位看。
+ * 场次多的那一组摆出来，标题用服务端给的那一份（同文同名，界面不自己取名）。
+ */
+export function sameJdNote(view: Pick<HistoryOverview, 'sameJdRuns' | 'jdGroups'>): string | null {
+  if (view.sameJdRuns <= 1) return null;
+  const top = view.jdGroups.find((group) => group.sessions === view.sameJdRuns);
+  const name = top === undefined ? '同一份岗位要求' : '《' + top.jdTitle + '》';
+  return name + '最多跑过 ' + String(view.sameJdRuns) + ' 场，换版本重跑的效果看这里。';
+}
+
 export function overviewFactsOf(view: HistoryOverview | null): OverviewFacts | null {
   if (view === null) return null;
   return {
@@ -99,6 +112,7 @@ export function overviewFactsOf(view: HistoryOverview | null): OverviewFacts | n
     bars: trendBars(view.trend.slice(-MAX_BARS)),
     categoryLines: categoryLines(view),
     sameResumeNote: sameResumeNote(view),
+    sameJdNote: sameJdNote(view),
     empty: view.sessions === 0,
   };
 }
