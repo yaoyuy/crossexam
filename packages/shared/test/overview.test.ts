@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { TREND_POINTS, overviewHeadline, overviewOf, trendLine, trendPointOf } from '../src/overview.ts';
-import type { SessionFacts } from '../src/overview.ts';
+import type { SessionFacts, SessionJdFact } from '../src/overview.ts';
 import type { JudgedClaimLike } from '../src/shortfall.ts';
 
 function claim(id: string, verdict: JudgedClaimLike['verdict'], category: JudgedClaimLike['category'] = 'achievement'): JudgedClaimLike {
   return { id, text: '主张 ' + id, category, verdict };
 }
 
-function session(id: string, createdAt: string, claims: JudgedClaimLike[], probes: number | null = 0, resumeHash = 'h1'): SessionFacts {
-  return { id, createdAt, jobTitle: '后端工程师', resumeHash, claims, probes };
+function session(id: string, createdAt: string, claims: JudgedClaimLike[], probes: number | null = 0, resumeHash = 'h1', jds: SessionJdFact[] = []): SessionFacts {
+  return { id, createdAt, jobTitle: '后端工程师', resumeHash, jds, claims, probes };
 }
 
 describe('历史仪表盘：空库与一场', () => {
@@ -106,6 +106,53 @@ describe('历史仪表盘：多场聚合', () => {
   });
 });
 
+describe('历史仪表盘：按岗位要求分组', () => {
+  const backend: SessionJdFact = { key: 'jd-backend', title: '高级后端工程师' };
+  const data: SessionJdFact = { key: 'jd-data', title: '数据平台工程师' };
+
+  it('同一份岗位要求跑过多场就归成一组，标题取最近那一场', () => {
+    const overview = overviewOf([
+      session('s1', '2026-10-01T00:00:00.000Z', [claim('C1', 'solid')], 2, 'h1', [backend]),
+      session('s2', '2026-10-02T00:00:00.000Z', [claim('C1', 'solid')], 2, 'h1', [backend]),
+      session('s3', '2026-10-03T00:00:00.000Z', [claim('C1', 'solid')], 2, 'h1', [data]),
+    ]);
+    expect(overview.sameJdRuns).toBe(2);
+    expect(overview.jdGroups).toHaveLength(2);
+    expect(overview.jdGroups[0]?.jdKey).toBe('jd-backend');
+    expect(overview.jdGroups[0]?.sessions).toBe(2);
+    expect(overview.jdGroups[0]?.latestId).toBe('s2');
+    expect(overview.jdGroups[0]?.jdTitle).toBe('高级后端工程师');
+  });
+
+  it('一场对照了两份 JD 就进两个组，不是二选一', () => {
+    const overview = overviewOf([
+      session('s1', '2026-10-01T00:00:00.000Z', [claim('C1', 'solid')], 1, 'h1', [backend, data]),
+      session('s2', '2026-10-02T00:00:00.000Z', [claim('C1', 'solid')], 1, 'h1', [backend]),
+    ]);
+    expect(overview.jdGroups).toHaveLength(2);
+    const grouped = overview.jdGroups.find((item) => item.jdKey === 'jd-data');
+    expect(grouped?.sessions).toBe(1);
+    expect(overview.sameJdRuns).toBe(2);
+  });
+
+  it('没填过 JD 的场次不进任何组，也不把 sameJdRuns 撑起来', () => {
+    const overview = overviewOf([
+      session('s1', '2026-10-01T00:00:00.000Z', [claim('C1', 'solid')], 1, 'h1'),
+      session('s2', '2026-10-02T00:00:00.000Z', [claim('C1', 'solid')], 1, 'h1'),
+    ]);
+    expect(overview.jdGroups).toEqual([]);
+    expect(overview.sameJdRuns).toBe(0);
+  });
+
+  it('场次一样多时更近的那一组排在前面', () => {
+    const overview = overviewOf([
+      session('s1', '2026-10-01T00:00:00.000Z', [claim('C1', 'solid')], 1, 'h1', [backend]),
+      session('s2', '2026-10-05T00:00:00.000Z', [claim('C1', 'solid')], 1, 'h1', [data]),
+    ]);
+    expect(overview.jdGroups.map((item) => item.jdKey)).toEqual(['jd-data', 'jd-backend']);
+  });
+});
+
 describe('历史仪表盘：趋势点与结论函数', () => {
   it('趋势点只带图表要用的四个数，判定复用 verdictCounts', () => {
     const point = trendPointOf(session('s1', '2026-10-01T00:00:00.000Z', [claim('C1', 'solid'), claim('C2', null)], 5));
@@ -129,6 +176,8 @@ describe('历史仪表盘：趋势点与结论函数', () => {
       trend: [],
       resumeGroups: [],
       sameResumeRuns: 1,
+      jdGroups: [],
+      sameJdRuns: 0,
     };
     expect(overviewHeadline(input)).toBe(overviewHeadline(input));
     expect(overviewHeadline(input)).toContain('平均每场追问 3.5 次');
