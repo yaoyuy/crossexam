@@ -27,6 +27,19 @@ function probe(question: string): string {
 
 const ANSWER = JSON.stringify({ answered: true, text: '本地 Chrome 冷启动测的首屏', citedQuotes: [QUOTE] });
 
+/**
+ * 这两条 JD 里各自逐字存在的句子。
+ *
+ * 桩只吐「引文真出现在提示词里」的要求：jd-extract 之后 groundExtracted 会把锚不到 JD 原文的
+ * 要求当场丢掉，写死一份与 JD 无关的要求，这一阶段就会静默变成零条（F56 同族）。
+ */
+const JD_QUOTES = [
+  '负责交易与订单核心链路的架构设计与性能优化',
+  '熟练掌握 Node.js 与 TypeScript',
+  '负责数据仓库与指标体系建设',
+  '熟练使用 SQL 与调度工具',
+];
+
 function verdictOf(kind: string): string {
   return JSON.stringify({ kind: kind, confidence: 0.8, rationale: '按简历原文与追问记录判断', evidenceQuotes: [QUOTE] });
 }
@@ -42,6 +55,8 @@ interface OverviewBody {
   trendNote: string | null;
   resumeGroups: { resumeHash: string; sessions: number; latestId: string }[];
   sameResumeRuns: number;
+  jdGroups: { jdKey: string; jdTitle: string; sessions: number; latestId: string }[];
+  sameJdRuns: number;
   headline: string;
 }
 
@@ -70,6 +85,33 @@ function rig(): { db: Db; app: ReturnType<typeof createApp>; next: (kind: string
     }
     if (req.purpose === 'answer') return ANSWER;
     if (req.purpose === 'verdict') return verdictOf(kind);
+    if (req.purpose === 'jd-extract') {
+      const prompt = req.messages[0]?.content ?? '';
+      const requirements = JD_QUOTES.filter((quote) => prompt.includes(quote));
+      return JSON.stringify({
+        requirements: requirements.map((quote) => ({ text: quote, quote, kind: 'must', keywords: [] })),
+      });
+    }
+    if (req.purpose === 'jd-merge') {
+      const prompt = req.messages[0]?.content ?? '';
+      const groups: { text: string; kind: string; members: string[]; keywords: string[] }[] = [];
+      for (const raw of prompt.split(String.fromCharCode(10))) {
+        const hit = /^- \[(J[0-9]+#[0-9]+)\] ([^：]*)：(.+)$/.exec(raw.trim());
+        if (hit === null) continue;
+        groups.push({ text: (hit[3] ?? '').trim(), kind: 'must', members: [hit[1] ?? ''], keywords: [] });
+      }
+      return JSON.stringify({ groups });
+    }
+    if (req.purpose === 'jd-match') {
+      const prompt = req.messages[0]?.content ?? '';
+      const matches: { requirementId: string; claimId: string | null; status: string; reason: string }[] = [];
+      for (const raw of prompt.split(String.fromCharCode(10))) {
+        const hit = /^- \[(R[0-9]+)\] ([^：]*)：(.+)$/.exec(raw.trim());
+        if (hit === null) continue;
+        matches.push({ requirementId: hit[1] ?? '', claimId: null, status: 'missing', reason: '这一版简历里没写。' });
+      }
+      return JSON.stringify({ matches });
+    }
     if (req.purpose === 'suggest') return JSON.stringify({ suggestions: [] });
     if (req.purpose === 'counter') return JSON.stringify({ counters: [] });
     return new Error('脚本化模型没有为 purpose=' + req.purpose + ' 准备返回值');
@@ -80,11 +122,13 @@ function rig(): { db: Db; app: ReturnType<typeof createApp>; next: (kind: string
 
 const JSON_HEADERS = { 'content-type': 'application/json' };
 
-async function runOnce(target: ReturnType<typeof rig>, resumeText: string = RESUME): Promise<string> {
+async function runOnce(target: ReturnType<typeof rig>, resumeText: string = RESUME, jdText: string = ''): Promise<string> {
+  const payload: Record<string, unknown> = { resumeText, jobTitle: '后端工程师' };
+  if (jdText !== '') payload['jds'] = [{ title: '高级后端工程师', text: jdText }];
   const created = await target.app.request('/api/sessions', {
     method: 'POST',
     headers: JSON_HEADERS,
-    body: JSON.stringify({ resumeText, jobTitle: '后端工程师' }),
+    body: JSON.stringify(payload),
   });
   expect(created.status).toBe(201);
   const { id } = (await created.json()) as { id: string };
@@ -179,5 +223,33 @@ describe('历史仪表盘接口', () => {
     const all = await overviewOf(t);
     expect(all.window).toBeGreaterThan(0);
     expect(all.sessions).toBe(3);
+  });
+
+  it('同一个岗位跑两遍归成一组，换了 JD 就是另一组', async () => {
+    const t = rig();
+    t.next('solid');
+    await runOnce(t, RESUME, "岗位职责：负责交易与订单核心链路的架构设计与性能优化，要求熟练掌握 Node.js 与 TypeScript，有日订单百万级系统的性能优化经验，能给出量化的优化结论。");
+    await runOnce(t, RESUME, "岗位职责：负责交易与订单核心链路的架构设计与性能优化，要求熟练掌握 Node.js 与 TypeScript，有日订单百万级系统的性能优化经验，能给出量化的优化结论。");
+    await runOnce(t, RESUME, "岗位职责：负责数据仓库与指标体系建设，要求熟练使用 SQL 与调度工具，有多源数据接入与治理经验，能独立完成数据质量巡检并输出报告。");
+    const body = await overviewOf(t);
+    expect(body.sameJdRuns).toBe(2);
+    expect(body.jdGroups).toHaveLength(2);
+    const top = body.jdGroups[0];
+    expect(top?.sessions).toBe(2);
+    expect(top?.jdTitle).toBe('高级后端工程师');
+  });
+
+  it('粘贴时多带空白不算换岗位，正文改一个字才算', async () => {
+    const t = rig();
+    t.next('solid');
+    await runOnce(t, RESUME, "岗位职责：负责交易与订单核心链路的架构设计与性能优化，要求熟练掌握 Node.js 与 TypeScript，有日订单百万级系统的性能优化经验，能给出量化的优化结论。");
+    await runOnce(t, RESUME, '  ' + "岗位职责：负责交易与订单核心链路的架构设计与性能优化，要求熟练掌握 Node.js 与 TypeScript，有日订单百万级系统的性能优化经验，能给出量化的优化结论。" + '\n\n');
+    const same = await overviewOf(t);
+    expect(same.jdGroups).toHaveLength(1);
+    expect(same.sameJdRuns).toBe(2);
+    await runOnce(t, RESUME, "岗位职责：负责交易与订单核心链路的架构设计与性能优化，要求熟练掌握 Node.js 与 TypeScript，有日订单千万级系统的性能优化经验，能给出量化的优化结论。");
+    const changed = await overviewOf(t);
+    expect(changed.jdGroups).toHaveLength(2);
+    expect(changed.sameJdRuns).toBe(2);
   });
 });
