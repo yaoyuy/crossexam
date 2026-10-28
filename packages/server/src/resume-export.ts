@@ -10,6 +10,15 @@
  * 浏览器里 Ctrl+P 或点一次按钮，另存为 PDF；Word 走同一份 HTML 加 .doc 后缀。
  */
 
+import {
+  bulletParagraph,
+  headingParagraph,
+  noteParagraph,
+  subtitleParagraph,
+  titleParagraph,
+  writeDocx,
+} from './docx.ts';
+import type { DocxParagraph, DocxRun } from './docx.ts';
 import type { Revision } from '@crossexam/shared';
 import type { SessionView } from './pipeline.ts';
 import type { RevisedView } from './revisions.ts';
@@ -155,6 +164,83 @@ export function renderResumeHtml(
   return out.join(NL);
 }
 
+
+/**
+ * 正文按行拆段：有改动区间就把改过的片段标绿加高亮，其余照原样。
+ * 与 HTML 版同源——同一个 text、同一份 spans，差别只在呈现层。
+ */
+function docxBody(text: string, spans: readonly Revision[]): DocxParagraph[] {
+  const out: DocxParagraph[] = [];
+  const ordered = spans
+    .filter((item) => item.start >= 0 && item.end <= text.length && item.end > item.start)
+    .slice()
+    .sort((a, b) => a.start - b.start);
+  let cursor = 0;
+  for (const line of text.split(NL)) {
+    const lineEnd = cursor + line.length;
+    const runs: DocxRun[] = [];
+    let at = cursor;
+    for (const span of ordered) {
+      if (span.end <= at || span.start >= lineEnd) continue;
+      const from = Math.max(span.start, at);
+      const to = Math.min(span.end, lineEnd);
+      if (to <= from) continue;
+      if (from > at) runs.push({ text: text.slice(at, from) });
+      runs.push({ text: text.slice(from, to), color: '047857', highlight: 'green' });
+      at = to;
+    }
+    if (runs.length === 0) runs.push({ text: line });
+    else if (at < lineEnd) runs.push({ text: text.slice(at, lineEnd) });
+    out.push({ kind: 'body', runs });
+    cursor = lineEnd + 1;
+  }
+  return out;
+}
+
+function docxChangeList(view: SessionView, revised: RevisedView): DocxParagraph[] {
+  const out: DocxParagraph[] = [];
+  out.push(headingParagraph('本版改了什么（' + String(revised.applied.length) + ' 处）', 3));
+  if (revised.applied.length === 0) out.push(noteParagraph('没有改动，这一份就是原文。'));
+  for (const item of revised.applied) {
+    const claim = view.claims.find((row) => row.id === item.claimId);
+    const why = claim === undefined || claim.suggestion === null ? '' : claim.suggestion.why;
+    if (item.before.length === 0) {
+      out.push(bulletParagraph('新增一行：' + item.after.replace(/^[\r\n]+/, '')));
+      out.push(noteParagraph('这条主张在简历里没有原句可改，这句是你自己补的事实。'));
+      continue;
+    }
+    out.push({ kind: 'bullet', runs: [{ text: '改前：' + item.before, strike: true, color: '6b7280' }] });
+    out.push({ kind: 'bullet', runs: [{ text: '改后：' + item.after, color: '047857' }] });
+    if (why !== '') out.push(noteParagraph('为什么：' + why));
+  }
+  if (revised.pending.length > 0) {
+    out.push(noteParagraph('还有 ' + String(revised.pending.length) + ' 条建议没有采纳（' + revised.pending.join('、') + '）：这份简历里保留了原话。'));
+  }
+  for (const item of revised.skipped) out.push(noteParagraph(item.claimId + ' 没能改：' + item.reason));
+  return out;
+}
+
+/**
+ * 渲染一份真正的 .docx：Word 直接打开就能继续改，招聘方那边也看不出「网页换后缀」的痕迹。
+ * 正文与 HTML 版同源，抬头与改动清单也和 HTML 版一一对应。
+ */
+export function renderResumeDocx(view: SessionView, revised: RevisedView | null, options: ResumeHtmlOptions = {}): Buffer {
+  const tailored = options.tailored ?? null;
+  const text = tailored !== null ? tailored.text : revised === null ? view.session.resumeText : revised.text;
+  const marks = options.marks === true && revised !== null && tailored === null;
+  const title = view.session.jobTitle === '' ? '简历' : view.session.jobTitle;
+  const subtitle = tailored !== null
+    ? '按《' + tailored.jdTitle + '》筛出的一版：留下 ' + String(tailored.keptSegments) +
+      ' 段、去掉 ' + String(tailored.droppedSegments) + ' 段；原文一个字都没有改'
+    : revised === null
+      ? '原文导出于 CrossExam 质询室'
+      : '依据质询结果修订（' + String(revised.applied.length) + ' 处改动）';
+  const paragraphs: DocxParagraph[] = [titleParagraph(title), subtitleParagraph(subtitle)];
+  for (const item of docxBody(text, marks && revised !== null ? revised.spans : [])) paragraphs.push(item);
+  if (marks && revised !== null) for (const item of docxChangeList(view, revised)) paragraphs.push(item);
+  return writeDocx(paragraphs);
+}
+
 function stampOf(view: SessionView): string {
   return view.session.createdAt.replace(/[:.]/g, '-');
 }
@@ -168,8 +254,8 @@ export function resumeHtmlFileName(view: SessionView): string {
 }
 
 /** Word 走「HTML + .doc 后缀」这条老路，与报告一致：Word 能打开，且不需要任何依赖 */
-export function resumeDocFileName(view: SessionView): string {
-  return resumeBaseName(view) + '.doc';
+export function resumeDocxFileName(view: SessionView): string {
+  return resumeBaseName(view) + '.docx';
 }
 
 export function resumeTextFileName(view: SessionView): string {
@@ -185,6 +271,6 @@ export function tailoredHtmlFileName(view: SessionView): string {
   return resumeBaseName(view) + '-tailored.html';
 }
 
-export function tailoredDocFileName(view: SessionView): string {
-  return resumeBaseName(view) + '-tailored.doc';
+export function tailoredDocxFileName(view: SessionView): string {
+  return resumeBaseName(view) + '-tailored.docx';
 }

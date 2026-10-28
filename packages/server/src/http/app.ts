@@ -55,16 +55,18 @@ import { overviewSessions } from '../overview.ts';
 import { growthChainOf } from '../growth.ts';
 import { tailorFor } from '../tailor.ts';
 import { renderReport, reportFileName } from '../report.ts';
-import { renderReportHtml, reportDocFileName, reportHtmlFileName } from '../report-html.ts';
+import { renderReportHtml, reportDocxFileName, reportHtmlFileName } from '../report-html.ts';
 import { bundleFileName, renderBundleHtml } from '../bundle.ts';
 import { ledgerFileName, ledgerSheets } from '../ledger.ts';
+import { markdownParagraphs, writeDocx } from '../docx.ts';
 import { writeXlsx } from '../xlsx.ts';
 import {
+  renderResumeDocx,
   renderResumeHtml,
-  resumeDocFileName,
+  resumeDocxFileName,
   resumeHtmlFileName,
   resumeTextFileName,
-  tailoredDocFileName,
+  tailoredDocxFileName,
   tailoredHtmlFileName,
   tailoredTextFileName,
 } from '../resume-export.ts';
@@ -786,14 +788,18 @@ export function createApp(opts: AppOptions): Hono {
     });
   });
 
-  /** Word（.doc）导出：同一份 HTML，换成 Word 认识的类型与附件名 */
-  app.get('/api/sessions/:id/report.doc', (c) => {
+  /**
+   * Word 导出：真正的 .docx（Markdown 正文转成 Word 段落），见 ADR-0026。
+   * 不再用「HTML 换 .doc 后缀」那一招——Word 能打开，但打开的是网页。
+   */
+  app.get('/api/sessions/:id/report.docx', (c) => {
     const id = c.req.param('id');
     const view = assembleSession(db, id);
     if (view === null) return c.json({ error: '会话不存在' }, 404);
-    return c.body(renderReportHtml(view, { applied: revisedOf(db, id)?.applied ?? [], compare: compareSessions(db, id) }), 200, {
-      'content-type': 'application/msword; charset=utf-8',
-      'content-disposition': 'attachment; filename="' + reportDocFileName(view) + '"',
+    const markdown = renderReport(view, revisedOf(db, id)?.applied ?? [], compareSessions(db, id));
+    return c.body(new Uint8Array(writeDocx(markdownParagraphs(markdown))), 200, {
+      'content-type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'content-disposition': 'attachment; filename="' + reportDocxFileName(view) + '"',
     });
   });
 
@@ -916,16 +922,16 @@ export function createApp(opts: AppOptions): Hono {
     });
   });
 
-  /** 简历 Word（.doc）：同一份 HTML 换类型与附件名，与报告导出走同一条老路 */
-  app.get('/api/sessions/:id/resume.doc', (c) => {
+  /** 简历 Word（.docx）：真正的 OOXML，Word 打开后能继续编辑（见 ADR-0026） */
+  app.get('/api/sessions/:id/resume.docx', (c) => {
     const id = c.req.param('id');
     const view = assembleSession(db, id);
     if (view === null) return c.json({ error: '会话不存在：' + id }, 404);
     const marks = c.req.query('marks') === '1';
-    const html = renderResumeHtml(view, revisedOf(db, id), { marks });
-    return c.body(html, 200, {
-      'content-type': 'application/msword; charset=utf-8',
-      'content-disposition': 'attachment; filename="' + resumeDocFileName(view) + '"',
+    const book = renderResumeDocx(view, revisedOf(db, id), { marks });
+    return c.body(new Uint8Array(book), 200, {
+      'content-type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'content-disposition': 'attachment; filename="' + resumeDocxFileName(view) + '"',
     });
   });
 
@@ -987,8 +993,8 @@ export function createApp(opts: AppOptions): Hono {
     });
   });
 
-  /** Word：HTML + .doc 后缀，与报告、简历走同一条老路 */
-  app.get('/api/sessions/:id/tailored.doc', (c) => {
+  /** Word：真正的 .docx，与 txt / 可打印 HTML 用的是同一份筛过的文本 */
+  app.get('/api/sessions/:id/tailored.docx', (c) => {
     const id = c.req.param('id');
     const view = assembleSession(db, id);
     if (view === null) return c.json({ error: '会话不存在：' + id }, 404);
@@ -996,12 +1002,12 @@ export function createApp(opts: AppOptions): Hono {
     const jdId = asked === '' ? view.jds[0]?.id ?? '' : asked;
     const tailored = jdId === '' ? null : tailorFor(db, view, jdId);
     if (tailored === null) return c.json({ error: '这份岗位要求不在这一场里：' + jdId }, 404);
-    const html = renderResumeHtml(view, revisedOf(db, id), {
+    const book = renderResumeDocx(view, revisedOf(db, id), {
       tailored: { text: tailored.text, jdTitle: tailored.jdTitle, keptSegments: tailored.keptSegments, droppedSegments: tailored.droppedSegments },
     });
-    return c.body(html, 200, {
-      'content-type': 'application/msword; charset=utf-8',
-      'content-disposition': 'attachment; filename="' + tailoredDocFileName(view) + '"',
+    return c.body(new Uint8Array(book), 200, {
+      'content-type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'content-disposition': 'attachment; filename="' + tailoredDocxFileName(view) + '"',
     });
   });
 
