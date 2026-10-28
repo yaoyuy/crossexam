@@ -24,6 +24,7 @@
 | E2 | 性能预算断言（起服 / 整场回放 / 报告 / 打包的耗时与体积上界） | P13 | [ADR-0023](adr/0023-ci-gate-and-performance-budget.md) · `tools/perf/budget.mjs` |
 | 新 | 多 JD 上传 + 岗位要求驱动追问（三个新阶段） | P8（大功能②） | [ADR-0012](adr/0012-jd-requirement-review.md) · `packages/shared/src/requirements.ts` |
 | 新 | 历史仪表盘按岗位要求分组：同一个岗位跑过几场 | P14 补记（2026-10-28） | [ADR-0024](adr/0024-jd-grouping-in-history-overview.md) · `packages/shared/src/overview.ts` 的 `groupByJd` |
+| 新 | 判定台账导出 Excel：一场导成五张表的 `.xlsx`，两次导出逐字节相同 | P14 补记（2026-10-28） | [ADR-0025](adr/0025-ledger-is-a-flat-table.md) · `packages/server/src/ledger.ts` / `xlsx.ts` |
 | 新 | 成长档案：同一条主张在相邻两版之间连成轨迹 | P12 ② | [ADR-0021](adr/0021-claim-trails-chain-across-neighbouring-versions.md) · `packages/shared/src/growth.ts` |
 | 新 | 一岗一版简历：按岗位只做「留下 / 去掉」，不改一个字 | P12 ③ | [ADR-0022](adr/0022-tailor-is-keep-or-drop-only.md) · `packages/shared/src/tailor.ts` |
 | 新 | 岗位要求也能从文件导入（一次多份、标题取文件名，复用简历那条解析通道） | P14 补记（2026-10-28） | `packages/web/src/jds.ts` · [ADR-0007](adr/0007-resume-import.md) 同一条通道 |

@@ -1067,3 +1067,32 @@ schema v10 给 `session` 加了 `parent_session_id`，**刻意不加外键**：�
 
 教训：**做分组之前先问「一个成员能不能同时在多个组里」**；答错这一步，后面的排序与计数都白写
 （与 F37「配色最小单位是关系不是单个颜色」同族）。
+
+## F84：能被逐字节重放的东西，才允许被写成断言
+
+导出 Excel 这个格式天生带两个「现在几点了」：zip 里每个条目的 DOS 时间戳，以及文件名里的时间。它们不参与内容，
+却让同一份数据每次导出都不同——于是测试只能断言「文件里有这几个字」，等于把「两次导出一致」这件事交给运气。
+
+处置：`packages/server/src/xlsx.ts` 把时间戳写死成 1980-01-01（DOS_TIME = 0 / DOS_DATE = 33），CRC32 也自己按表算，
+于是 `test/ledger.test.ts` 可以断言两次下载**逐字节相同**——这条断言比十条「包含某个字符串」都强，因为它顺带钉住了
+行序、列宽、样式表与 XML 声明。
+
+教训：**先让产物确定，再谈验收**；一个不能被重放的产物，只能被抽样检查（与卡带按提示词指纹寻址同一条思路）。
+
+## F85：替换代码区间必须锚在「真实存在的行」上
+
+用脚本改自己：本想把 `styles.xml` 那段常量换掉，按 `lines[end].includes('styleSheet";')` 找结束行——真实结尾是 `</styleSheet>";`，
+条件永远不成立，循环一路走到文件尾，把后半份（`attr` / `cellXml` / `zipArchive` / `writeXlsx`）整段删掉，
+报 `Cannot find name attr`（文件还没入库，只能照早先读过的内容逐行重建）。
+
+教训：**脚本化改写也要断言命中**——先 `grep -n` 看清真实行，再检查「匹配到几条」，删改之前先确认边界那一行的原文。
+一条永远为假的条件，和一个永远为真的条件，后果是同一级别的。
+
+## F86：跨模块取数先看类型定义，不按记忆
+
+台账第一版按运行期记忆去拿 `verdictDetails` / `suggestionDetails`（那是 `run.ts` 的中间结构），
+而 `SessionView` 上真正能用的是 `view.verdicts` / `view.suggestions`；同样，「被拦下的」三种记录字段并不对称：
+`RejectedClaim` 是 `{text, quote, reason}`，`RejectedRequirement` 是 `{key, jdId, quote, text, reason}`，
+`RejectedCounter` 只有 `{text, reason}`（反问没有引文）。
+
+教训：**投影层只承认上游类型里存在的东西**；先读类型再写列，否则「编译一次就暴露」的问题会先在运行期变成一张空表。
