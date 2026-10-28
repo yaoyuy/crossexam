@@ -24,6 +24,7 @@ import {
   deleteSupplement,
   reportDocUrl,
   bundleUrl,
+  ledgerUrl,
   reportHtmlUrl,
   reportUrl,
   saveSupplement,
@@ -959,6 +960,8 @@ export function App() {
   const reportDocHref = hasReport && sandbox.sessionId !== null ? reportDocUrl(sandbox.sessionId) : null;
   // 打包分享：一个文件带走整场。与上面三颗报告按钮同一个条件——没有主张就没有可打包的东西
   const bundleHref = hasReport && sandbox.sessionId !== null ? bundleUrl(sandbox.sessionId) : null;
+  // 台账 Excel：把这一场的判断摊成能筛选的表，与打包分享同一个条件
+  const ledgerHref = hasReport && sandbox.sessionId !== null ? ledgerUrl(sandbox.sessionId) : null;
   const telemetry = sandbox.telemetry;
 
   return (
@@ -1045,6 +1048,15 @@ export function App() {
                 data-shot="bundle-html"
               >
                 打包分享
+              </a>
+              <a
+                className="btn px-2.5 py-1 text-[12px]"
+                href={ledgerHref ?? reportHref}
+                download
+                title="判定台账 Excel：主张、追问、对照、被拦下的各一张表，拿去逐条改简历"
+                data-shot="ledger-xlsx"
+              >
+                台账 Excel
               </a>
             </span>
           )}
