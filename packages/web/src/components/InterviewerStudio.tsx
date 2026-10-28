@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Chip } from './Bits.tsx';
+import { Note } from './Bits.tsx';
+import { Icon } from './Icon.tsx';
 import { deleteInterviewer, draftInterviewer, saveInterviewer } from '../api.ts';
 import type {
   DraftDiff,
@@ -23,6 +24,9 @@ import { DOMAIN_HINTS, DRAFT_LIMITS, DRAFT_SEEDS, SENIORITY_LABEL, TONE_LABEL, d
  * 3. 逐字段改到满意，看清「AI 改了什么」，再存进库、进面板。
  *
  * 界面上的每个字段都对应契约里的一个字段——没有隐藏设定，也没有「高级选项」抽屉。
+ *
+ * P16 起把三步做成三张带编号的卡：左栏「说你要谁」、右栏「逐字段改」、底部「库里有什么」，
+ * 两栏各自滚动而不把整页拉成一条长表。
  */
 export function InterviewerStudio(props: {
   open: boolean;
@@ -171,27 +175,42 @@ export function InterviewerStudio(props: {
       aria-label="面试官工作室"
       onClick={props.onClose}
     >
-      <section className="pane my-4 w-full max-w-4xl p-5" onClick={(event) => event.stopPropagation()}>
+      <section
+        className="card accent-bar accent-ember my-4 w-full max-w-4xl p-5"
+        onClick={(event) => event.stopPropagation()}
+      >
         <header className="flex flex-wrap items-center gap-2">
-          <h2 className="text-[16px] font-semibold text-ink-100">面试官工作室</h2>
-          <Chip className="border-ember-500/40 text-ember-300">任何行业都能配一位自己的面试官</Chip>
+          <span className="tile-ico accent-ember">
+            <Icon name="users" size={18} />
+          </span>
+          <div className="min-w-0">
+            <h2 className="text-[16px] font-semibold leading-tight text-ink-100">面试官工作室</h2>
+            <p className="text-[11px] text-ink-500">任何行业都能配一位自己的面试官</p>
+          </div>
           <button
             type="button"
             className="btn btn-quiet ml-auto px-2.5 py-1 text-[12px]"
             onClick={props.onClose}
             data-shot="studio-close"
           >
+            <Icon name="x" size={14} />
             收起
           </button>
         </header>
 
-        <p className="mt-2 text-[12px] leading-relaxed text-ink-400">
+        <p className="mt-3 text-[12px] leading-relaxed text-ink-400">
           自定义面试官和内置的五位共用同一套契约结构：人设、目标、追问手法、硬约束、禁止项。区别只在于字段由你填，或者由模型替你补。
         </p>
 
         <div className="mt-4 grid gap-4 md:grid-cols-2">
-          <div className="flex flex-col gap-2">
-            <h3 className="text-[12.5px] font-semibold text-ink-100">第一步 · 用一句话说你要谁</h3>
+          <div className="card card-pad accent-bar accent-sky flex flex-col gap-2.5">
+            <div className="steps">
+              <span className="step step-on">
+                <span className="step-num">1</span>
+                第一步 · 用一句话说你要谁
+              </span>
+              <span className="step-line" />
+            </div>
             <textarea
               className="field min-h-[84px]"
               data-shot="studio-desc"
@@ -199,19 +218,22 @@ export function InterviewerStudio(props: {
               placeholder="例如：我要面一位临床护士，简历写「熟练各项护理操作」「参与多起抢救」，我想问清具体场景和职责边界。"
               onChange={(event) => setDescription(event.target.value)}
             />
-            <div className="flex flex-wrap gap-1.5">
-              {DRAFT_SEEDS.map((seed) => (
-                <button
-                  key={seed.label}
-                  type="button"
-                  className="chip opacity-80"
-                  data-shot={'studio-seed-' + seed.label}
-                  title={seed.text}
-                  onClick={() => setDescription(seed.text)}
-                >
-                  {seed.label}
-                </button>
-              ))}
+            <div className="flex flex-col gap-1">
+              <span className="text-[11px] text-ink-500">不知道怎么写？挑一个例子：</span>
+              <div className="flex flex-wrap gap-1.5">
+                {DRAFT_SEEDS.map((seed) => (
+                  <button
+                    key={seed.label}
+                    type="button"
+                    className="chip opacity-80 transition-colors hover:border-ember-500/60 hover:text-ember-300 hover:opacity-100"
+                    data-shot={'studio-seed-' + seed.label}
+                    title={seed.text}
+                    onClick={() => setDescription(seed.text)}
+                  >
+                    {seed.label}
+                  </button>
+                ))}
+              </div>
             </div>
             <div className="flex flex-wrap gap-1.5">
               <button
@@ -221,6 +243,7 @@ export function InterviewerStudio(props: {
                 disabled={busy}
                 onClick={() => void handleDraft(true)}
               >
+                <Icon name="sparkles" size={14} />
                 {busy ? '正在整理…' : '用 AI 补成契约'}
               </button>
               <button
@@ -230,6 +253,7 @@ export function InterviewerStudio(props: {
                 disabled={busy}
                 onClick={() => void handleDraft(false)}
               >
+                <Icon name="shield" size={14} />
                 只用本地规则（不联网）
               </button>
             </div>
@@ -239,19 +263,27 @@ export function InterviewerStudio(props: {
               </p>
             ) : null}
             {note === null ? null : (
-              <p data-shot="studio-note" className="rounded-lg border border-ink-800 bg-ink-850/60 p-2 text-[12px] leading-relaxed text-ink-300">
-                {note}
-              </p>
+              <div data-shot="studio-note">
+                <Note tone="info" icon="check">
+                  {note}
+                </Note>
+              </div>
             )}
             {error === null ? null : (
-              <p data-shot="studio-error" className="rounded-lg border border-red-500/30 bg-red-500/5 p-2 text-[12px] leading-relaxed text-red-300">
-                {error}
-              </p>
+              <div data-shot="studio-error">
+                <Note tone="warn">{error}</Note>
+              </div>
             )}
           </div>
 
-          <div className="flex flex-col gap-2">
-            <h3 className="text-[12.5px] font-semibold text-ink-100">第二步 · 逐字段改到满意</h3>
+          <div className="card card-pad accent-bar accent-violet flex flex-col gap-2.5">
+            <div className="steps">
+              <span className="step step-on">
+                <span className="step-num">2</span>
+                第二步 · 逐字段改到满意
+              </span>
+              <span className="step-line" />
+            </div>
             <div className="grid gap-2 sm:grid-cols-2">
               <label className="flex flex-col gap-1">
                 <span className="text-[11px] text-ink-400">名称（界面上要能指名道姓）</span>
@@ -309,7 +341,8 @@ export function InterviewerStudio(props: {
             <div className="flex flex-col gap-1.5">
               <div className="flex items-center gap-2">
                 <span className="text-[11px] text-ink-400">追问手法（{String(draft.tactics.length)}/{String(DRAFT_LIMITS.tacticsMax)}）</span>
-                <button type="button" className="btn btn-quiet px-2 py-0.5 text-[11px]" data-shot="studio-add-tactic" onClick={addTactic}>
+                <button type="button" className="btn btn-quiet ml-auto px-2 py-0.5 text-[11px]" data-shot="studio-add-tactic" onClick={addTactic}>
+                  <Icon name="plus" size={12} />
                   加一条
                 </button>
               </div>
@@ -323,11 +356,11 @@ export function InterviewerStudio(props: {
                   />
                   <button
                     type="button"
-                    className="btn btn-quiet px-2 py-1 text-[11px]"
+                    className="icon-btn"
                     title="删掉这一条"
                     onClick={() => removeTactic(index)}
                   >
-                    删
+                    <Icon name="trash" size={14} />
                   </button>
                 </div>
               ))}
@@ -337,11 +370,14 @@ export function InterviewerStudio(props: {
 
         {result === null || result.diff.length === 0 ? null : (
           <div className="mt-4 flex flex-col gap-1.5">
-            <h3 className="text-[12.5px] font-semibold text-ink-100">AI 改了什么</h3>
+            <h3 className="card-title flex items-center gap-2">
+              <Icon name="wand" size={15} className="text-ember-400" />
+              AI 改了什么
+            </h3>
             <ul className="flex flex-col gap-1">
               {result.diff.map((item: DraftDiff) => (
-                <li key={item.field} className="rounded-lg border border-ink-800 bg-ink-850/50 px-2.5 py-1.5 text-[12px]">
-                  <span className="text-ink-200">{item.field}</span>
+                <li key={item.field} className="row text-[12px]">
+                  <span className="chip opacity-80">{item.field}</span>
                   <span className="text-ink-400">：{item.before.length === 0 ? '（空）' : item.before}</span>
                   <span className="text-ember-300"> → {item.after}</span>
                 </li>
@@ -359,6 +395,7 @@ export function InterviewerStudio(props: {
             title={problem ?? '存进库并出现在面板里'}
             onClick={() => void handleSave()}
           >
+            <Icon name="check" size={14} />
             {editingId === null ? '存进面试官库' : '更新这一位'}
           </button>
           {editingId === null ? null : (
@@ -369,6 +406,7 @@ export function InterviewerStudio(props: {
               disabled={busy}
               onClick={() => void handleDelete(editingId)}
             >
+              <Icon name="trash" size={14} />
               从库里删掉
             </button>
           )}
@@ -380,6 +418,7 @@ export function InterviewerStudio(props: {
               data-shot="studio-prompt-toggle"
               onClick={() => setShowPrompt((value) => !value)}
             >
+              <Icon name={showPrompt ? 'chevron-down' : 'chevron-right'} size={13} />
               {showPrompt ? '收起渲染出的 System Prompt' : '看渲染出的 System Prompt'}
             </button>
           )}
@@ -388,7 +427,7 @@ export function InterviewerStudio(props: {
         {result === null || !showPrompt ? null : (
           <pre
             data-shot="studio-prompt"
-            className="mt-2 max-h-64 overflow-auto rounded-lg border border-ink-800 bg-ink-950/70 p-3 text-[11px] leading-relaxed text-ink-300"
+            className="mt-2 max-h-64 overflow-auto rounded-[10px] border border-ink-800 bg-ink-950/70 p-3 text-[11px] leading-relaxed text-ink-300"
           >
             {result.systemPrompt}
           </pre>
@@ -396,32 +435,44 @@ export function InterviewerStudio(props: {
 
         <div className="mt-5 grid gap-4 md:grid-cols-2">
           <div className="flex flex-col gap-1.5">
-            <h3 className="text-[12.5px] font-semibold text-ink-100">内置面试官（只读）</h3>
+            <h3 className="card-title flex items-center gap-2">
+              <Icon name="lock" size={15} className="text-ink-400" />
+              内置面试官（只读）
+            </h3>
             <ul className="flex flex-col gap-1">
               {presets.map((item) => (
-                <li key={item.id} className="rounded-lg border border-ink-800 bg-ink-900/50 px-2.5 py-1.5 text-[12px]">
-                  <span className="font-medium text-ink-100">{personaLabelOf(item.id, item.contract.persona.name)}</span>
-                  <span className="text-ink-400"> · {item.contract.persona.blurb}</span>
+                <li key={item.id} className="row text-[12px]">
+                  <span className="tile-ico accent-slate">
+                    <Icon name="user" size={14} />
+                  </span>
+                  <span className="flex min-w-0 flex-col">
+                    <span className="truncate font-medium text-ink-100">{personaLabelOf(item.id, item.contract.persona.name)}</span>
+                    <span className="truncate text-[11px] text-ink-400">{item.contract.persona.blurb}</span>
+                  </span>
                 </li>
               ))}
             </ul>
           </div>
           <div className="flex flex-col gap-1.5">
-            <h3 className="text-[12.5px] font-semibold text-ink-100">
+            <h3 className="card-title flex items-center gap-2">
+              <Icon name="users" size={15} className="text-violet-400" />
               我配的面试官（{String(custom.length)}/{String(props.library?.limit ?? 0)}）
             </h3>
             {custom.length === 0 ? (
-              <p className="text-[12px] text-ink-400">还没有。左边挑个例子点「用 AI 补成契约」，或者只用本地规则也行。</p>
+              <p className="text-[12px] leading-relaxed text-ink-400">还没有。左边挑个例子点「用 AI 补成契约」，或者只用本地规则也行。</p>
             ) : (
               <ul className="flex flex-col gap-1">
                 {custom.map((entry) => (
-                  <li
-                    key={entry.id}
-                    className="flex items-center gap-2 rounded-lg border border-ink-800 bg-ink-900/50 px-2.5 py-1.5 text-[12px]"
-                  >
-                    <span className="font-medium text-ink-100">{entry.contract.persona.name}</span>
-                    <span className="text-ink-400">{entry.domain.length === 0 ? '未填方向' : entry.domain}</span>
-                    <span className="text-[11px] text-ink-500">{entry.source === 'llm' ? 'AI 补全' : '本地规则'}</span>
+                  <li key={entry.id} className="row text-[12px]">
+                    <span className="tile-ico accent-violet">
+                      <Icon name="user" size={14} />
+                    </span>
+                    <span className="flex min-w-0 flex-col gap-0.5">
+                      <span className="truncate font-medium text-ink-100">{entry.contract.persona.name}</span>
+                      <span className="truncate text-[11px] text-ink-400">
+                        {entry.domain.length === 0 ? '未填方向' : entry.domain} · {entry.source === 'llm' ? 'AI 补全' : '本地规则'}
+                      </span>
+                    </span>
                     <button
                       type="button"
                       className="btn btn-quiet ml-auto px-2 py-0.5 text-[11px]"
@@ -432,11 +483,12 @@ export function InterviewerStudio(props: {
                     </button>
                     <button
                       type="button"
-                      className="btn btn-quiet px-2 py-0.5 text-[11px]"
+                      className="icon-btn"
+                      title="从库里删掉这位"
                       data-shot={'studio-remove-' + entry.id}
                       onClick={() => void handleDelete(entry.id)}
                     >
-                      删
+                      <Icon name="trash" size={14} />
                     </button>
                   </li>
                 ))}

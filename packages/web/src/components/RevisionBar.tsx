@@ -6,12 +6,16 @@
  *
  * 一个刻意的设计：导出按钮只在**真的采纳过**之后才出现。
  * 没改过的简历本来就能从原文复制，摆一个「导出」在这里只会让人以为已经改好了。
+ *
+ * P16：这一栏归「质询台」的紫色一系，三排控件分出层级——
+ * 数字用 Stat，动作分主/次（确认采纳是主），导出是一组贴在「导出」标题下的小按钮。
  */
 import { useState } from 'react';
 import { resumeDocxUrl, resumeHtmlUrl, resumeTextUrl } from '../api.ts';
 import type { RevisedResume } from '../revisions.ts';
 import { revisionSummary } from '../revisions.ts';
-import { Pane } from './Bits.tsx';
+import { Note, Pane, Stat } from './Bits.tsx';
+import { Icon } from './Icon.tsx';
 
 export function RevisionBar(props: {
   sessionId: string | null;
@@ -44,8 +48,14 @@ export function RevisionBar(props: {
 
   return (
     <Pane
-      title="采纳改写"
+      title={
+        <span className="flex items-center gap-1.5">
+          <Icon name="sparkles" size={14} className="text-violet-400" />
+          <span className="truncate">采纳改写</span>
+        </span>
+      }
       dataShot="revisions"
+      className="accent-bar accent-violet"
       subtitle={
         props.sessionId === null
           ? '跑完一场才有改写建议'
@@ -56,25 +66,33 @@ export function RevisionBar(props: {
       bodyClassName="flex flex-col gap-2.5 p-3"
     >
       {props.sessionId === null ? (
-        <p className="text-[12px] leading-relaxed text-ink-400">
+        <Note tone="info" icon="bulb">
           质询跑完之后，每一条「站不住」的主张都会给出一条改写建议。在这里勾选、确认，简历会当场改好，再导出 PDF 或 Word。
-        </p>
+        </Note>
       ) : (
         <>
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="chip" title="已经写进简历的改写">
-              已改 {summary.accepted}
-            </span>
-            <span className="chip" title="有建议但还没采纳">
-              待定 {summary.pending}
-            </span>
-            <span className="chip" title="勾了但改不动的，会说明理由">
-              改不动 {summary.skipped}
-            </span>
-            <span className="chip border-ember-500/40 text-ember-300" title="这一批勾了几条">
-              本次勾选 {summary.chosen}
-            </span>
-          </div>
+          {revised === null ? null : (
+            <div className="grid grid-cols-3 gap-2">
+              <Stat label="已改" value={summary.accepted} hint="已写进简历" accent="mint" />
+              <Stat label="待定" value={summary.pending} hint="有建议未采纳" accent="violet" />
+              <Stat label="改不动" value={summary.skipped} hint="下面会说明理由" accent={summary.skipped === 0 ? 'slate' : 'ember'} />
+            </div>
+          )}
+
+          {revised === null && props.candidates.length === 0 ? (
+            <Note tone="plain">
+              没有可勾选的建议——中栏每条「站不住」的主张都会带一条改写建议，勾上它这里就会出现。
+            </Note>
+          ) : (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="chip border-ember-500/40 text-ember-300" title="这一批勾了几条">
+                本次勾选 {summary.chosen}
+              </span>
+              <span className="chip" title="这一批一共有几条建议可以勾">
+                可勾 {props.candidates.length}
+              </span>
+            </div>
+          )}
 
           <div className="flex flex-wrap items-center gap-1.5">
             <button
@@ -84,11 +102,12 @@ export function RevisionBar(props: {
               disabled={props.candidates.length === 0 || props.busy}
               data-shot="revision-accept-all"
             >
+              <Icon name="check" size={13} />
               全部采纳（{props.candidates.length}）
             </button>
             <button
               type="button"
-              className="btn px-2.5 py-1 text-[12px]"
+              className="btn btn-quiet px-2.5 py-1 text-[12px] text-ink-300"
               onClick={props.onClear}
               disabled={props.chosen.length === 0 || props.busy}
               data-shot="revision-clear"
@@ -109,51 +128,57 @@ export function RevisionBar(props: {
 
           {revised === null ? null : (
             <>
+              <div className="flex flex-col gap-1.5">
+                <p className="flex items-center gap-1.5 text-[10.5px] uppercase tracking-wide text-ink-500">
+                  <Icon name="download" size={12} />
+                  导出改完的这一版
+                </p>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <a className="btn px-2.5 py-1 text-[12px]" href={resumeTextUrl(id)} download data-shot="resume-txt">
+                    改完的简历 .txt
+                  </a>
+                  <a
+                    className="btn px-2.5 py-1 text-[12px]"
+                    href={resumeHtmlUrl(id, { print: true, marks: true })}
+                    target="_blank"
+                    rel="noreferrer"
+                    title="打开可打印的简历页并调起打印对话框，选「另存为 PDF」即可"
+                    data-shot="resume-pdf"
+                  >
+                    导出 PDF
+                  </a>
+                  <a
+                    className="btn px-2.5 py-1 text-[12px]"
+                    href={resumeDocxUrl(id, true)}
+                    title="真正的 Word 文件（.docx）：打开就能继续编辑，不是网页换了个后缀"
+                    data-shot="resume-docx"
+                  >
+                    导出 Word (.docx)
+                  </a>
+                  <button
+                    type="button"
+                    className={'btn px-2.5 py-1 text-[12px] ' + (showDiff ? 'border-ember-500/60 text-ember-300' : '')}
+                    onClick={() => setShowDiff((prev) => !prev)}
+                    title="在下面把每一条改动并排列出来：左边是简历原文里的那一段，右边是改完后的那一段"
+                    data-shot="revision-diff-toggle"
+                  >
+                    <Icon name={showDiff ? 'chevron-down' : 'chevron-right'} size={13} />
+                    {showDiff ? '收起对照' : '并排看改动'}
+                  </button>
+                </div>
+              </div>
+
               <div className="flex flex-wrap items-center gap-1.5">
-                <a
-                  className="btn px-2.5 py-1 text-[12px]"
-                  href={resumeTextUrl(id)}
-                  download
-                  data-shot="resume-txt"
-                >
-                  改完的简历 .txt
-                </a>
-                <a
-                  className="btn px-2.5 py-1 text-[12px]"
-                  href={resumeHtmlUrl(id, { print: true, marks: true })}
-                  target="_blank"
-                  rel="noreferrer"
-                  title="打开可打印的简历页并调起打印对话框，选「另存为 PDF」即可"
-                  data-shot="resume-pdf"
-                >
-                  导出 PDF
-                </a>
-                <a
-                  className="btn px-2.5 py-1 text-[12px]"
-                  href={resumeDocxUrl(id, true)}
-                  title="真正的 Word 文件（.docx）：打开就能继续编辑，不是网页换了个后缀"
-                  data-shot="resume-docx"
-                >
-                  导出 Word (.docx)
-                </a>
-                <button
-                  type="button"
-                  className="btn px-2.5 py-1 text-[12px]"
-                  onClick={() => setShowDiff((prev) => !prev)}
-                  title="在下面把每一条改动并排列出来：左边是简历原文里的那一段，右边是改完后的那一段"
-                  data-shot="revision-diff-toggle"
-                >
-                  {showDiff ? '收起对照' : '并排看改动'}
-                </button>
                 {props.onRerun === null || props.onRerun === undefined ? null : (
                   <button
                     type="button"
-                    className="btn btn-primary px-2.5 py-1 text-[12px]"
+                    className="btn px-2.5 py-1 text-[12px] border-ember-500/50 text-ember-300"
                     onClick={props.onRerun}
                     disabled={props.busy}
                     title="把改完的这一版当成新简历再质询一遍，然后回来比一比判定变了没有"
                     data-shot="revision-rerun"
                   >
+                    <Icon name="rocket" size={13} />
                     改完再跑一遍
                   </button>
                 )}
@@ -165,52 +190,61 @@ export function RevisionBar(props: {
                   title="撤销全部采纳，回到原文"
                   data-shot="revision-discard"
                 >
+                  <Icon name="trash" size={12} />
                   全部撤销
                 </button>
               </div>
+
               {props.onRerun !== null && props.onRerun !== undefined && props.rerunHint !== null && props.rerunHint !== undefined ? (
-                <p className="text-[11px] leading-relaxed text-ink-400" data-shot="revision-rerun-hint">
-                  {props.rerunHint}
-                </p>
+                <Note tone="warn" icon="alert">
+                  <span data-shot="revision-rerun-hint">{props.rerunHint}</span>
+                </Note>
               ) : null}
+
               {showDiff ? (
-                <div className="flex flex-col gap-1 rounded-md border border-ink-800 bg-ink-850/40 p-2">
+                <div className="flex flex-col gap-1.5 rounded-[10px] border border-ink-800 bg-ink-850/40 p-2.5">
                   <p className="text-[11.5px] leading-relaxed text-ink-400">
                     左边是简历原文里的那一段，右边是改完后的那一段。空着的「原文」表示这一处是新增的一行。
                   </p>
-                  <table className="w-full border-collapse text-[11.5px]" data-shot="revision-diff">
-                    <thead>
-                      <tr className="text-ink-400">
-                        <th className="w-[64px] border border-ink-800 px-1.5 py-1 text-left font-normal">主张</th>
-                        <th className="border border-ink-800 px-1.5 py-1 text-left font-normal">原文</th>
-                        <th className="border border-ink-800 px-1.5 py-1 text-left font-normal">改后</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {revised.applied.map((item) => (
-                        <tr key={item.claimId + String(item.start)}>
-                          <td className="border border-ink-800 px-1.5 py-1 align-top font-mono text-ink-400">{item.claimId}</td>
-                          <td className="border border-ink-800 px-1.5 py-1 align-top text-ink-400">{item.before === '' ? '（新增一行）' : item.before}</td>
-                          <td className="border border-ink-800 px-1.5 py-1 align-top text-emerald-ink">{item.after}</td>
+                  <div className="overflow-x-auto">
+                    <table className="w-full border-collapse overflow-hidden rounded-[8px] text-[11.5px]" data-shot="revision-diff">
+                      <thead>
+                        <tr className="bg-ink-850 text-ink-400">
+                          <th className="w-[64px] border border-ink-800 px-1.5 py-1 text-left font-normal">主张</th>
+                          <th className="border border-ink-800 px-1.5 py-1 text-left font-normal">原文</th>
+                          <th className="border border-ink-800 px-1.5 py-1 text-left font-normal">改后</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {revised.applied.map((item) => (
+                          <tr key={item.claimId + String(item.start)}>
+                            <td className="border border-ink-800 px-1.5 py-1 align-top font-mono text-ink-400">{item.claimId}</td>
+                            <td className="border border-ink-800 px-1.5 py-1 align-top text-ink-400">
+                              {item.before === '' ? '（新增一行）' : item.before}
+                            </td>
+                            <td className="border border-ink-800 px-1.5 py-1 align-top text-emerald-ink">{item.after}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               ) : null}
+
               {dirty ? (
-                <p className="text-[11.5px] leading-relaxed text-amber-ink">
+                <Note tone="warn" icon="alert">
                   勾选与当前这一版不一致：点「确认采纳」才会重算简历。
-                </p>
+                </Note>
               ) : null}
+
               {revised.skipped.length === 0 ? null : (
                 <ul className="flex flex-col gap-1">
                   {revised.skipped.map((item) => (
-                    <li
-                      key={item.claimId + item.reason}
-                      className="rounded-md border border-ink-800 bg-ink-850/50 px-2 py-1 text-[11.5px] text-ink-300"
-                    >
-                      <span className="font-mono text-ink-400">{item.claimId}</span> 没改成：{item.reason}
+                    <li key={item.claimId + item.reason} className="row text-[11.5px] text-ink-300">
+                      <Icon name="alert" size={13} className="text-amber-ink" />
+                      <span className="min-w-0">
+                        <span className="font-mono text-ink-400">{item.claimId}</span> 没改成：{item.reason}
+                      </span>
                     </li>
                   ))}
                 </ul>
@@ -219,9 +253,9 @@ export function RevisionBar(props: {
           )}
 
           {props.note === null ? null : (
-            <p className="text-[11.5px] leading-relaxed text-ink-400" data-shot="revision-note">
-              {props.note}
-            </p>
+            <Note tone="plain">
+              <span data-shot="revision-note">{props.note}</span>
+            </Note>
           )}
         </>
       )}
