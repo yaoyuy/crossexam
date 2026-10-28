@@ -31,9 +31,9 @@ npm run preview        # 打开 http://127.0.0.1:8787 ，点「一键示例」�
 
 | 步骤 | 耗时 | 说明 |
 | --- | --- | --- |
-| git clone | 42.1 s | 含 149 盘卡带与 26 张截图 |
+| git clone | 42.1 s | 含 149 盘卡带与 30 张截图 |
 | npm install | 36.0 s | 117 个包，来自 npmmirror |
-| npm run verify | 25.2 s | 类型检查 + 759 条断言 + 冒烟 + 构建 + 性能预算 |
+| npm run verify | 25.2 s | 类型检查 + 765 条断言 + 冒烟 + 构建 + 性能预算 |
 | 起服 + 跑完一场 + 下载报告 | 0.7 s | 回放模式，46 ms 跑完整场 |
 | **合计** | **107.5 s** | 距 10 分钟上限有 5.6 倍余量 |
 
@@ -206,7 +206,7 @@ c8a6e90 fix(shared): 修改建议不再要求模型自报主张编号
 | 脱敏 | 自动识别 6 类密钥格式（OpenAI / Anthropic / GitHub / AWS / Bearer / KEY=value 赋值），命中即替换 |
 | 过滤 | 只把 `source.kind === 'user'` 的消息当真人提问，系统注入（runtime-context / skill-catalog / plugin:hindsight / time-context / agent-instructions）全部丢弃 |
 | 分页 | 超过 40 万字符自动按**条目**边界切分（不是按轮次，因为单轮可能 144 万字符），每份都能在网页上直接渲染 |
-| 产物 | `docs/prompt-chain/` 下 56 份快照，其中 45 份是分页分片，共约 20.3 MB，覆盖整个开发过程 |
+| 产物 | `docs/prompt-chain/` 下 59 份快照，其中 52 份是分页分片，共约 23.5 MB，覆盖整个开发过程 |
 
 这条链带来三个别的方式给不了的性质：
 

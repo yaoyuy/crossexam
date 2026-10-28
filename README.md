@@ -129,9 +129,9 @@ cp .env.example .env   # 填 LLM_BASE_URL / LLM_API_KEY / LLM_MODEL（任何 Ope
 | `npm run verify` | **提交门禁（五道）**：类型检查 + 测试 + 真进程冒烟 + 构建 + 性能预算 |
 | `npm run smoke` | 真起一个服务进程打接口（含 SSE 收尾检查） |
 | `npm run budget` | 性能预算：起服 / 整场回放 / 报告 / 打包的耗时与体积上界，14 项（已含在 `verify` 里） |
-| `npm run shots` | 真浏览器（Edge/Chrome + CDP）截 26 张图，控制台有报错即失败 |
+| `npm run shots` | 真浏览器（Edge/Chrome + CDP）截 30 张图，控制台有报错即失败 |
 | `npm run stats` | 量一遍代码规模与测试密度（技术文档 3.7.1 那张表就是它的输出） |
-| `npm run e2e:ui` | 真浏览器把每个功能点一遍（165 项断言 + 零控制台报错），红了退出码 1 |
+| `npm run e2e:ui` | 真浏览器把每个功能点一遍（177 项断言 + 零控制台报错），红了退出码 1 |
 | `npm run seed:demo` | 重新合成 149 盘离线演示卡带（改了提示词就必须重跑） |
 | `npm run repro` | 干净目录复现预演，逐步计时并与 10 分钟上限比对 |
 | `npm run export:prompt` | 导出 AI 协同的 Prompt 链快照到 `docs/prompt-chain/` |
