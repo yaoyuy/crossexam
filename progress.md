@@ -1501,3 +1501,41 @@ Word 打开会提示「格式与扩展名不一致」，而且段落是 `div`、
 （CSS 30.46 kB / JS 360.80 kB，gzip 110.13 kB）· `npm run e2e:ui` **165/165**（断言数不变，只把三处 `.doc` 断言换成真文件校验）。
 
 **没动的东西**：提示词、149 盘卡带、schema（仍 v10）、性能预算的上界。见 ADR-0026。
+
+## Session 42 · 2026-10-28 · P15 桌面端：左栏六页 + 五步向导 + 没有地址栏的应用窗口
+
+用户要求（m17248 ②）：打包成桌面端，像「简历通」那样左侧栏多页，再加一个多步新手向导。
+难点不在页面数量，而在**把「一屏塞六件事」拆成「每页一件事」之后，所有既有的自动化脚本都失效了**
+（首屏断言等的是投料台的「开始质询」按钮，而首屏现在是首页），所以这一轮的工作量主要在测试与截图上。
+
+**产品侧**
+- 六页：首页 / 投料台 / 质询台 / 报告 / 历史 / 设置（`packages/web/src/pages.ts` 的 `PageId` 与 `PAGE_ITEMS`）；
+  左侧栏 `components/SideNav.tsx`（每项 `aria-current="page"`，宽屏竖直、小屏横排）；页面写在 `location.hash`（`#/report` 可深链），不引 react-router。
+- 首页 `HomePage.tsx`：「把简历放到火上烤一遍」，五张卡（一键示例 / 从文件导入 / 多档追问强度 / 一岗一版 / 成长档案）+ 向导入口；
+  历史页 `HistoryPanel.tsx`（概览条 + 会话列表，原来挤在投料台右下的那块搬了出来）；
+  报告页 `ReportPage.tsx`（五种带走方式 + 报告预览 iframe）；设置页 `SettingsPage.tsx`（配色 / 教程 / 向导 / 隐私 / 启动与桌面 / 无障碍）。
+- 五步向导 `components/OnboardingWizard.tsx`（欢迎 → 材料 → 阵容 → 开跑 → 带结论走），每步会**顺带切背景页面**，
+  让人一眼看到「这件事在哪一页做」；首开弹的是向导，教程改成按钮打开（`help.ts` 的 `WIZARD_SEEN_KEY`）。
+- 投料台瘦身：历史会话块搬走；新增一行 `data-shot="intake-contract"`（当前档位/风格的预算与**契约指纹前 8 位**），
+  于是「换追问强度换指纹、换改写风格不换指纹」在投料台就看得见。
+
+**「桌面端」是怎么做的**（ADR-0028）
+- `tools/launcher/src/plan.mjs`：`appBrowserCandidates()` 按平台列 Edge / Chrome / Brave 的惯常安装位置，
+  `chooseAppBrowser()` 取第一个存在的，`browserOpenArgs(url, platform, appPath)` 有 appPath 时返回
+  `{ command: appPath, args: ['--app=' + url, '--window-size=1440,960'] }`——**没找到就退回系统默认浏览器**（窗口会带地址栏），不退化成打不开。
+- 真机验证：UIA 树里 `OmniboxViewViews`（地址和搜索栏）的 boundingBox 为 `null`，即地址栏确实不在；
+  Edge 会记住这个 app 窗口上次的尺寸，实测请求 1440x960 开成 945x1012（不是缺陷，是 Edge 的行为）。
+
+**测试侧（这一轮最花时间）**
+- `tools/ui-e2e/e2e.mjs` 按六页重写：新增 `gotoPage()` / `contractCount()` 两个 helper（**契约卡属于质询台**，
+  所以数契约要先切页、数完切回），向导五步逐条核对标题与背景页面，六页空态各断言自己的文案，
+  历史载入改到历史页找。**165 → 177 项**，全绿、控制台 0 报错。
+- 修掉一个测试假失败：清空历史是**乐观删除**（先摘行、请求在路上），原来等的是 DOM 少一行，
+  最后一次点击还没落地循环就退出了；改成同时等服务端会话数下降（`waitSessionsBelow`）。
+- `tools/ui-shots/shots.mjs` 按六页改造，`00-home` / `27-wizard` / `28-report-page` / `29-settings` 四张新图，**26 → 30 张**。
+- 截图重出时抓到真缺陷：`06-done-top.png` 与 `07-verdicts.png` 逐字节相同（见 F92），修法是质询台外层多一个 `xl:h-full`。
+
+**门禁（2026-10-28）**：`npm run verify` 全绿（73 文件 / **765 条断言** + 9 项冒烟 + 构建 + 14 项性能预算）·
+`npm run e2e:ui` **177/177** · `npm run shots` 30 张、控制台 0 问题 · `npm run export:prompt` **59 份快照**（52 份分片，23.5 MB）。
+
+**没动的东西**：提示词、149 盘卡带、schema（仍 v10）。新增 ADR-0027（界面按任务分页）/ ADR-0028（桌面端是浏览器应用窗口），发现 F92/F93。
