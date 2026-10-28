@@ -670,6 +670,10 @@ const revisedNote = await waitFor(async () => { const t = await evalJs('(() => {
 check('确认采纳后给出结论（改成了几处）', revisedNote.indexOf('已按这次勾选改好简历') >= 0, revisedNote.slice(0, 80));
 const rerunReady = await hasShot('revision-rerun');
 check('采纳之后才出现「改完再跑一遍」', rerunReady === 'yes', rerunReady);
+// 这一条不是装饰：离线回放的卡带是按提示词指纹录的，只录了「一键示例 → 全部采纳那几条建议」这一条路，
+// 评委自己改过别处再点这个按钮就会找不到卡带。事先说明白，比事后报一个看不懂的错强。
+const rerunHint = await evalJs('(() => { const el = document.querySelector("[data-shot=revision-rerun-hint]"); return el === null ? "" : el.innerText; })()');
+check('离线回放里「改完再跑一遍」旁边写明只录了演示这一条路', rerunHint.indexOf('离线回放只录了') >= 0 && rerunHint.indexOf('联网') >= 0, rerunHint.slice(0, 70));
 const revisedResume = (await (await fetch('http://127.0.0.1:' + PORT + '/api/sessions/' + demoSession.id + '/revisions')).json()).revised;
 check('服务端真的把简历改了（不是只在前端画一下）',
   revisedResume !== null && revisedResume.applied.length > 0 && revisedResume.text !== view.session.resumeText,
