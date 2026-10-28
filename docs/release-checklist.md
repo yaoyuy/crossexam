@@ -75,7 +75,7 @@ git status --porcelain  # 必须为空
 | 冻结基线数字 | 值 |
 | --- | --- |
 | 提交数 | 350 余次（每次对应一次具体开发动作，冻结时 351 次；此后补记的 JD 文件导入 / 按岗位分组 / 判定台账与 Prompt 链重导不计入） |
-| 测试 | 73 个测试文件 / 759 条断言 |
+| 测试 | 73 个测试文件 / 765 条断言 |
 | 界面点测 | 165 项 |
 | 复现耗时 | 最近一次 86.6 s（区间 34–121 s，上限 600 s） |
 | 技术文档 | 30 页 / 2124 KB |
@@ -133,3 +133,15 @@ Prompt 链这次只增了 7 份：崩掉的那场主会话（session-9791af4a，
 数字累计变化：截图仍 **30 张**、Prompt 链仍 **66** 份（其中 55 份分片，约 25.4 MB）、测试断言仍 **765**、
 界面点测 177 → **178** 项、构建产物 56 modules / CSS **48.26 kB**（gzip 9.28）/ JS **416.59 kB**（gzip 124.98，预算 128 kB）。
 另加两个命令：`portable:build` 与 `portable:verify`；zip 不进仓库（`dist/` 已忽略）。
+
+**同日第七批（用户把演示视频交给 AI 录，P18）**：11 段、1920×1080、30 fps、**7 分 22 秒**的成片
+`docs/video/crossexam-demo.mp4`（46.0 MB）。录制没有用录屏软件：`tools/video/` 下是整套脚本——
+CDP 抓帧（`Page.captureScreenshot` 循环 17 fps，比 `Page.startScreencast` 的 10 fps 均匀）、
+Edge TTS 逐句配音后拼接、ffmpeg `drawtext` 烧字幕、`assemble.mjs` 拼接加淡入淡出。
+AI 协同段（证据锚定 / claimId 真 Bug / 唯一约束 / 真进程冒烟）合计 **2 分 59 秒**，越过「≥2 分钟」的硬要求。
+三处坑写成 findings F98（concat 清单路径会被二次拼接、drawtext 里盘符被冒号截断、帧序列短于旁白会冻末帧）。
+数字累计变化：测试断言仍 **765** / 73 个测试文件（曾经一度被记成 74 / 782，原因是 `vitest` 的默认排除清单里没有 `.tmp`，
+把便携包解压出来的那份 `tools/launcher/test/plan.test.mjs` 又跑了一遍；已加 `vitest.config.ts` 把 `.tmp` 排除，数字回到 73 / 765）、
+界面点测仍 **178**、截图仍 **30 张**、Prompt 链仍 **66** 份、构建 56 modules / CSS 48.26 kB / JS 416.59 kB（gzip 124.98）。
+另加 `docs/submission/CHECKLIST.md`：上传 GitHub 的四步、必交三件、不该进仓库的目录、评委最可能问的三件事。
+

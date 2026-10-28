@@ -1239,3 +1239,35 @@ under node_modules, for "…/node_modules/@crossexam/shared/src/index.ts"
 也就是说失败的是断言口径，不是便携包。改成默认面板后 `event: result` 出现、claims 5、verdicts 5，8/8 通过。
 
 - 教训：**验收脚本写错时，报错信息会指向产品**。遇到「新环境才失败」，先在开发机上跑同一个请求——两边都失败就是口径问题。
+
+## F98 视频管线：三条只有真跑一遍才会撞上的坑（2026-10-29）
+
+做 P18 演示视频时，把「录屏 + 旁白 + 烧字幕」整条链路自己写了一遍，撞到三处非显然的错误。
+
+1. **concat 清单里的绝对路径会被二次拼接**。ffmpeg 的 concat 解复用器把清单里的每一行当作**相对于清单文件所在目录**的路径，
+   于是 `file 'D:/CZB/.tmp/video/frames/b1/f000001.jpg'` 被拼成 `captions/D:/CZB/…`，报 `Impossible to open`。
+   处置：清单写在帧目录里、只写文件名；跨目录拼接时写相对路径（`file 'segments/b1.mp4'`）。
+2. **drawtext 的选项用冒号分隔，路径里的盘符会被截断**。`fontfile=C:/Windows/Fonts/msyh.ttc` 被解析成 `fontfile=C`，
+   剩下的 `/Windows/…` 被当成另一个选项，报 `Both text and text file provided`——这个报错完全不指向真因。
+   处置：反斜杠转义冒号（`fontfile=C\:/Windows/…`），或者干脆给相对路径。
+3. **帧序列比旁白短，末帧会被冻住十几秒**。录制脚本的固定 sleep 加起来常常短于旁白长度，
+   成片段长由 `max(视频, 旁白+0.9s)` 决定，多出来的时间就是一张静止画面。
+   处置：给每段一个目标时长，录完用 `fill()` 在当前位置做很慢的小幅往返把时间补足，画面不僵。
+
+另外两条工程教训：
+- 控制台报的 `stderr` 必须打出来。`execFileSync` 默认把子进程 stderr 吞进异常对象，只看 Node 栈会以为什么都没发生。
+- 一个「脚本式模块」被 import 时，它的顶层代码会照着 argv 再跑一遍。`record.mjs` 顶层就开浏览器跑 beats，
+  被 `record2.mjs` import 后立刻炸成 `beats[id] is not a function`；共用函数要挪到没有副作用的模块里。
+
+
+## F99：vitest 默认不排除 .tmp，便携包解压出来的那份测试会被再跑一遍（2026-10-29）
+
+P17 做完便携包之后，门禁突然报 **74 个测试文件 / 782 条断言**，而仓库里 `find . -name '*.test.*'` 只有 73 个。
+差的这一个不是新写的测试，是 `npm run portable:verify` 解压到 `.tmp/crossexam-portable/` 的那份副本——
+`tools/launcher/test/plan.test.mjs` 连同它的 17 条断言被 vitest 又跑了一遍。
+
+根因：vitest 的默认排除清单只有 `node_modules`、`dist`、`.idea`、`.git`、`.cache`，**没有 `.tmp`**。
+于是「测试文件数」变成依赖临时目录状态的数字：跑过一次 portable:verify 就多一个文件，清掉 `.tmp` 又掉回去。
+
+处置：新建 `vitest.config.ts`，把 `**/.tmp/**` 与 `**/dist/**` 一起排掉。数字回到 **73 / 765**，
+并且从此只由仓库里的文件决定。教训写成一句：**门禁报的数字必须是仓库状态的函数，不能是工作目录垃圾的函数。**

@@ -114,6 +114,7 @@
 | P16 视觉语言 | 按用户给的参考图统一界面语言 ✅（一批新视觉令牌层（--cx-surface / --cx-hair / --cx-radius / --cx-shadow + 八组 --cx-accent），浅色给显式值、深色用 `color-mix(in oklab, …)` 由同一条令牌推出；图标换成自己手写的 40+ 个内联 SVG（`packages/web/src/components/Icon.tsx`），**不引图标库**——评委机器要 10 分钟复现，依赖越少越好；20 个界面文件按同一套令牌重排，+2881/−1139；见 ADR-0029）· 门禁：`verify` 56 modules / CSS 47.60 kB / JS 414.85 kB（gzip 124.58）· `e2e:ui` 178/178 · 截图仍 30 张 | ✅ done |
 | P17 便携包 | 自带运行时的免安装 zip ✅（`tools/portable/build.mjs` 把 `node.exe` + 源码 + 已构建前端 + 149 盘卡带 + 四个运行时依赖打进 zip，解压双击 `启动.cmd` 即跑，**不写注册表、不装服务**，卸载=删文件夹；`verify.mjs` 解压到 `.tmp/` 用包里的 node 真启动一遍 **8/8**；36.0 MB，见 ADR-0030）· 首页判定图例 + 投料台磁贴跨列 + 按 Tab 焦点可见（e2e 177 → **178 项**） | ✅ done |
 
+| P18 演示视频 | 5–8 分钟演示片 ✅（11 段、1920×1080、30 fps、7 分 22 秒：问题 → 投料 → 直播 → 判定与反推 → 契约与报告 → **AI 协同四段**（证据锚定 / claimId 真 Bug / 唯一约束 / 真进程冒烟）→ 工程门禁 → 结语；AI 协同段 2 分 59 秒，超过「≥2 分钟」的硬要求。录制用自写的零依赖 CDP 脚本（`Page.captureScreenshot` 循环 17 fps，比 `Page.startScreencast` 的 10 fps 均匀），旁白用 Edge TTS 逐句合成后拼接，底部字幕由 ffmpeg `drawtext` 烧进画面；全部脚本在 `tools/video/`，成片见 `docs/video/crossexam-demo.mp4`）· 数字与仓库现状一致（73 文件 / 765 断言 / 9 冒烟 / 14 预算 / 178 项点测 / 66 份 Prompt 链） | ✅ done |
 ## 5. 遇到的错误（Errors Encountered）
 
 | 错误 | 尝试 | 解决 |

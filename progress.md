@@ -1620,3 +1620,30 @@ sha256 去重检查 **0 个相邻重复**（F92 那条坑没有复发）。
 
 **门禁**：`npm run verify` exit 0（73 文件 / 765 断言 / 9 冒烟 / 56 modules / 14 预算，CSS gzip 9.28 kB、JS gzip 124.98 kB）·
 `npm run e2e:ui` **178/178** · `npm run shots` 30 张、控制台 0 问题 · `npm run portable:verify` 8/8。
+
+---
+
+## Session 46（2026-10-29）：P18 演示视频
+
+**这一次要做的事**：省赛交付物只差演示视频与公开仓库地址。用户原话（m00538）「交给你了，还有视频交给你来录」，
+于是把录制整条链路自己搭出来——不装录屏软件、不依赖人手，脚本可复跑。
+
+**成片**：`docs/video/crossexam-demo.mp4`，**1920×1080 / 30 fps / 7 分 22 秒**，11 段：
+问题 → 投料 → 直播 → 判定与反推 → 契约与报告 → **AI 协同四段**（证据锚定 / claimId 真 Bug / 唯一约束 / 真进程冒烟）→ 工程门禁 → 结语。
+AI 协同段合计 **2 分 59 秒**，越过「≥2 分钟」的硬要求。
+
+**管线**（脚本都在 `.tmp/video/`，不进仓库）：
+- 录屏：`cdp.mjs` + `cap.mjs`，走 CDP 的 `Page.captureScreenshot` 循环，实测 **17 fps**，比 `Page.startScreencast` 的 10 fps 均匀；
+  `record.mjs` 编排 b1–b5（真实点击走 `Input.dispatchMouseEvent`，滚动是 rAF 缓动），`record2.mjs` 录 b6–b11 的静态证据页。
+- 旁白：Edge TTS（`zh-CN-XiaoxiaoNeural`），**逐句**合成再拼——整段长文本一次喂进去会被掐断，留下 0 字节文件。
+- 成片：`build.mjs` 按帧时间戳生成 concat 清单，`drawtext` 把章节标签与字幕烧进画面；`assemble.mjs` 拼接并加淡入淡出。
+
+**这一轮踩到的坑**（都写进 findings F98）：
+- concat 解复用器会把清单里的路径**拼到清单所在目录**后面，绝对路径会被拼成 `captions/D:/…` 打不开；
+- `drawtext` 的选项用冒号分隔，路径里的盘符会被截断（`fontfile=C:/…` 直接被切成 `fontfile=C`），必须写 `C\:/`；
+- 同一段帧序列如果比旁白短，末帧会被冻住十几秒；`fill()` 用很慢的小幅往返补足，画面不僵。
+
+**门禁（同日复测）**：`npm run verify` exit 0——**73 个测试文件 / 765 条断言**（一度被记成 74 / 782：`vitest` 默认不排除 `.tmp`，
+把便携包解压出来的那份 `plan.test.mjs` 又跑了一遍；已加 `vitest.config.ts` 排除 `.tmp`，见 F99）、
+9 项真进程冒烟、56 modules、14 项性能预算全绿（JS gzip 121/128 KB、CSS 9/16 KB）· `npm run e2e:ui` 178/178 · `npm run shots` 30 张、控制台 0 问题。
+
