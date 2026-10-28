@@ -547,6 +547,17 @@ check('打包文件里没有任何 http(s) 外链',
 check('打包文件里同时有报告正文、简历原文与事件时间线',
   bundleText.indexOf('主张与判定') >= 0 && bundleText.indexOf('附一、简历原文') >= 0 && bundleText.indexOf('附二、这一场是怎么跑出来的') >= 0,
   String(bundleText.length) + ' 字符');
+// 判定台账（P14 补记）：报告是拿来读的，台账是拿来筛和排序的——真下载一次，确认它是个 xlsx 附件。
+const ledgerHref = await evalJs('(() => { const a = document.querySelector(\'[data-shot="ledger-xlsx"]\'); return a === null ? "" : a.getAttribute("href"); })()');
+check('头部给出「台账 Excel」入口', String(ledgerHref).indexOf('/ledger.xlsx') >= 0, String(ledgerHref));
+const ledgerRes = await fetch('http://127.0.0.1:' + PORT + String(ledgerHref));
+const ledgerBytes = new Uint8Array(await ledgerRes.arrayBuffer());
+check('台账下来的是一个 xlsx 附件（PK 开头的 zip）',
+  ledgerRes.status === 200
+    && String(ledgerRes.headers.get('content-type')).indexOf('spreadsheetml.sheet') >= 0
+    && String(ledgerRes.headers.get('content-disposition')).indexOf('crossexam-ledger-') >= 0
+    && ledgerBytes[0] === 0x50 && ledgerBytes[1] === 0x4b,
+  String(ledgerBytes.length) + ' 字节');
 const chips = await evalJs('document.querySelector("header").innerText');
 check('头部遥测显示调用与回放次数', chips.indexOf('调用') >= 0 && chips.indexOf('回放') >= 0 && chips.indexOf('追问') >= 0, chips.replace(/\n/g, ' / ').slice(0, 120));
 await shot('03-done.png');
