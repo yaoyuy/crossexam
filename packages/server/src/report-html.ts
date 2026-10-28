@@ -555,6 +555,7 @@ export function reportHtmlFileName(view: SessionView): string {
 }
 
 /** Word 走的是「HTML + .doc 后缀」这条老路：Word 能打开，且不需要任何依赖 */
-export function reportDocFileName(view: SessionView): string {
-  return reportBaseName(view) + '.doc';
+/** Word 换成真正的 .docx：正文由 Markdown 转段落，不再靠「HTML 换后缀」（见 ADR-0026） */
+export function reportDocxFileName(view: SessionView): string {
+  return reportBaseName(view) + '.docx';
 }

@@ -1,4 +1,8 @@
-import { deflateRawSync } from "node:zlib";
+import { zipArchive } from "./zip.ts";
+import type { ZipFile } from "./zip.ts";
+
+/** crc32 与 zip 容器搬到了 zip.ts（docx 也走同一个写入器）；这里重新导出，测试与调用方不变 */
+export { crc32 } from "./zip.ts";
 
 /** 双引号字符：XML 属性里到处要用，用常量代替在一行里连着写三个转义引号 */
 const DQ = '"';
@@ -45,10 +49,6 @@ const STYLES_XML =
   "</styleSheet>";
 /** Excel 单元格正文上限约 32767 字符，超了会被判成损坏文件 */
 const MAX_CELL_CHARS = 32000;
-/** 1980-01-01 00:00:00 的 DOS 时间戳：年 =(33>>9)+1980，月 =(33>>5)&15，日 =33&31 */
-const DOS_TIME = 0;
-const DOS_DATE = 33;
-
 function escapeXml(text: string): string {
   let out = "";
   for (const ch of text) {
@@ -172,109 +172,6 @@ function workbookRelsXml(count: number): string {
   return XML_HEAD + "<Relationships" + attr("xmlns", RELS_NS) + ">" + rels.join("") + "</Relationships>";
 }
 
-const CRC_TABLE = (() => {
-  const table = new Uint32Array(256);
-  for (let index = 0; index < 256; index += 1) {
-    let value = index;
-    for (let bit = 0; bit < 8; bit += 1) {
-      value = (value & 1) === 1 ? (0xedb88320 ^ (value >>> 1)) >>> 0 : value >>> 1;
-    }
-    table[index] = value >>> 0;
-  }
-  return table;
-})();
-
-export function crc32(bytes: Uint8Array): number {
-  let crc = 0xffffffff;
-  for (let index = 0; index < bytes.length; index += 1) {
-    const entry = CRC_TABLE[(crc ^ (bytes[index] ?? 0)) & 0xff] ?? 0;
-    crc = (entry ^ (crc >>> 8)) >>> 0;
-  }
-  return (crc ^ 0xffffffff) >>> 0;
-}
-
-interface ZipFile {
-  name: string;
-  data: Buffer;
-}
-
-function u16(value: number): Buffer {
-  const out = Buffer.alloc(2);
-  out.writeUInt16LE(value & 0xffff, 0);
-  return out;
-}
-
-function u32(value: number): Buffer {
-  const out = Buffer.alloc(4);
-  out.writeUInt32LE(value >>> 0, 0);
-  return out;
-}
-
-function zipArchive(files: readonly ZipFile[]): Buffer {
-  const parts: Buffer[] = [];
-  const central: Buffer[] = [];
-  let offset = 0;
-  for (const file of files) {
-    const name = Buffer.from(file.name, "utf8");
-    const raw = file.data;
-    const deflated = deflateRawSync(raw);
-    const useDeflate = deflated.length < raw.length;
-    const body = useDeflate ? deflated : raw;
-    const method = useDeflate ? 8 : 0;
-    const crc = crc32(raw);
-    const local = Buffer.concat([
-      u32(0x04034b50),
-      u16(20),
-      u16(0),
-      u16(method),
-      u16(DOS_TIME),
-      u16(DOS_DATE),
-      u32(crc),
-      u32(body.length),
-      u32(raw.length),
-      u16(name.length),
-      u16(0),
-    ]);
-    parts.push(local, name, body);
-    central.push(
-      Buffer.concat([
-        u32(0x02014b50),
-        u16(20),
-        u16(20),
-        u16(0),
-        u16(method),
-        u16(DOS_TIME),
-        u16(DOS_DATE),
-        u32(crc),
-        u32(body.length),
-        u32(raw.length),
-        u16(name.length),
-        u16(0),
-        u16(0),
-        u16(0),
-        u16(0),
-        u32(0),
-        u32(offset),
-      ]),
-      name,
-    );
-    offset += local.length + name.length + body.length;
-  }
-  const centralBuffer = Buffer.concat(central);
-  const end = Buffer.concat([
-    u32(0x06054b50),
-    u16(0),
-    u16(0),
-    u16(files.length),
-    u16(files.length),
-    u32(centralBuffer.length),
-    u32(offset),
-    u16(0),
-  ]);
-  return Buffer.concat([...parts, centralBuffer, end]);
-}
-
-/** 把几张表写成一个 .xlsx（zip 容器 + 五份固定 XML） */
 export function writeXlsx(sheets: readonly SheetSpec[]): Buffer {
   if (sheets.length === 0) throw new Error("至少要有一张表");
   const names = sheets.map((sheet, index) => safeSheetName(sheet.name, "表" + String(index + 1)));
