@@ -1125,7 +1125,7 @@ export function App() {
 
         <main className="min-h-0 flex-1 overflow-auto p-3">
           {page === 'home' ? (
-            <div className="mx-auto max-w-4xl">
+            <div className="mx-auto w-full max-w-4xl xl:max-w-5xl">
               <HomePage
                 health={health}
                 overview={overview}
@@ -1140,7 +1140,7 @@ export function App() {
           ) : null}
 
           {page === 'intake' ? (
-            <div className="mx-auto max-w-2xl">
+            <div className="mx-auto w-full max-w-4xl xl:max-w-5xl">
               <IntakePanel
             templatePicker={
               <TemplatePicker
@@ -1310,7 +1310,7 @@ export function App() {
           ) : null}
 
           {page === 'report' ? (
-            <div className="mx-auto max-w-4xl">
+            <div className="mx-auto w-full max-w-4xl xl:max-w-5xl">
               <ReportPage
                 sessionId={sandbox.sessionId}
                 jobTitle={material.title}
@@ -1330,7 +1330,7 @@ export function App() {
           ) : null}
 
           {page === 'history' ? (
-            <div className="mx-auto max-w-4xl">
+            <div className="mx-auto w-full max-w-4xl xl:max-w-5xl">
               <HistoryPanel
                 sessions={sessions}
                 overview={overview}
@@ -1342,7 +1342,7 @@ export function App() {
           ) : null}
 
           {page === 'settings' ? (
-            <div className="mx-auto max-w-3xl">
+            <div className="mx-auto w-full max-w-3xl xl:max-w-4xl">
               <SettingsPage
                 theme={theme}
                 onToggleTheme={handleToggleTheme}
