@@ -31,7 +31,9 @@
     "export:prompt": "node tools/dsh-export/bin/dsh-export.mjs",
     "seed:demo": "node packages/server/src/bin/seed-demo.ts",
     "docs:pdf": "node tools/docs/build-doc.mjs",
-    "docs:html": "node tools/docs/build-doc.mjs --html-only"
+    "docs:html": "node tools/docs/build-doc.mjs --html-only",
+    "portable:build": "node tools/portable/build.mjs",
+    "portable:verify": "node tools/portable/verify.mjs"
   },
   "devDependencies": {
     "@types/node": "^24.19.2",
