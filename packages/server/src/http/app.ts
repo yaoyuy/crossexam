@@ -57,6 +57,8 @@ import { tailorFor } from '../tailor.ts';
 import { renderReport, reportFileName } from '../report.ts';
 import { renderReportHtml, reportDocFileName, reportHtmlFileName } from '../report-html.ts';
 import { bundleFileName, renderBundleHtml } from '../bundle.ts';
+import { ledgerFileName, ledgerSheets } from '../ledger.ts';
+import { writeXlsx } from '../xlsx.ts';
 import {
   renderResumeHtml,
   resumeDocFileName,
@@ -812,6 +814,18 @@ export function createApp(opts: AppOptions): Hono {
     return c.body(html, 200, {
       'content-type': 'text/html; charset=utf-8',
       'content-disposition': 'attachment; filename="' + bundleFileName(view) + '"',
+    });
+  });
+
+  /** 判定台账：一个能被筛选和排序的表格，拿去逐条改简历用（界面上的「台账 Excel」） */
+  app.get('/api/sessions/:id/ledger.xlsx', (c) => {
+    const id = c.req.param('id');
+    const view = assembleSession(db, id);
+    if (view === null) return c.json({ error: '会话不存在' }, 404);
+    const book = writeXlsx(ledgerSheets(view));
+    return c.body(new Uint8Array(book), 200, {
+      'content-type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'content-disposition': 'attachment; filename="' + ledgerFileName(view) + '"',
     });
   });
 
