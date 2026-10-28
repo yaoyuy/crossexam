@@ -30,6 +30,8 @@ export function RevisionBar(props: {
   onShowOriginal: () => void;
   /** 把改完的这一版当成新简历再质询一遍；只有真的采纳过才传得进来 */
   onRerun?: (() => void) | null;
+  /** 离线回放时提醒一句：卡带只录了演示那一条路，改别处再跑会找不到（详见 ADR-0004 卡带按提示词指纹寻址） */
+  rerunHint?: string | null;
 }) {
   const revised = props.revised;
   // 并排对照默认收起：它是「想核对一下」时才展开的东西，不该占着这一栏的地方
@@ -166,6 +168,11 @@ export function RevisionBar(props: {
                   全部撤销
                 </button>
               </div>
+              {props.onRerun !== null && props.onRerun !== undefined && props.rerunHint !== null && props.rerunHint !== undefined ? (
+                <p className="text-[11px] leading-relaxed text-ink-400" data-shot="revision-rerun-hint">
+                  {props.rerunHint}
+                </p>
+              ) : null}
               {showDiff ? (
                 <div className="flex flex-col gap-1 rounded-md border border-ink-800 bg-ink-850/40 p-2">
                   <p className="text-[11.5px] leading-relaxed text-ink-400">

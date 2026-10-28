@@ -1209,6 +1209,11 @@ export function App() {
             onDiscard={() => void handleDiscardRevisions()}
             onShowOriginal={() => setViewing('original')}
             onRerun={revised === null || busy ? null : handleRerun}
+            rerunHint={
+              runMode === 'replay' && revised !== null
+                ? '离线回放只录了演示这一条路（一键示例 → 全部采纳那几条建议）。改过别处再点「改完再跑一遍」会找不到卡带，想试自己的改法就把模式切到「联网」。'
+                : null
+            }
           />
           {/*
             「比上次」摆在采纳改写下面：它的因是「改完」，它的果是「这一版的判定」，
