@@ -1,8 +1,23 @@
 import { PAGE_ITEMS } from '../pages.ts';
 import type { PageId } from '../pages.ts';
 import type { HealthInfo, HistoryOverview, SessionSummary } from '../api.ts';
+import { VERDICT_GLOSS, VERDICT_LABEL } from '../labels.ts';
+import type { VerdictKind } from '@crossexam/shared/domain.ts';
 import { Chip, IconTile, SectionCard } from './Bits.tsx';
 import { Icon } from './Icon.tsx';
+
+/**
+ * 判定一共五种，首页右栏把它们当图例摆出来：
+ * 「你等会儿会拿到什么」比「本产品有五大能力」好懂，
+ * 也让主视觉卡右半边不再是一块空底色。
+ */
+const VERDICT_LEGEND: { kind: VerdictKind; accent: string }[] = [
+  { kind: 'solid', accent: 'accent-mint' },
+  { kind: 'overstated', accent: 'accent-amber' },
+  { kind: 'unsupported', accent: 'accent-ember' },
+  { kind: 'contradicts', accent: 'accent-rose' },
+  { kind: 'unanswerable', accent: 'accent-slate' },
+];
 
 /**
  * 首页：第一眼要回答「这是什么、我现在该点哪」。
@@ -36,43 +51,65 @@ export function HomePage(props: {
         dataShot="home-hero"
         className="card-hero"
       >
-        <p className="max-w-[70ch] text-[13px] leading-relaxed text-ink-300">
-          喂进简历与目标岗位，几位面试官 Agent 会并发追问；每条主张都会被判成
-          「站得住 / 表述过度 / 证据缺失 / 与原文矛盾 / 无法回答」，再反推回简历，
-          告诉你哪一句该改、怎么改。
-        </p>
-        <div className="mt-4 flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            className="btn btn-primary px-4 py-2 text-[13px] font-semibold"
-            onClick={props.onUseDemo}
-            disabled={props.busy}
-            data-shot="home-demo"
-          >
-            一键示例，先看一遍
-          </button>
-          <button
-            type="button"
-            className="btn px-3 py-1.5 text-[12.5px]"
-            onClick={props.onOpenWizard}
-            data-shot="home-wizard"
-          >
-            重看新手向导
-          </button>
-          <button
-            type="button"
-            className="btn px-3 py-1.5 text-[12.5px]"
-            onClick={() => props.onOpenPage('intake')}
-            data-shot="home-to-intake"
-          >
-            我自己贴简历
-          </button>
-        </div>
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <Chip className="border-mint-500/40 text-mint-400">不需要 API Key 也能跑完整场</Chip>
-          <Chip title={props.health?.cassetteDir ?? ''}>
-            {props.health === null ? '连接本地服务中…' : '卡带 ' + props.health.cassetteDir.split(/[\\/]/).pop()}
-          </Chip>
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_248px]">
+          <div className="min-w-0">
+            <p className="max-w-[62ch] text-[13px] leading-relaxed text-ink-300">
+              喂进简历与目标岗位，几位面试官 Agent 会并发追问；每条主张都会被判成
+              「站得住 / 表述过度 / 证据缺失 / 与原文矛盾 / 无法回答」，再反推回简历，
+              告诉你哪一句该改、怎么改。
+            </p>
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                className="btn btn-primary px-4 py-2 text-[13px] font-semibold"
+                onClick={props.onUseDemo}
+                disabled={props.busy}
+                data-shot="home-demo"
+              >
+                一键示例，先看一遍
+              </button>
+              <button
+                type="button"
+                className="btn px-3 py-1.5 text-[12.5px]"
+                onClick={props.onOpenWizard}
+                data-shot="home-wizard"
+              >
+                重看新手向导
+              </button>
+              <button
+                type="button"
+                className="btn px-3 py-1.5 text-[12.5px]"
+                onClick={() => props.onOpenPage('intake')}
+                data-shot="home-to-intake"
+              >
+                我自己贴简历
+              </button>
+            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <Chip className="border-mint-500/40 text-mint-400">不需要 API Key 也能跑完整场</Chip>
+              <Chip title={props.health?.cassetteDir ?? ''}>
+                {props.health === null ? '连接本地服务中…' : '卡带 ' + props.health.cassetteDir.split(/[\\/]/).pop()}
+              </Chip>
+            </div>
+          </div>
+          <div className="hidden rounded-[10px] border border-[var(--cx-hair)] bg-black/15 p-3 xl:block" data-shot="home-legend">
+            <p className="text-[11px] font-semibold tracking-wide text-ink-400">一场下来你会拿到五种判定</p>
+            <ul className="mt-2 flex flex-col gap-2">
+              {VERDICT_LEGEND.map((row) => (
+                <li key={row.kind} className={'flex items-start gap-2 ' + row.accent}>
+                  <span
+                    aria-hidden="true"
+                    className="mt-[5px] block h-2 w-2 shrink-0 rounded-full"
+                    style={{ background: 'var(--cx-accent)' }}
+                  />
+                  <span className="min-w-0">
+                    <span className="block text-[12px] font-semibold text-ink-100">{VERDICT_LABEL[row.kind]}</span>
+                    <span className="mt-0.5 block text-[10.5px] leading-snug text-ink-400">{VERDICT_GLOSS[row.kind]}</span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
         </div>
       </SectionCard>
 
@@ -123,7 +160,9 @@ export function HomePage(props: {
             key={item.id}
             type="button"
             data-shot={'home-card-' + item.id}
-            className={'tile accent-' + item.accent}
+            className={
+              'tile accent-' + item.accent + (item.id === 'intake' ? ' sm:col-span-2' : '')
+            }
             onClick={() => props.onOpenPage(item.id)}
           >
             <IconTile icon={item.icon} accent={item.accent} />
