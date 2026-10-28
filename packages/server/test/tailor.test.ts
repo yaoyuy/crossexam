@@ -8,6 +8,7 @@
 
 import { afterEach, describe, expect, it } from 'vitest';
 import { createApp } from '../src/http/app.ts';
+import { readZipEntry } from '../src/import/zip.ts';
 import { closeDatabase, migrate, openDatabase } from '../src/store/index.ts';
 import type { Db } from '../src/store/index.ts';
 import { createScriptedClient } from './scripted.ts';
@@ -272,10 +273,15 @@ describe('一岗一版：按岗位筛出该留的那几条', () => {
     expect(page).not.toContain('http://');
     expect(page).not.toContain('https://');
 
-    const doc = await t.app.request('/api/sessions/' + id + '/tailored.doc?jd=J1');
+    const doc = await t.app.request('/api/sessions/' + id + '/tailored.docx?jd=J1');
     expect(doc.status).toBe(200);
-    expect(doc.headers.get('content-type') ?? '').toContain('application/msword');
-    expect(doc.headers.get('content-disposition') ?? '').toContain('-tailored.doc');
+    expect(doc.headers.get('content-type') ?? '').toContain(
+      'openxmlformats-officedocument.wordprocessingml.document',
+    );
+    expect(doc.headers.get('content-disposition') ?? '').toContain('-tailored.docx');
+    const docBytes = new Uint8Array(await doc.arrayBuffer());
+    expect(docBytes[0]).toBe(0x50);
+    expect(readZipEntry(docBytes, 'word/document.xml')).not.toBeNull();
   });
 
   it('采纳过改写之后，这一版是在改后的文本上筛的', async () => {
