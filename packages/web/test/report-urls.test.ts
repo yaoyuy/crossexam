@@ -1,15 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { reportDocUrl, reportHtmlUrl, reportUrl } from '../src/api.ts';
+import { reportDocxUrl, reportHtmlUrl, reportUrl } from '../src/api.ts';
 
 /**
  * 三种导出形态的网址是给界面按钮直接用的，拼错了不会报错、只会静默 404，
- * 所以在这里钉住形状。
+ * 所以在这里钉住形状。Word 那条从 .doc 换成 .docx（真 Word 文件）也钉在这里。
  */
 describe('报告导出的网址', () => {
   it('三种形态各有一条网址，Markdown 是直接下载', () => {
     expect(reportUrl('s_1')).toBe('/api/sessions/s_1/report.md');
     expect(reportHtmlUrl('s_1')).toBe('/api/sessions/s_1/report.html');
-    expect(reportDocUrl('s_1')).toBe('/api/sessions/s_1/report.doc');
+    expect(reportDocxUrl('s_1')).toBe('/api/sessions/s_1/report.docx');
   });
 
   it('print 参数只在要打印时出现', () => {

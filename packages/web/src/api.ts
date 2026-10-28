@@ -971,8 +971,8 @@ export function reportHtmlUrl(id: string, print = false): string {
   return print ? base + '?print=1' : base;
 }
 
-export function reportDocUrl(id: string): string {
-  return '/api/sessions/' + encodeURIComponent(id) + '/report.doc';
+export function reportDocxUrl(id: string): string {
+  return '/api/sessions/' + encodeURIComponent(id) + '/report.docx';
 }
 
 /**
@@ -1047,8 +1047,8 @@ export function resumeHtmlUrl(id: string, options: { print?: boolean; marks?: bo
   return params.length === 0 ? base : base + '?' + params.join('&');
 }
 
-export function resumeDocUrl(id: string, marks = true): string {
-  const base = '/api/sessions/' + encodeURIComponent(id) + '/resume.doc';
+export function resumeDocxUrl(id: string, marks = true): string {
+  const base = '/api/sessions/' + encodeURIComponent(id) + '/resume.docx';
   return marks ? base + '?marks=1' : base;
 }
 
@@ -1062,8 +1062,8 @@ export function tailoredHtmlUrl(id: string, jdId: string, print = false): string
   return print ? base + '&print=1' : base;
 }
 
-export function tailoredDocUrl(id: string, jdId: string): string {
-  return '/api/sessions/' + encodeURIComponent(id) + '/tailored.doc?jd=' + encodeURIComponent(jdId);
+export function tailoredDocxUrl(id: string, jdId: string): string {
+  return '/api/sessions/' + encodeURIComponent(id) + '/tailored.docx?jd=' + encodeURIComponent(jdId);
 }
 
 export interface SseEvent {

@@ -8,7 +8,7 @@
  * 没改过的简历本来就能从原文复制，摆一个「导出」在这里只会让人以为已经改好了。
  */
 import { useState } from 'react';
-import { resumeDocUrl, resumeHtmlUrl, resumeTextUrl } from '../api.ts';
+import { resumeDocxUrl, resumeHtmlUrl, resumeTextUrl } from '../api.ts';
 import type { RevisedResume } from '../revisions.ts';
 import { revisionSummary } from '../revisions.ts';
 import { Pane } from './Bits.tsx';
@@ -130,11 +130,11 @@ export function RevisionBar(props: {
                 </a>
                 <a
                   className="btn px-2.5 py-1 text-[12px]"
-                  href={resumeDocUrl(id, true)}
-                  title="同一份简历，Word 能直接打开并继续改"
-                  data-shot="resume-doc"
+                  href={resumeDocxUrl(id, true)}
+                  title="真正的 Word 文件（.docx）：打开就能继续编辑，不是网页换了个后缀"
+                  data-shot="resume-docx"
                 >
-                  导出 Word
+                  导出 Word (.docx)
                 </a>
                 <button
                   type="button"
