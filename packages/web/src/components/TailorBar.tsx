@@ -1,5 +1,5 @@
 import { Badge, Pane } from './Bits.tsx';
-import { tailoredDocUrl, tailoredHtmlUrl, tailoredTextUrl } from '../api.ts';
+import { tailoredDocxUrl, tailoredHtmlUrl, tailoredTextUrl } from '../api.ts';
 import type { TailorView } from '../api.ts';
 
 /**
@@ -80,11 +80,11 @@ export function TailorBar(props: {
           </a>
           <a
             className="btn px-2.5 py-1 text-[12px]"
-            href={tailoredDocUrl(id, view.jdId)}
-            title="同一份简历，Word 能直接打开并继续改"
-            data-shot="tailor-doc"
+            href={tailoredDocxUrl(id, view.jdId)}
+            title="真正的 Word 文件（.docx）：打开就能继续编辑"
+            data-shot="tailor-docx"
           >
-            导出 Word
+            导出 Word (.docx)
           </a>
         </div>
         {view.ok ? null : (

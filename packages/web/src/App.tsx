@@ -22,7 +22,7 @@ import {
   importResumeFile,
   listSessions,
   deleteSupplement,
-  reportDocUrl,
+  reportDocxUrl,
   bundleUrl,
   ledgerUrl,
   reportHtmlUrl,
@@ -957,7 +957,7 @@ export function App() {
   const hasReport = sandbox.sessionId !== null && sandbox.claims.length > 0;
   const reportHref = hasReport && sandbox.sessionId !== null ? reportUrl(sandbox.sessionId) : null;
   const reportPrintHref = hasReport && sandbox.sessionId !== null ? reportHtmlUrl(sandbox.sessionId, true) : null;
-  const reportDocHref = hasReport && sandbox.sessionId !== null ? reportDocUrl(sandbox.sessionId) : null;
+  const reportDocHref = hasReport && sandbox.sessionId !== null ? reportDocxUrl(sandbox.sessionId) : null;
   // 打包分享：一个文件带走整场。与上面三颗报告按钮同一个条件——没有主张就没有可打包的东西
   const bundleHref = hasReport && sandbox.sessionId !== null ? bundleUrl(sandbox.sessionId) : null;
   // 台账 Excel：把这一场的判断摊成能筛选的表，与打包分享同一个条件
@@ -1035,10 +1035,10 @@ export function App() {
               <a
                 className="btn px-2.5 py-1 text-[12px]"
                 href={reportDocHref ?? reportHref}
-                title="同一份报告，Word 能直接打开"
-                data-shot="report-doc"
+                title="真正的 Word 文件（.docx）：打开就能继续编辑"
+                data-shot="report-docx"
               >
-                报告 Word
+                报告 Word (.docx)
               </a>
               <a
                 className="btn px-2.5 py-1 text-[12px]"
