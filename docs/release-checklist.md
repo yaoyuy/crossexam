@@ -9,7 +9,7 @@
 | --- | --- | --- | --- |
 | 1 | GitHub / Gitee 公开仓库，**细粒度 commit**（禁止一次性 initial commit） | ✅ 330 余次提交，每次对应一次具体开发动作 | 见第二节「建远端」 |
 | 2 | **≥3 个核心功能迭代的完整 Prompt 链**（提问 → AI 建议 → 如何引导修 Bug） | ✅ 自动导出，49 份快照（其中 45 份分页分片，共约 20.3 MB） | `npm run export:prompt` → `docs/prompt-chain/` |
-| 3 | README 10 分钟极速复现指南（环境、依赖、环境变量模板） | ✅ 干净目录实测 89.2 s（同机多次落在 34–121 s） | `README.md` + `.env.example` |
+| 3 | README 10 分钟极速复现指南（环境、依赖、环境变量模板） | ✅ 干净目录实测 107.5 s（同机多次落在 34–121 s） | `README.md` + `.env.example` |
 | 4 | 演示视频 5–8 分钟 1080p，含 **≥2 分钟 AI 协同过程复现** | 🔶 脚本 + 提词卡 + 录前检查已备，**待录制** | `docs/video/script.md` · `docs/video/preflight.md` · `docs/video/teleprompter.md` |
 | 5 | 技术文档 PDF ≤30 页 | ✅ 29 页（上限 30，余量 1 页；构建自身在超限时失败），一条命令重建 | `npm run docs:pdf` → `docs/CrossExam-技术文档.pdf` |
 
@@ -44,8 +44,8 @@ git push -u origin main
 ## 四、提交前的最后一遍门禁（可自动跑）
 
 ```
-npm run verify        # 五道：类型检查 + 71 个测试文件 / 732 条断言 + 9 项真进程冒烟 + 构建 + 14 项性能预算
-npm run repro         # 干净目录复现预演，确认评委会看到同一件事（最近一次 89.2 s）
+npm run verify        # 五道：类型检查 + 71 个测试文件 / 734 条断言 + 9 项真进程冒烟 + 构建 + 14 项性能预算
+npm run repro         # 干净目录复现预演，确认评委会看到同一件事（最近一次 107.5 s）
 npm run docs:pdf      # 重建技术文档，确认仍是 29 页、没超上限
 npm run export:prompt # 刷新 Prompt 链快照，把最后一次迭代也带进去
 git status --porcelain  # 必须为空
@@ -75,9 +75,9 @@ git status --porcelain  # 必须为空
 | 冻结基线数字 | 值 |
 | --- | --- |
 | 提交数 | 330 余次（每次对应一次具体开发动作） |
-| 测试 | 71 个测试文件 / 732 条断言 |
+| 测试 | 71 个测试文件 / 734 条断言 |
 | 界面点测 | 157 项 |
-| 复现耗时 | 最近一次 89.2 s（区间 34–121 s，上限 600 s） |
+| 复现耗时 | 最近一次 107.5 s（区间 34–121 s，上限 600 s） |
 | 技术文档 | 29 页 / 2121 KB |
 | Prompt 链 | 49 份快照（其中 45 份分页分片，约 20.3 MB） |
 
