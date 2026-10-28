@@ -562,9 +562,9 @@ schema v10 刻意没给这一列加外键——删掉上一版不该把这一版
 | 顺序 | 命令 | 证明什么 | 当前规模 |
 | --- | --- | --- | --- |
 | 1 | `npm run typecheck` | 类型对（`tsc --noEmit`，含各包） | 全仓库 |
-| 2 | `npm run test` | 逻辑对（vitest） | 71 个文件 / 739 条断言 |
+| 2 | `npm run test` | 逻辑对（vitest） | 71 个文件 / 746 条断言 |
 | 3 | `npm run smoke` | **产品能跑**（真起进程、真打 HTTP、真等 SSE） | 9 项 |
-| 4 | `npm run build` | 前端能构建 | vite，48 modules（CSS 30.46 kB / JS 358.95 kB，gzip 109.36 kB） |
+| 4 | `npm run build` | 前端能构建 | vite，48 modules（CSS 30.46 kB / JS 359.78 kB，gzip 109.70 kB） |
 | 5 | `npm run budget` | **够快**（起服 / 整场回放 / 报告 / 打包的耗时与体积上界） | 14 项 |
 
 第 3 道是`findings.md` F11 的直接产物：同进程的 `app.request()` 测试全绿，真起服务却第一次写入就报没有表。
