@@ -1596,3 +1596,27 @@ sha256 去重检查 **0 个相邻重复**（F92 那条坑没有复发）。
 - 关于「安装包」：**没有 exe/msi，也不打算做**。桌面形态是 `tools/launcher/launch.mjs` 起本地服务 + 用系统 Edge/Chrome 的 `--app=` 开一个无地址栏窗口，
   分发靠 `git clone` + 双击 `启动.cmd`（须 Node ≥ 22.5.0）。理由见 ADR-0028：打包成原生安装包要么引入需本地编译的工具链、
   要么把整个运行时塞进仓库，两者都会打破「十分钟复现」，而 AGENTS.md §6 对原生依赖是明确禁止的。
+
+## Session 45 · 2026-10-28 · P17 便携包：自带 node.exe 的免安装 zip
+
+用户两条（m00336）：「你觉得不行就改」+「便携包做一个」。前者我自己判断，后者是这一节的主体。
+
+**顺手改掉的两处（首页）**：主视觉卡右半边原来是一块空底色，现在放**五种判定的图例**
+（`VERDICT_LABEL` + `VERDICT_GLOSS`，五色点直接取 `--cx-accent`），读者第一眼就知道「跑完会拿到什么」；
+投料台磁贴在 `sm` 断点占两列，三列网格第二行右边的缺口消失。e2e 补了一条**键盘断言**：
+按 Tab 之后焦点必须落在第一个磁贴（`home-card-intake`）且焦点圈可见——此前只测了鼠标。
+
+**便携包**（细节见 ADR-0030）：`tools/portable/build.mjs` 打出
+`dist/portable/crossexam-portable-0.1.0-win-x64.zip`（**36.0 MB**，sha256 `e6365d19…a8dbc6`），内含
+`node.exe`（v24.14.0）、`packages/{server,shared}/src`、`packages/web/dist`、149 盘卡带、
+启动器、四个运行时依赖（`@hono/node-server` / `hono` / `unpdf` / `zod`，无传递依赖、无原生模块）。
+`npm run portable:verify` 解压到 `.tmp/` 后用**包里的 node**真启动一遍，**8/8**。
+
+**这一轮踩到的两个坑**（都写成 findings）：
+- F96：node_modules 里的 .ts 不能被 Node 的类型剥离处理，`ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING`。
+  改用 `register.mjs` 注册 resolve 钩子把 `@crossexam/*` 指回 `packages/*`。
+- F97：PATH 里的 `tar` 常是 Git 附带的 GNU tar，会把 `D:\\…` 当远程主机；另外那批卡带只录了三位面试官，
+  `/run?panel=tech` 在开发机上同样「找不到记录」——验收口径写错了，不是包坏了。
+
+**门禁**：`npm run verify` exit 0（73 文件 / 765 断言 / 9 冒烟 / 56 modules / 14 预算，CSS gzip 9.28 kB、JS gzip 124.98 kB）·
+`npm run e2e:ui` **178/178** · `npm run shots` 30 张、控制台 0 问题 · `npm run portable:verify` 8/8。

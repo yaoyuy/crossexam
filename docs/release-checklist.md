@@ -122,3 +122,14 @@ Prompt 链 59 → **66** 份（其中 55 份分片，约 25.4 MB），测试断�
 构建产物 48 → **56 modules**、CSS 30.46 → **47.60 kB**、JS 378.67 → **414.85 kB**（gzip 124.58 kB，预算 128 kB，余量 7 kB）。
 Prompt 链这次只增了 7 份：崩掉的那场主会话（session-9791af4a，51.2 MB，四小时基本在撞网关 413）按「证据密度」剔除，
 它作为过程证据是负资产；四个 P16 子会话与被救会话照常导出。
+
+**同日第六批（用户问「有没有安装包」，P17 便携包）**：结论是**没有 exe/msi，也不做**——桌面形态仍是系统 Edge/Chrome 的
+`--app=` 窗口（ADR-0028），安装包的代价是引入需本地编译的工具链（AGENTS.md §6 禁止）。改为出一份**自带运行时的
+免安装 zip**：`tools/portable/build.mjs` 把 `node.exe`、`packages/{server,shared}/src`、已构建前端、149 盘卡带、
+启动器与四个运行时依赖打进 `crossexam-portable-0.1.0-win-x64.zip`（36.0 MB，sha256 `e6365d19…a8dbc6`），
+解压双击 `启动.cmd` 即跑，不写注册表、不装服务、卸载=删文件夹；`npm run portable:verify` 解压到 `.tmp/` 用包里的 node
+真启动一遍 **8/8**。见 ADR-0030 与 findings F96（node_modules 里的 .ts 不能被类型剥离）/ F97（GNU tar、单面板卡带）。
+同批还有界面两处：首页主视觉卡右栏加**五种判定图例**、投料台磁贴跨列，e2e 补一条「按 Tab 焦点落在第一个磁贴且焦点圈可见」。
+数字累计变化：截图仍 **30 张**、Prompt 链仍 **66** 份（其中 55 份分片，约 25.4 MB）、测试断言仍 **765**、
+界面点测 177 → **178** 项、构建产物 56 modules / CSS **48.26 kB**（gzip 9.28）/ JS **416.59 kB**（gzip 124.98，预算 128 kB）。
+另加两个命令：`portable:build` 与 `portable:verify`；zip 不进仓库（`dist/` 已忽略）。
