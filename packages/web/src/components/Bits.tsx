@@ -23,15 +23,24 @@ export function PageHead(props: {
     <header className="page-head" data-shot="page-head">
       <div className="min-w-0">
         <h1 className="page-title">
-          <span className={'inline-flex h-8 w-8 items-center justify-center rounded-[10px] ' + accentBox(props.accent ?? 'ember')}>
-            <Icon name={props.icon} size={18} />
-          </span>
+          <IconTile icon={props.icon} accent={props.accent} size={18} />
           <span className="truncate">{props.title}</span>
         </h1>
         {props.sub === undefined ? null : <p className="page-sub">{props.sub}</p>}
       </div>
       {props.actions === undefined ? null : <div className="page-head-actions">{props.actions}</div>}
     </header>
+  );
+}
+
+/** 图标磁片：页头、首页磁贴、卡片标题共用同一个形状与底色规则 */
+export function IconTile(props: { icon: IconName; accent?: Accent; size?: number }) {
+  return (
+    <span
+      className={'inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] ' + accentBox(props.accent ?? 'ember')}
+    >
+      <Icon name={props.icon} size={props.size ?? 16} />
+    </span>
   );
 }
 
@@ -61,12 +70,16 @@ export function SectionCard(props: {
   dataShot?: string;
   /** 关掉左侧色条（默认开着） */
   plain?: boolean;
+  /** 额外的类名（首页主视觉卡用它掺底色） */
+  className?: string;
 }) {
   const accent = props.accent ?? 'ember';
   return (
     <section
       data-shot={props.dataShot}
-      className={'card ' + (props.plain === true ? '' : 'accent-bar accent-' + accent)}
+      className={
+        'card ' + (props.plain === true ? '' : 'accent-bar accent-' + accent) + (props.className === undefined ? '' : ' ' + props.className)
+      }
     >
       <div className="card-head">
         <div className="min-w-0">

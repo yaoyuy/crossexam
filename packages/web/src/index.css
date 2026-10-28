@@ -415,6 +415,36 @@ mark.anchor-revised {
 .accent-rose  { --cx-accent: var(--color-rose-ink); }
 .accent-slate { --cx-accent: color-mix(in oklab, var(--color-ink-400) 80%, var(--color-ink-500)); }
 
+/* 首页的主视觉卡：底色掺一点强调色，让「从哪开始」这一块和下面的卡片拉开层次 */
+.card-hero {
+  background: color-mix(in oklab, var(--cx-accent) 7%, var(--cx-surface));
+  border-color: color-mix(in oklab, var(--cx-accent) 24%, var(--cx-hair));
+}
+
+/* 首页的入口磁贴：颜色沿用 pages.ts 里定好的每页强调色，悬停时描边跟着变色 */
+.tile {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  cursor: pointer;
+  border: 1px solid var(--cx-hair);
+  border-radius: var(--cx-radius-sm);
+  background: var(--cx-surface);
+  box-shadow: var(--cx-shadow);
+  text-align: left;
+  transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+}
+.tile:hover {
+  border-color: color-mix(in oklab, var(--cx-accent) 55%, var(--cx-hair));
+  box-shadow: var(--cx-shadow-lift);
+  transform: translateY(-1px);
+}
+.tile:focus-visible {
+  outline: 2px solid var(--cx-accent);
+  outline-offset: 2px;
+}
+
 /* ---------- 页头 ---------- */
 .page-head {
   display: flex;
@@ -626,25 +656,7 @@ mark.anchor-revised {
   color: var(--color-ink-500);
 }
 
-/* ---------- 入口磁贴 ---------- */
-.tile {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 14px;
-  text-align: left;
-  background: var(--cx-surface);
-  border: 1px solid var(--cx-hair);
-  border-radius: var(--cx-radius);
-  box-shadow: var(--cx-shadow);
-  cursor: pointer;
-  transition: transform 0.12s ease, box-shadow 0.16s ease, border-color 0.16s ease;
-}
-.tile:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--cx-shadow-lift);
-  border-color: color-mix(in oklab, var(--color-ember-500) 40%, transparent);
-}
+/* ---------- 磁贴里的小图标方块 ---------- */
 .tile-ico {
   display: inline-flex;
   align-items: center;
