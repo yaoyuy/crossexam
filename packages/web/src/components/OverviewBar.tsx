@@ -65,6 +65,11 @@ export function OverviewBar(props: { view: HistoryOverview | null }) {
           ))}
         </ul>
       ) : null}
+      {facts.sameJdNote !== null ? (
+        <p className="text-[10.5px] text-ink-500" data-shot="overview-jd">
+          {facts.sameJdNote}
+        </p>
+      ) : null}
       {facts.sameResumeNote !== null ? (
         <p className="text-[10.5px] text-ink-500" data-shot="overview-resume">
           {facts.sameResumeNote}

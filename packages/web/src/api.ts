@@ -351,6 +351,15 @@ export interface OverviewResumeGroup {
   latestCreatedAt: string;
 }
 
+/** 同一份岗位要求下跑过的几场（RFC：按 JD 分组，与按简历分组正交）。 */
+export interface OverviewJdGroup {
+  jdKey: string;
+  jdTitle: string;
+  sessions: number;
+  latestId: string;
+  latestCreatedAt: string;
+}
+
 export interface HistoryOverview {
   /** 这次统计覆盖的场次上限 */
   window: number;
@@ -365,6 +374,10 @@ export interface HistoryOverview {
   trendNote: string | null;
   resumeGroups: OverviewResumeGroup[];
   sameResumeRuns: number;
+  /** 按岗位要求归的组，场次多的在前；没填过 JD 的场次不进任何组 */
+  jdGroups: OverviewJdGroup[];
+  /** 同一份岗位要求最多跑过几场 */
+  sameJdRuns: number;
   headline: string;
 }
 
@@ -970,194 +983,3 @@ export function bundleUrl(id: string): string {
   return '/api/sessions/' + encodeURIComponent(id) + '/bundle.html';
 }
 
-/* ---------------------------------------------- 采纳改写与改完的简历导出 */
-
-/** 会话当前那一版改完的简历；没采纳过就是 null（不是空串：没采纳过和改成了空是两件事） */
-export async function fetchRevisions(id: string): Promise<RevisedResume | null> {
-  const data = await getJson<{ revised: RevisedResume | null }>('/api/sessions/' + encodeURIComponent(id) + '/revisions');
-  return data.revised;
-}
-
-/**
- * 确认采纳。claims 是**本次确认的全部**主张，不是增量：
- * 取消勾选一条再提交，那条就该从改完的简历里消失。
- */
-export async function acceptRevisions(id: string, claims: readonly string[]): Promise<RevisedResume> {
-  const data = await postJson<{ revised: RevisedResume }>('/api/sessions/' + encodeURIComponent(id) + '/revisions', {
-    claims: [...claims],
-  });
-  return data.revised;
-}
-
-/**
- * 记下一句补充说明。按主张 id 一条，再调一次就是改这一条（不占新名额）。
- * 它不写进简历原文：勾上并「确认采纳」之后才会作为新的一行加进去。
- */
-export async function saveSupplement(id: string, claimId: string, text: string): Promise<SessionSupplement> {
-  const data = await postJson<{ supplement: SessionSupplement }>(
-    '/api/sessions/' + encodeURIComponent(id) + '/supplements',
-    { claimId: claimId, text: text },
-  );
-  return data.supplement;
-}
-
-export async function deleteSupplement(id: string, claimId: string): Promise<void> {
-  const res = await fetch('/api/sessions/' + encodeURIComponent(id) + '/supplements/' + encodeURIComponent(claimId), {
-    method: 'DELETE',
-  });
-  if (!res.ok) throw new ApiError(await readError(res), res.status);
-}
-
-export async function discardRevisions(id: string): Promise<void> {
-  const res = await fetch('/api/sessions/' + encodeURIComponent(id) + '/revisions', { method: 'DELETE' });
-  if (!res.ok) throw new ApiError(await readError(res), res.status);
-}
-
-export function resumeTextUrl(id: string): string {
-  return '/api/sessions/' + encodeURIComponent(id) + '/resume.txt';
-}
-
-/** 可打印的简历页：print 为真时页面加载完自己调起打印，另存为 PDF 就是导出 */
-export function resumeHtmlUrl(id: string, options: { print?: boolean; marks?: boolean } = {}): string {
-  const params: string[] = [];
-  if (options.print === true) params.push('print=1');
-  if (options.marks === true) params.push('marks=1');
-  const base = '/api/sessions/' + encodeURIComponent(id) + '/resume.html';
-  return params.length === 0 ? base : base + '?' + params.join('&');
-}
-
-export function resumeDocUrl(id: string, marks = true): string {
-  const base = '/api/sessions/' + encodeURIComponent(id) + '/resume.doc';
-  return marks ? base + '?marks=1' : base;
-}
-
-/** 按岗位筛出来的一版：三个地址与那个岗位绑在一起，换 JD 就是换文件 */
-export function tailoredTextUrl(id: string, jdId: string): string {
-  return '/api/sessions/' + encodeURIComponent(id) + '/tailored.txt?jd=' + encodeURIComponent(jdId);
-}
-
-export function tailoredHtmlUrl(id: string, jdId: string, print = false): string {
-  const base = '/api/sessions/' + encodeURIComponent(id) + '/tailored.html?jd=' + encodeURIComponent(jdId);
-  return print ? base + '&print=1' : base;
-}
-
-export function tailoredDocUrl(id: string, jdId: string): string {
-  return '/api/sessions/' + encodeURIComponent(id) + '/tailored.doc?jd=' + encodeURIComponent(jdId);
-}
-
-export interface SseEvent {
-  id: string | null;
-  event: string;
-  data: unknown;
-}
-
-/**
- * 一路模型调用的流式分片。
- * channel 是服务端给这一路调用起的名字（extract / probe:tech / answer:P1 / verdict:C1 / suggest:C1），
- * 界面据此把分片送回它属于的那张卡片；它不占用断线续传的 seq。
- */
-export interface StreamChunk {
-  channel: string;
-  stage: string;
-  kind: 'reasoning' | 'text';
-  text: string;
-}
-
-/** 分片是锦上添花的数据：形状不认识就丢掉，绝不让它把整场质询带崩 */
-export function asStreamChunk(data: unknown): StreamChunk | null {
-  if (typeof data !== 'object' || data === null) return null;
-  const record = data as Record<string, unknown>;
-  const channel = record['channel'];
-  const stage = record['stage'];
-  const kind = record['kind'];
-  const text = record['text'];
-  if (typeof channel !== 'string' || channel.length === 0) return null;
-  if (typeof stage !== 'string' || stage.length === 0) return null;
-  if (kind !== 'reasoning' && kind !== 'text') return null;
-  if (typeof text !== 'string' || text.length === 0) return null;
-  return { channel: channel, stage: stage, kind: kind, text: text };
-}
-
-/** 解析一个 SSE 块；没有 data 字段的块（心跳、注释）返回 null */
-export function parseSseBlock(raw: string): SseEvent | null {
-  const lines = raw.replace(/\r\n/g, '\n').split('\n');
-  let event = 'message';
-  let id: string | null = null;
-  const dataLines: string[] = [];
-
-  for (const line of lines) {
-    if (line.length === 0 || line.startsWith(':')) continue;
-    const colon = line.indexOf(':');
-    const field = colon === -1 ? line : line.slice(0, colon);
-    let value = colon === -1 ? '' : line.slice(colon + 1);
-    if (value.startsWith(' ')) value = value.slice(1);
-    if (field === 'event') event = value;
-    else if (field === 'data') dataLines.push(value);
-    else if (field === 'id') id = value;
-  }
-
-  if (dataLines.length === 0) return null;
-  const joined = dataLines.join('\n');
-  let data: unknown = joined;
-  try {
-    data = JSON.parse(joined);
-  } catch {
-    data = joined;
-  }
-  return { id, event, data };
-}
-
-/**
- * 浏览器里读 SSE：跑沙盘是 POST，EventSource 只能发 GET，
- * 所以只能用 fetch + ReadableStream 自己切块。
- */
-export async function readSseStream(
-  body: ReadableStream<Uint8Array>,
-  onEvent: (event: SseEvent) => void,
-): Promise<void> {
-  const reader = body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
-
-  for (;;) {
-    const chunk = await reader.read();
-    if (chunk.done) break;
-    buffer += decoder.decode(chunk.value, { stream: true });
-    let cut = buffer.indexOf('\n\n');
-    while (cut >= 0) {
-      const parsed = parseSseBlock(buffer.slice(0, cut));
-      buffer = buffer.slice(cut + 2);
-      if (parsed !== null) onEvent(parsed);
-      cut = buffer.indexOf('\n\n');
-    }
-  }
-
-  buffer += decoder.decode();
-  const tail = parseSseBlock(buffer);
-  if (tail !== null) onEvent(tail);
-}
-
-export interface RunOptions {
-  panel?: string[];
-  maxClaims?: number;
-  signal?: AbortSignal;
-}
-
-export async function streamRun(
-  sessionId: string,
-  options: RunOptions,
-  onEvent: (event: SseEvent) => void,
-): Promise<void> {
-  const params = new URLSearchParams();
-  if (options.panel !== undefined && options.panel.length > 0) params.set('panel', options.panel.join(','));
-  if (options.maxClaims !== undefined) params.set('maxClaims', String(options.maxClaims));
-  const query = params.toString();
-  const url = '/api/sessions/' + encodeURIComponent(sessionId) + '/run' + (query.length > 0 ? '?' + query : '');
-
-  const init: RequestInit = { method: 'POST' };
-  if (options.signal !== undefined) init.signal = options.signal;
-  const res = await fetch(url, init);
-  if (!res.ok) throw new ApiError(await readError(res), res.status);
-  if (res.body === null) throw new ApiError('服务端没有返回事件流', res.status);
-  await readSseStream(res.body, onEvent);
-}

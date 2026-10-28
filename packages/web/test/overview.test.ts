@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { HistoryOverview } from '../src/api.ts';
-import { MAX_BARS, categoryLines, dayLabel, overviewFactsOf, sameResumeNote, trendBars } from '../src/overview.ts';
+import { MAX_BARS, categoryLines, dayLabel, overviewFactsOf, sameJdNote, sameResumeNote, trendBars } from '../src/overview.ts';
 
 function view(overrides: Partial<HistoryOverview> = {}): HistoryOverview {
   return {
@@ -14,6 +14,8 @@ function view(overrides: Partial<HistoryOverview> = {}): HistoryOverview {
     trendNote: null,
     resumeGroups: [],
     sameResumeRuns: 1,
+    jdGroups: [],
+    sameJdRuns: 0,
     headline: '2 场共 4 条主张，已判 4 条里站得住 2 条。',
     ...overrides,
   };
@@ -68,6 +70,17 @@ describe('类别短板与提示', () => {
     );
     expect(lines).toHaveLength(1);
     expect(lines[0]).toBe('技能掌握：3 条里 0 条站得住（欠证据 2 条）');
+  });
+
+  it('同一个岗位只跑过一场时不提，跑过多场时说清是哪个岗位', () => {
+    expect(sameJdNote(view({ sameJdRuns: 1 }))).toBeNull();
+    const many = sameJdNote(view({
+      sameJdRuns: 3,
+      jdGroups: [{ jdKey: 'k1', jdTitle: '高级后端工程师', sessions: 3, latestId: 's3', latestCreatedAt: '2026-10-03T00:00:00.000Z' }],
+    }));
+    expect(many).toContain('《高级后端工程师》最多跑过 3 场');
+    const unnamed = sameJdNote(view({ sameJdRuns: 2, jdGroups: [] }));
+    expect(unnamed).toContain('同一份岗位要求最多跑过 2 场');
   });
 
   it('同一份简历只跑过一场时不提「最多跑过几场」', () => {
