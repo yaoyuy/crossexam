@@ -25,6 +25,7 @@
 | 新 | 多 JD 上传 + 岗位要求驱动追问（三个新阶段） | P8（大功能②） | [ADR-0012](adr/0012-jd-requirement-review.md) · `packages/shared/src/requirements.ts` |
 | 新 | 成长档案：同一条主张在相邻两版之间连成轨迹 | P12 ② | [ADR-0021](adr/0021-claim-trails-chain-across-neighbouring-versions.md) · `packages/shared/src/growth.ts` |
 | 新 | 一岗一版简历：按岗位只做「留下 / 去掉」，不改一个字 | P12 ③ | [ADR-0022](adr/0022-tailor-is-keep-or-drop-only.md) · `packages/shared/src/tailor.ts` |
+| 新 | 岗位要求也能从文件导入（一次多份、标题取文件名，复用简历那条解析通道） | P14 补记（2026-10-28） | `packages/web/src/jds.ts` · [ADR-0007](adr/0007-resume-import.md) 同一条通道 |
 | 新 | 新手教程 / 深浅两套配色 / 面试官工作室 / 零门槛启动器 / 导入 PDF 与 Word | P7 第 1–7 项 | [ADR-0007](adr/0007-resume-import.md) · ADR-0010 · `packages/web/src/help.ts` |
 
 ## 二、还没做的（按性价比排序）
