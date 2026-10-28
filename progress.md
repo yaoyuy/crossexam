@@ -1543,3 +1543,40 @@ Word 打开会提示「格式与扩展名不一致」，而且段落是 `div`、
 **同日复现计时刷新**：终检重跑 `npm run repro` EXIT 0——干净目录 **86.6 s**（clone 40.1 / install 16.0 / verify 25.7 / 起服跑完一场并下载报告 0.8），
 比上一次的 107.5 s 快了 20.9 s，主要差在 `npm clone` 缓存热了（42.1 → 40.1）与 install 从 36.0 掉到 16.0（npmmirror 命中）。
 README、技术文档、复现工具说明、三份视频脚本与发布清单里的「最近一次」全部改成 86.6 s，波动区间仍写 34–121 s（那是历史多次实测的真实散布，不因一次变快而改写）。
+
+## Session 43 · 2026-10-28 · P16 视觉语言收口（上一场会话被 413 挡死之后）
+
+这一条比较特殊：**上一场主会话（`session-9791af4a`，41 轮、5,678 步、5,637 次工具调用）已经撞上网关的 16 MiB 请求体上限**
+（`413: Exceeded limit on max bytes to request body: 16777216`），当前上下文 100%、单是系统提示词一项就 ≈774.2k（54%）。
+所以这一轮先做的是「把人从死会话里捞出来」，再把 P16 那批没提交的美化收口成提交。诊断与处置见 F94，新会话的启动单见 `docs/session-bootstrap.md`。
+
+**P16 是什么**：用户贴了一批参考截图，要求「按参考图统一视觉语言」。这批改动是四个子智能体分批做的
+（`+2881/−1139`，20 个界面文件 + 新增 `packages/web/src/components/Icon.tsx`），
+但每一批只跑了 `tsc`——**没有人跑过门禁、也没有提交**。收口时先做了一次全量备份
+（`.tmp/p16-wip.patch` 249,836 字节 + `.tmp/Icon.tsx.bak`），再逐个门禁验一遍。
+
+**产品侧**
+- 视觉令牌层（`packages/web/src/index.css`，约 500 行）：只暴露 `--cx-surface` / `--cx-hair` / `--cx-hair-strong` /
+  `--cx-radius`（14px）/ `--cx-radius-sm`（10px）/ `--cx-shadow` / `--cx-shadow-lift` 七个变量；
+  浅色写显式值，深色用 `color-mix(in oklab, var(--color-ink-900) 94%, transparent)` 从既有色阶推出来。
+- 八组强调色 `.accent-ember` / `-mint` / `-sky` / `-violet` / `-teal` / `-amber` / `-rose` / `-slate`，每组只改 `--cx-accent` 一个变量，
+  组件里因此不出现色值分支。见 ADR-0029。
+- 图标自己写：`Icon.tsx` 的 `IconName` 是 43 个名字的联合类型，`PATHS` 存 24×24 描边路径，`currentColor`，`size` 默认 16。
+  **刻意不引图标库**——评委机器要 10 分钟复现，四十来个图标手写比多一条供应链划算。
+
+**门禁（2026-10-28）**：`npm run verify` 全绿（73 文件 / **765 条断言** + 9 项冒烟 + 构建 **56 modules** +
+14 项性能预算，CSS 47.60 kB / JS 414.85 kB gzip **124.58 kB**，预算 128 kB，**只剩 7 kB 余量**）·
+`npm run e2e:ui` **177/177**、控制台 0 报错（令牌层换的是样式，没动选择器）· `npm run shots` **30 张**、控制台 0 问题，
+sha256 去重检查 **0 个相邻重复**（F92 那条坑没有复发）。
+
+**Prompt 链**：`npm run export:prompt` **59 → 66 份**（其中 55 份分页分片，`*.md` 字节合计 25.4 MB）。
+只增了 7 份是**有意的**：崩掉的那场主会话（51.2 MB，四小时基本在撞 413）按「证据密度」剔除——它作为过程证据是负资产；
+四个 P16 子会话与被救会话照常导出。同时删掉了两个空会话导出的垃圾文件（`2026-10-28-session.md` / `…-sessio.md`）。
+要补齐随时可以 `npm run export:prompt -- --session <id>`。
+
+**文档同步**（F93 的规矩：跨文档引用的实测数字一次全改，`docs/prompt-chain/*.md` 里的历史快照不回填）：
+`task_plan.md` 交付物表与阶段表（新增 P16 行）· `docs/release-checklist.md` 第 2 行与第五批 · 技术文档 03/04/05/06 四章 ·
+三份视频脚本共六处 · 新增 ADR-0029、F94、`docs/session-bootstrap.md`。
+
+**没动的东西**：提示词、149 盘卡带、schema（仍 v10）。
+
