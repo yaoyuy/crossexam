@@ -97,3 +97,86 @@ export function materialJds(
     text: filled[index] === undefined ? '' : filled[index]!.text,
   }));
 }
+
+/** 导入 JD 时默认标题最多留这么多字，超了截断加省略号——标题要显示在报告里 */
+export const JD_TITLE_MAX = 24;
+
+export interface JdFileDraft {
+  /** 文件名（含扩展名）：标题默认取它，用户在界面上还能改 */
+  name: string;
+  text: string;
+}
+
+export interface JdImportResult {
+  jds: JdDraft[];
+  added: number;
+  /** 读出空白的文件：扫描件 PDF、加密文档都会落到这里 */
+  skippedEmpty: number;
+  /** 因为超过 MAX_JDS 没进来的 */
+  skippedLimit: number;
+}
+
+/** 文件名去扩展名当标题；去掉后空了就兜底，太长了截断 */
+export function jdTitleFromFileName(name: string): string {
+  const cut = name.lastIndexOf('.');
+  const base = (cut > 0 ? name.slice(0, cut) : name).trim();
+  if (base === '') return '导入的岗位';
+  return base.length > JD_TITLE_MAX ? base.slice(0, JD_TITLE_MAX) + '…' : base;
+}
+
+/** 换行归一 + 去两端空白。正文不截断：太长了该由预检如实报出来，不该悄悄切掉尾巴 */
+export function normalizeJdText(text: string): string {
+  return text.replace(/\r\n?/g, '\n').trim();
+}
+
+/**
+ * 从文件导入 JD。已填的那几份原样留在前面，导入的按选中顺序接在后面；
+ * 空文件跳过、超出 MAX_JDS 的不进——两件事都记在返回值里，好让界面说清发生了什么。
+ */
+export function importJdFiles(
+  existing: readonly JdDraft[],
+  files: readonly JdFileDraft[],
+): JdImportResult {
+  const base = filledJds(existing);
+  const room = Math.max(0, MAX_JDS - base.length);
+  const imported: JdDraft[] = [];
+  let skippedEmpty = 0;
+  let skippedLimit = 0;
+  for (const file of files) {
+    const text = normalizeJdText(file.text);
+    if (text === '') {
+      skippedEmpty += 1;
+      continue;
+    }
+    if (imported.length >= room) {
+      skippedLimit += 1;
+      continue;
+    }
+    imported.push({ title: jdTitleFromFileName(file.name), text });
+  }
+  return { jds: [...base, ...imported], added: imported.length, skippedEmpty, skippedLimit };
+}
+
+/** 导入之后说一句人话：进来几份、为什么有的没进来 */
+export function jdImportNote(result: JdImportResult): string {
+  const parts: string[] = [];
+  if (result.added > 0) {
+    parts.push('已导入 ' + String(result.added) + ' 份岗位要求（标题取文件名，可以改）。');
+  }
+  if (result.skippedEmpty > 0) {
+    parts.push(
+      result.added > 0
+        ? '另有 ' + String(result.skippedEmpty) + ' 个文件没读到文字。'
+        : '这些文件里没有读到文字：扫描件 PDF 先用 OCR 转成文字再导入。',
+    );
+  }
+  if (result.skippedLimit > 0) {
+    parts.push(
+      (result.added > 0 ? '还有 ' : '') +
+        String(result.skippedLimit) +
+        ' 份没进来：最多 ' + String(MAX_JDS) + ' 份 JD。',
+    );
+  }
+  if (parts.length === 0) return '没有读到可用的岗位要求。';
+  return parts.join('');
+}

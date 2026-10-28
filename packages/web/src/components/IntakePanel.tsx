@@ -82,6 +82,9 @@ export function IntakePanel(props: {
   hint: string | null;
   onImportFile: (file: File) => void;
   importNote: ImportNote | null;
+  /** 从文件导入岗位要求：一次可以选多个文件，选中的顺序就是 J1..Jn 的顺序 */
+  onImportJds: (files: File[]) => void;
+  jdImportNote: ImportNote | null;
   sessions: SessionSummary[];
   /** 跨场次聚合。null 表示还没取到，整块不渲染 */
   overview: HistoryOverview | null;
@@ -94,6 +97,7 @@ export function IntakePanel(props: {
   const jdProblem = jdDraftProblem(draft.jds);
   const jdCount = filledJds(draft.jds).length;
   const fileRef = useRef<HTMLInputElement>(null);
+  const jdFileRef = useRef<HTMLInputElement>(null);
 
   // JD 列表的增删改都在这里算好一次，投料台不需要上层为它多长三个回调
   const setJds = (next: JdDraft[]) => props.onDraftChange({ jds: next });
@@ -180,16 +184,28 @@ export function IntakePanel(props: {
             {"目标岗位 JD（1–" + String(MAX_JDS) + " 份，可只贴一份）"}
           </span>
           <span className="text-[11px] text-ink-500">{jdCount === 0 ? "还没贴" : "已填 " + String(jdCount) + " 份"}</span>
-          <button
-            type="button"
-            data-shot="jd-add"
-            className="btn btn-quiet ml-auto px-2 py-0.5 text-[11px]"
-            disabled={props.busy || draft.jds.length >= MAX_JDS}
-            title="再多贴一份 JD：面试官会把几份里的要求放在一起看"
-            onClick={() => setJds([...draft.jds, emptyJd()])}
-          >
-            + 再加一份
-          </button>
+          <span className="ml-auto flex items-center gap-1.5">
+            <button
+              type="button"
+              data-shot="jd-import"
+              title={'一次可选多份，支持 ' + IMPORT_ACCEPT + '；文件只在本机解析、不入库，标题默认取文件名'}
+              className="btn btn-quiet px-1.5 py-0.5 text-[11px]"
+              disabled={props.busy || jdCount >= MAX_JDS}
+              onClick={() => jdFileRef.current?.click()}
+            >
+              从文件导入
+            </button>
+            <button
+              type="button"
+              data-shot="jd-add"
+              className="btn btn-quiet px-2 py-0.5 text-[11px]"
+              disabled={props.busy || draft.jds.length >= MAX_JDS}
+              title="再多贴一份 JD：面试官会把几份里的要求放在一起看"
+              onClick={() => setJds([...draft.jds, emptyJd()])}
+            >
+              + 再加一份
+            </button>
+          </span>
         </div>
         {draft.jds.map((jd, index) => (
           <div
@@ -231,6 +247,31 @@ export function IntakePanel(props: {
         {jdProblem === null ? null : (
           <p data-shot="jd-problem" className="text-[11px] leading-relaxed text-amber-ink">
             {jdProblem}
+          </p>
+        )}
+        <input
+          ref={jdFileRef}
+          data-shot="jd-import-file"
+          type="file"
+          multiple
+          accept={IMPORT_ACCEPT}
+          className="hidden"
+          onChange={(event) => {
+            const files = Array.from(event.target.files ?? []);
+            // 清掉 value：同一批文件连选两次也要能再触发一次 change
+            event.target.value = '';
+            if (files.length > 0) props.onImportJds(files);
+          }}
+        />
+        {props.jdImportNote === null ? null : (
+          <p
+            data-shot="jd-import-note"
+            className={
+              'text-[11px] leading-relaxed ' +
+              (props.jdImportNote.tone === 'ok' ? 'text-mint-400' : 'text-rose-ink')
+            }
+          >
+            {props.jdImportNote.text}
           </p>
         )}
       </div>

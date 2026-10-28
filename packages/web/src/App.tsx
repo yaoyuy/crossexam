@@ -55,7 +55,8 @@ import { markHelpSeen, shouldAutoOpenHelp } from './help.ts';
 import { applyTheme, nextTheme, readStoredTheme, saveTheme, THEME_LABEL } from './theme.ts';
 import type { Theme } from './theme.ts';
 import { allAnchors, anchorsOfJd, initialSandbox, sandboxReducer, stateFromHistory, totalProbes } from './state.ts';
-import { emptyDraftList, jdPayload, materialJds, previewJds } from './jds.ts';
+import { emptyDraftList, importJdFiles, jdImportNote, jdPayload, materialJds, previewJds } from './jds.ts';
+import type { JdFileDraft } from './jds.ts';
 import { acceptAll, choosableClaimIds, skippedReason as skippedReasonOf, toggleAccepted } from './revisions.ts';
 import type { RevisedResume } from './revisions.ts';
 import { RevisionBar } from './components/RevisionBar.tsx';
@@ -136,6 +137,8 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [hint, setHint] = useState<string | null>(null);
   const [importNote, setImportNote] = useState<ImportNote | null>(null);
+  // 岗位要求那条导入通道自己一条提示：两个块各自说各自的事，不共用一行字
+  const [jdNote, setJdNote] = useState<ImportNote | null>(null);
   // 右栏要看的两份原文：简历与岗位要求。jds 只在跑过一场之后才有服务端给的编号，
   // 没跑过时由投料台里的草稿现算（见 shownJds）。
   const [material, setMaterial] = useState<{ resumeText: string; title: string; jds: JobDescription[] }>({
@@ -607,6 +610,42 @@ export function App() {
   }, []);
 
   /**
+   * 从文件导入岗位要求：一次可以选多份，选中的顺序就是 J1..Jn 的顺序。
+   * 服务端只负责把文件解成纯文字，标题取文件名——投料台上还能改。
+   * 一个文件读不出来不影响其他几个：失败的单独说，成功的照样填进去。
+   */
+  const handleImportJds = useCallback(
+    (files: File[]) => {
+      if (files.length === 0) return;
+      setJdNote({ tone: 'ok', text: '正在解析 ' + String(files.length) + ' 个文件…' });
+      void (async () => {
+        const parsed: JdFileDraft[] = [];
+        const failures: string[] = [];
+        for (const file of files) {
+          try {
+            const imported = await importResumeFile(file);
+            parsed.push({ name: imported.name, text: imported.text });
+          } catch (error: unknown) {
+            failures.push('「' + file.name + '」' + (error instanceof Error ? error.message : '解析失败'));
+          }
+        }
+        const result = importJdFiles(draft.jds, parsed);
+        setDraft((current) => ({ ...current, jds: result.jds }));
+        const parts = [jdImportNote(result)];
+        if (failures.length > 0) parts.push(failures.join(' '));
+        setJdNote({
+          tone: failures.length === files.length ? 'error' : 'ok',
+          text: parts.join(''),
+        });
+        if (result.added > 0) {
+          setHint('导入的岗位要求只写在这台机器上；标题默认取文件名，可以改。确认无误再点「开始质询」。');
+        }
+      })();
+    },
+    [draft.jds],
+  );
+
+  /**
    * 切到联网模式时才向后端要一次模型清单：默认的离线路径一个网络包都不发。
    * 后端没配好也照样给出下一步（缺哪个环境变量），而不是静默失败。
    */
@@ -738,6 +777,7 @@ export function App() {
     dispatch({ type: 'reset' });
     setHint(null);
     setImportNote(null);
+    setJdNote(null);
     setRevised(null);
     setChosen([]);
     setRevisionNote(null);
@@ -1041,6 +1081,8 @@ export function App() {
             hint={hint}
             onImportFile={handleImportFile}
             importNote={importNote}
+            onImportJds={handleImportJds}
+            jdImportNote={jdNote}
             sessions={sessions}
             overview={overview}
             activeSessionId={sandbox.sessionId}
