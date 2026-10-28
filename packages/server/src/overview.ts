@@ -7,15 +7,26 @@
  * 只读不写：它不改任何会话，也不调模型。
  */
 import type { Db } from './store/index.ts';
-import { listClaims, listProbes, listSessions } from './store/index.ts';
+import { listClaims, listJds, listProbes, listSessions } from './store/index.ts';
 import type { HistoryOverview, SessionFacts } from '@crossexam/shared';
-import { overviewOf } from '@crossexam/shared';
+import { overviewOf, shortHash, stableStringify } from '@crossexam/shared';
 
 /**
  * 仪表盘看的是「最近多少场」。不设上限的话，跑过几百场之后打开页面要读几百次库，
  * 而那些很早以前的场次对「这段路在变好还是打转」也没有意义。
  */
 export const OVERVIEW_WINDOW = 200;
+
+/**
+ * 岗位要求的指纹：把这一场对照的几份 JD 正文归一化之后整体哈希。
+ * 归一化只折叠空白——粘贴同一份 JD 多带一个换行，不该算成另一个岗位；
+ * 而改一个字就确实是另一个岗位，这是有意为之。
+ * 哈希放在服务端算，shared 那一层只管分组、不管键怎么来（同一件事只允许一个作者）。
+ */
+function jdKeyOf(texts: readonly string[]): string {
+  const normalized = texts.map((text) => text.replace(/\s+/g, ' ').trim());
+  return shortHash(stableStringify(normalized), 16);
+}
 
 export interface OverviewView extends HistoryOverview {
   /** 这次统计覆盖的场次上限，界面据此说明「看的是最近 N 场」 */
@@ -32,11 +43,14 @@ function factsOf(db: Db, sessions: ReturnType<typeof listSessions>): SessionFact
       category: claim.category,
       verdict: claim.verdict ?? null,
     }));
+    const jdRows = listJds(db, session.id);
+    const jdKey = jdKeyOf(jdRows.map((jd) => jd.text));
     facts.push({
       id: session.id,
       createdAt: session.createdAt,
       jobTitle: session.jobTitle,
       resumeHash: session.resumeHash,
+      jds: jdRows.map((jd) => ({ key: jdKey, title: jd.title === '' ? '未命名岗位' : jd.title })),
       claims,
       probes: listProbes(db, session.id).length,
     });
