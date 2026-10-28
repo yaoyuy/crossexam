@@ -6,7 +6,7 @@
  *   1. 查 Node 版本；太低就把下载地址打出来，然后停下（不猜、不替你装）
  *   2. node_modules 不在就 npm install
  *   3. packages/web/dist 不在就 npm run build
- *   4. 起服务并把浏览器叫起来
+ *   4. 起服务，并用没有地址栏的应用窗口把它打开
  *
  * 为什么不是打包成 exe：那需要本地编译的原生依赖，会毁掉「十分钟复现」（AGENTS.md 第 6 节）。
  * 判断逻辑全在 src/plan.mjs（纯函数，有单测），这个文件只负责碰文件和起进程。
@@ -15,7 +15,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { NODE_HELP, SHORTCUT_NAME, browserOpenArgs, desktopShortcutDir, launcherSteps, makeShortcutScript, nodeVersionOk, reuseNote } from './src/plan.mjs';
+import { NODE_HELP, SHORTCUT_NAME, browserOpenArgs, chooseAppBrowser, desktopShortcutDir, launcherSteps, makeShortcutScript, nodeVersionOk, reuseNote } from './src/plan.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '..', '..');
@@ -31,7 +31,12 @@ function openBrowser(url) {
     say('  （跳过了打开浏览器：CROSSEXAM_LAUNCH_NO_BROWSER=1）');
     return;
   }
-  const plan = browserOpenArgs(url);
+  // 「桌面端」就是这一步：找一个 Chromium 家族浏览器，用 --app 开一个没有地址栏、
+  // 没有标签页的独立窗口——关掉它就像关掉一个应用。找不着就退回系统默认浏览器：
+  // 宁可给一个有地址栏的窗口，也不要让人对着空白页发呆。
+  const app = chooseAppBrowser(process.platform, process.env, existsSync);
+  const plan = browserOpenArgs(url, process.platform, app);
+  say(app === null ? '  没找到 Edge / Chrome，用系统默认浏览器打开（窗口会带地址栏）' : '  开一个没有地址栏的应用窗口：' + app);
   // windows 的 start 是 cmd 内建命令，起完立刻返回；ignore 掉输出避免多开一个黑窗
   spawn(plan.command, plan.args, { stdio: 'ignore', detached: true, shell: false }).unref();
 }

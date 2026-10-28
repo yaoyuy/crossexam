@@ -1,9 +1,12 @@
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
+  APP_WINDOW_SIZE,
   NODE_MIN,
   SHORTCUT_NAME,
+  appBrowserCandidates,
   browserOpenArgs,
+  chooseAppBrowser,
   compareVersions,
   desktopShortcutDir,
   launcherSteps,
@@ -102,5 +105,38 @@ describe('打开浏览器与复用', () => {
   it('端口上已经有一个在跑时，说的是「直接打开浏览器」而不是「出错了」', () => {
     expect(reuseNote(8787)).toContain('8787');
     expect(reuseNote(8787)).toContain('直接打开浏览器');
+  });
+});
+
+describe('应用窗口（没有地址栏的桌面窗口）', () => {
+  const env = { ProgramFiles: 'C:/PF', 'ProgramFiles(x86)': 'C:/PF86', LOCALAPPDATA: 'C:/Local' };
+
+  it('Windows 的候选里 Edge 排在最前：Windows 一定装着它', () => {
+    const list = appBrowserCandidates('win32', env);
+    expect(list[0]).toBe(join('C:/PF86', 'Microsoft', 'Edge', 'Application', 'msedge.exe'));
+    expect(list).toContain(join('C:/PF', 'Microsoft', 'Edge', 'Application', 'msedge.exe'));
+    expect(list).toContain(join('C:/Local', 'Google', 'Chrome', 'Application', 'chrome.exe'));
+  });
+
+  it('环境变量缺了就不编路径——宁可没有候选，也不要一条点不动的命令', () => {
+    expect(appBrowserCandidates('win32', {})).toEqual([]);
+  });
+
+  it('取第一个真的存在的那个；一个都没有时返回 null，交给调用方退回默认浏览器', () => {
+    expect(chooseAppBrowser('win32', env, () => false)).toBeNull();
+    const hit = join('C:/PF', 'Google', 'Chrome', 'Application', 'chrome.exe');
+    expect(chooseAppBrowser('win32', env, (p) => p === hit)).toBe(hit);
+  });
+
+  it('macOS 与 Linux 给的是惯常位置', () => {
+    expect(appBrowserCandidates('darwin', {})).toContain('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome');
+    expect(appBrowserCandidates('linux', {})).toContain('/usr/bin/google-chrome');
+  });
+
+  it('给了浏览器就用 --app 开独立窗口，没给就还是老三样（行为与以前一字不差）', () => {
+    const app = browserOpenArgs('http://127.0.0.1:8787', 'win32', 'C:/PF/msedge.exe');
+    expect(app.command).toBe('C:/PF/msedge.exe');
+    expect(app.args).toEqual(['--app=http://127.0.0.1:8787', '--window-size=' + APP_WINDOW_SIZE]);
+    expect(browserOpenArgs('http://127.0.0.1:8787', 'win32', '')).toEqual({ command: 'cmd', args: ['/c', 'start', '', 'http://127.0.0.1:8787'] });
   });
 });
