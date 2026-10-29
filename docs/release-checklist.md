@@ -7,10 +7,10 @@
 
 | # | 要求 | 现状 | 位置 / 命令 |
 | --- | --- | --- | --- |
-| 1 | GitHub / Gitee 公开仓库，**细粒度 commit**（禁止一次性 initial commit） | ✅ 330 余次提交，每次对应一次具体开发动作 | 见第二节「建远端」 |
-| 2 | **≥3 个核心功能迭代的完整 Prompt 链**（提问 → AI 建议 → 如何引导修 Bug） | ✅ 自动导出，66 份快照（其中 55 份分页分片，共约 25.4 MB） | `npm run export:prompt` → `docs/prompt-chain/` |
+| 1 | GitHub / Gitee 公开仓库，**细粒度 commit**（禁止一次性 initial commit） | ✅ 390 余次提交，每次对应一次具体开发动作 | 见第二节「建远端」 |
+| 2 | **≥3 个核心功能迭代的完整 Prompt 链**（提问 → AI 建议 → 如何引导修 Bug） | ✅ 自动导出，64 份快照（其中 58 份分页分片，共约 26.5 MB） | `npm run export:prompt` → `docs/prompt-chain/` |
 | 3 | README 10 分钟极速复现指南（环境、依赖、环境变量模板） | ✅ 干净目录实测 86.6 s（同机多次落在 34–121 s） | `README.md` + `.env.example` |
-| 4 | 演示视频 5–8 分钟 1080p，含 **≥2 分钟 AI 协同过程复现** | 🔶 脚本 + 提词卡 + 录前检查已备，**待录制** | `docs/video/script.md` · `docs/video/preflight.md` · `docs/video/teleprompter.md` |
+| 4 | 演示视频 5–8 分钟 1080p，含 **≥2 分钟 AI 协同过程复现** | ✅ `docs/video/crossexam-demo.mp4`：7 分 22 秒 / 1080p / 45.7 MB，AI 协同段 2 分 52 秒 | 成片 `docs/video/`，管线 `tools/video/`（`README.md` 有跑法） |
 | 5 | 技术文档 PDF ≤30 页 | ✅ 30 页（上限 30，**已无余量**；构建自身在超限时失败），一条命令重建 | `npm run docs:pdf` → `docs/CrossExam-技术文档.pdf` |
 
 ## 二、建远端仓库（⛔ 需要本人操作）
@@ -138,7 +138,7 @@ Prompt 链这次只增了 7 份：崩掉的那场主会话（session-9791af4a，
 `docs/video/crossexam-demo.mp4`（46.0 MB）。录制没有用录屏软件：`tools/video/` 下是整套脚本——
 CDP 抓帧（`Page.captureScreenshot` 循环 17 fps，比 `Page.startScreencast` 的 10 fps 均匀）、
 Edge TTS 逐句配音后拼接、ffmpeg `drawtext` 烧字幕、`assemble.mjs` 拼接加淡入淡出。
-AI 协同段（证据锚定 / claimId 真 Bug / 唯一约束 / 真进程冒烟）合计 **2 分 59 秒**，越过「≥2 分钟」的硬要求。
+AI 协同段（证据锚定 / claimId 真 Bug / 唯一约束 / 真进程冒烟）合计 **2 分 52 秒**，越过「≥2 分钟」的硬要求。
 三处坑写成 findings F98（concat 清单路径会被二次拼接、drawtext 里盘符被冒号截断、帧序列短于旁白会冻末帧）。
 数字累计变化：测试断言仍 **765** / 73 个测试文件（曾经一度被记成 74 / 782，原因是 `vitest` 的默认排除清单里没有 `.tmp`，
 把便携包解压出来的那份 `tools/launcher/test/plan.test.mjs` 又跑了一遍；已加 `vitest.config.ts` 把 `.tmp` 排除，数字回到 73 / 765）、
@@ -154,4 +154,4 @@ AI 协同段（证据锚定 / claimId 真 Bug / 唯一约束 / 真进程冒烟�
 三条规则与本地词表逐字替换（`.redact-local.txt` 已 gitignore），重导后五个关键词 `grep` 全部 CLEAN。
 数字累计变化：Prompt 链 66 → **64** 份（其中 58 份分片，约 26.5 MB）、9 场会话；其余数字不动——
 这一批只改导出器与文档，没有改产品行为，也就没有重跑门禁的必要（`npm run verify` 仍 73 文件 / 765 断言）。
-历史里 `docs/prompt-chain/` 下的那批文件用 git plumbing 逐提交重写（其余字节不动），`v0.1.0` 的 tag 跟着挪到新 HEAD。
+视频第六段那句「66 份」也一并改成 64 并重录该段（710 帧 / 44.4 秒），成片重拼为 45.7 MB / 7 分 22 秒；历史里 `docs/prompt-chain/` 下的那批文件用 git plumbing 逐提交重写（其余字节不动），`v0.1.0` 的 tag 跟着挪到新 HEAD。

@@ -1,6 +1,6 @@
 # tools/video — 演示视频是怎么录出来的
 
-成片：`docs/video/crossexam-demo.mp4`，7 分 22 秒 / 1920×1080 / 30 fps / 46 MB。
+成片：`docs/video/crossexam-demo.mp4`，7 分 22 秒 / 1920×1080 / 30 fps / 45.7 MB。
 这一页说明它是**脚本录出来的**，不是人手录屏再剪辑——每一段都能重跑。
 
 ## 为什么要有这一套
