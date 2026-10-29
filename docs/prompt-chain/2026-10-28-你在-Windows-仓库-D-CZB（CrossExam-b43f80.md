@@ -5622,7 +5622,7 @@ loaded
 Both themes look correct. Remaining tweaks from e-tailor:
 
 1. Tailor's kept list box: the row backgrounds fill their cell but the rows are cut off with a hard clip on the right (`-负责 RBAC...` clipped mid-sentence is intended line clamp, fine). The header row "留下段/去掉段" fine.
-2. The kept list shows "张明", "后端工程师 · 上海 · zhanging@example.com" — good.
+2. The kept list shows "张明", "后端工程师 · 上海 · <REDACTED:email>" — good.
 3. The dropped list first row is clipped oddly at right ("…覆盖 12 个业务" then "线的权限接入…") that's line-clamp over 2 lines — fine.
 
 One issue: in e-tailor, the kept column rows are narrower than the grid cell — they fill width, ok.
