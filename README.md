@@ -221,7 +221,7 @@ Vite + React 19 + Tailwind v4、zod（模型输出先过 schema 再入库）、v
 | [docs/screenshots/](docs/screenshots/) | 界面截图（由 `npm run shots` 生成，不是手点的） |
 | [docs/CrossExam-技术文档.pdf](docs/CrossExam-技术文档.pdf) | 技术文档 PDF（≤ 30 页，由 `npm run docs:pdf` 生成） |
 | [docs/tech/](docs/tech/) | 技术文档的 Markdown 源（六章 + 封面） |
-| [docs/video/crossexam-demo.mp4](docs/video/crossexam-demo.mp4) | **演示视频成片**：7 分 22 秒 / 1920×1080 / 30 fps / 45.7 MB，11 段，其中 AI 协同段 2 分 59 秒 |
+| [docs/video/crossexam-demo.mp4](docs/video/crossexam-demo.mp4) | **演示视频成片**：7 分 22 秒 / 1920×1080 / 30 fps / 45.7 MB，11 段，其中 AI 协同段 2 分 52 秒 |
 | [docs/video/script.md](docs/video/script.md) | 演示视频脚本（分镜 + AI 协同段落 + 录制核对表） |
 | [docs/video/preflight.md](docs/video/preflight.md) | 录制前检查（一次录成的 15 项 + 录制参数 + 开拍顺序） |
 | [docs/video/teleprompter.md](docs/video/teleprompter.md) | 提词卡（一屏一句，照念） |
