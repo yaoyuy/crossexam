@@ -1,5 +1,8 @@
 # CrossExam 质询室
 
+[![CI](https://github.com/yaoyuy/crossexam/actions/workflows/ci.yml/badge.svg)](https://github.com/yaoyuy/crossexam/actions/workflows/ci.yml)
+[![许可证](https://img.shields.io/badge/%E8%AE%B8%E5%8F%AF%E8%AF%81-MIT-blue.svg)](LICENSE)
+
 > **把你准备好的简历交给一整间面试官，先替你审一遍。**
 > 多 Agent 对抗式面试沙盘 —— 不是让 AI 帮你写简历，是让一群 AI 面试官告诉你简历里哪句话站不住。
 
