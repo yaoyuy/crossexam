@@ -14,7 +14,7 @@ import { resolveDshHome, listSessionFiles, readSession, readSessionHeader } from
 import { buildTimeline, extractMeta } from '../src/parse.mjs';
 import { renderIndex, renderMetaTable, renderTitle } from '../src/render.mjs';
 import { paginateSession } from '../src/paginate.mjs';
-import { redactSecrets } from '../src/redact.mjs';
+import { redactSecrets, parseLiteralList } from '../src/redact.mjs';
 import { safeFileName, humanBytes } from '../src/text.mjs';
 
 const HELP = [
@@ -31,6 +31,8 @@ const HELP = [
   '  --max-chars-per-file <n> 单个会话每页的字符上限，超出按条目分页 (默认 400000)',
   '  --no-split               不按体积分页，一个会话只写一个文件',
   '  --keep-injected          保留系统注入消息 (调试用，默认丢弃)',
+  '  --exclude-file <path>    不导出的会话 id 清单 (默认 tools/dsh-export/export-ignore.txt)',
+  '  --redact-file <path>     本地脱敏词表，一行一条逐字替换 (默认 .redact-local.txt)',
   '  --list                   只列出匹配到的会话，不写文件',
   '  --dry-run                跑完整流程但不写文件',
   '  --quiet                  只输出摘要',
@@ -41,6 +43,7 @@ function parseArgs(argv) {
   const o = {
     out: 'docs/prompt-chain', dshHome: null, cwd: process.cwd(), all: false,
     sessions: [], maxArgChars: 600, maxResultChars: 1200, maxCharsPerFile: 400000, keepInjected: false,
+    excludeFile: 'tools/dsh-export/export-ignore.txt', redactFile: '.redact-local.txt',
     list: false, dryRun: false, quiet: false, help: false,
   };
   for (let i = 0; i < argv.length; i++) {
@@ -56,6 +59,8 @@ function parseArgs(argv) {
     else if (a === '--max-chars-per-file') o.maxCharsPerFile = Number(next());
     else if (a === '--no-split') o.maxCharsPerFile = 0;
     else if (a === '--keep-injected') o.keepInjected = true;
+    else if (a === '--exclude-file') o.excludeFile = next();
+    else if (a === '--redact-file') o.redactFile = next();
     else if (a === '--list') o.list = true;
     else if (a === '--dry-run') o.dryRun = true;
     else if (a === '--quiet') o.quiet = true;
@@ -63,6 +68,11 @@ function parseArgs(argv) {
     else throw new Error('未知参数: ' + a);
   }
   return o;
+}
+
+/** 读一个可选的文本文件，不存在就当空 */
+function readOptional(file) {
+  try { return fs.readFileSync(path.resolve(file), 'utf8'); } catch { return ''; }
 }
 
 function normCwd(p) {
@@ -136,8 +146,15 @@ async function main() {
 
   // 先只解会话头，靠会话自己记录的 cwd 做筛选——比猜工作区目录名可靠
   const wanted = new Set(opts.sessions);
+  // 不导出的会话：这些会话虽然工作目录相同，但与作品无关（别的比赛调研、课程作业等）。
+  // 清单单独放一个文件，好让下一次导出不用再靠人记。
+  const ignored = new Set(parseLiteralList(readOptional(opts.excludeFile)).map((id) => id.replace(/^session-/, '')));
+  const localLiterals = parseLiteralList(readOptional(opts.redactFile));
+  if (localLiterals.length && !opts.quiet) console.log('本地脱敏词表：' + localLiterals.length + ' 条');
+  let skipped = 0;
   const selected = [];
   for (const s of all) {
+    if (ignored.has(s.sessionId.replace(/^session-/, ''))) { skipped++; continue; }
     if (wanted.size > 0 && !wanted.has(s.sessionId)) continue;
     const header = readSessionHeader(s.file);
     const headerCwd = header && header.cwd ? header.cwd : null;
@@ -145,6 +162,7 @@ async function main() {
     selected.push({ ...s, headerCwd });
   }
   selected.sort((a, b) => a.mtimeMs - b.mtimeMs);
+  if (skipped && !opts.quiet) console.log('按清单跳过 ' + skipped + ' 场会话（' + opts.excludeFile + '）');
 
   if (opts.list) {
     for (const s of selected) {
@@ -184,7 +202,7 @@ async function main() {
 
     let bytes = 0;
     for (let i = 0; i < names.length; i++) {
-      const red = redactSecrets(texts[i]);
+      const red = redactSecrets(texts[i], localLiterals);
       secretHits += red.hits.length;
       if (red.hits.length && !opts.quiet) {
         console.warn('⚠ 会话 ' + (meta.id || s.sessionId) + ' 命中 ' + red.hits.length +
@@ -217,7 +235,7 @@ async function main() {
   const totalTokens = entries.reduce((acc, e) => acc + (e.tokens.outputTokens || 0), 0);
   const sessionCount = new Set(entries.map((e) => e.sessionId)).size;
   console.log('\n共导出 ' + sessionCount + ' 场会话（' + entries.length + ' 个文件），输出 ' + totalTokens + ' tokens。' +
-    (secretHits ? ' 脱敏命中 ' + secretHits + ' 类。' : ''));
+    (secretHits ? ' 脱敏命中 ' + secretHits + ' 项。' : ''));
   return 0;
 }
 main().then((code) => process.exit(code)).catch((err) => {

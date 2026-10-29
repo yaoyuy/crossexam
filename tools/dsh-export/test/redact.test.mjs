@@ -26,4 +26,17 @@ describe('密钥脱敏', () => {
     expect(r.text).toBe(src);
     expect(r.hits.length).toBe(0);
   });
+  it('替换真实个人信息：手机号 / 邮箱 / 身份证', () => {
+    const r = redactSecrets('联系 13800001111 或 me@example.org，证件 110101199003071234');
+    expect(r.text).not.toContain('13800001111');
+    expect(r.text).not.toContain('me@example.org');
+    expect(r.text).not.toContain('110101199003071234');
+    expect(r.hits.map((h) => h.kind)).toEqual(expect.arrayContaining(['phone', 'email', 'idcard']));
+  });
+
+  it('按本地词表逐字替换姓名', () => {
+    const r = redactSecrets('候选人：张三，19 岁', ['张三']);
+    expect(r.text).toBe('候选人：<REDACTED:local>，19 岁');
+    expect(r.hits.map((h) => h.kind)).toContain('local');
+  });
 });
