@@ -290,6 +290,9 @@ desktop.ini
 /data/
 /.tmp/
 
+# 本地脱敏词表：导出 Prompt 链时逐字替换的真实姓名等，绝不能进仓库
+/.redact-local.txt
+
 # 常见写法示例（用不到就删掉）：
 # /data/documents/
 # /data/chroma_db/
