@@ -23,8 +23,10 @@ DSH 把每一次提问、回复、思考过程和工具调用都落在本地会�
 
 两个坑：
 
-1. 文件是 **多帧拼接** 的 zstd（每追加一批事件压一帧）。`zlib.zstdDecompressSync` 只解第一帧，
-   所以必须自己扫魔数 `28 B5 2F FD` 逐帧解压，见 `src/zstd-frames.mjs`。
+1. 文件是 **多帧拼接** 的 zstd（每追加一批事件压一帧），所以必须自己扫魔数 `28 B5 2F FD` 定位帧起点，
+   再按 RFC 8878 算出**这一帧的精确字节数**逐帧解压，见 `src/zstd-frames.mjs`。
+   注意别依赖「`zlib.zstdDecompressSync` 解到第一帧末尾就停」：Windows 上确实如此，
+   Linux 上它会把后面拼接的帧一起解出来，逐帧循环就会把文本重复拼好几遍（findings F100）。
 2. `user/message` 里混着真人输入和系统注入（`runtime-context`、`skill-catalog`、
    `plugin:hindsight`、`time-context`、`agent-instructions` 等）。只有 `source.kind === "user"`
    才是真人提问，其余默认丢弃，见 `src/parse.mjs`。
