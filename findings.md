@@ -67,7 +67,7 @@
 | npm | 11.9.0，registry 已指向 `https://registry.npmmirror.com` |
 | pnpm | **未安装** → 用 npm workspaces |
 | Python | 3.10.11 / 3.14（本项目不用） |
-| git | 2.56.0.windows.2，user.name=`yaoyuy`，user.email=`<REDACTED:email>` |
+| git | 2.56.0.windows.2，user.name=`yaoyuy`，user.email=`<REDACTED:local>` |
 | `node:sqlite` | ✅ 可用（有 ExperimentalWarning，功能正常） |
 | 网络 | npmjs 200 / npmmirror 200 / github 200 |
 | LLM Key | **环境中无任何 KEY/TOKEN 变量** → 需要用户提供；因此必须做离线回放模式 |
@@ -693,3 +693,20 @@ Frame_Content_Size）与 3 字节块头（last / type / size，RLE 块只占 1 �
 1. 平台相关的「恰好能跑」不是正确性。凡是我在没有 CI 的机器上验证过的行为，都只是「在这台机器上成立」。
 2. 断言库函数行为要断言**输入到输出的映射**，不要断言「这个函数有某个缺陷」——缺陷会被上游修掉，也会因平台而异。
 3. 这就是 CI 存在的理由。本地 `npm run verify` 全绿了 300 多次提交，Ubuntu 上一次就抓出真 Bug。
+## F101：Prompt 链是「整目录导出」，会把同一工作目录下的别的会话一起交上去（2026-10-29）
+
+用户发现 `docs/prompt-chain/` 里混进了另一场比赛的报名咨询、还有课程实验报告的改写。
+导出器一直的口径是「把这个 cwd 下的所有会话导出」，而 `D:\CZB` 这个目录从来就不只装 CrossExam——
+同一个工作目录里还跑过别的活。66 份快照 = 13 场会话，其中 4 份与作品无关、2 份是 0 提问的空壳。
+
+同一轮还查出真实个人信息（姓名 / 手机号 / QQ 邮箱 / 籍贯）散在 5 处快照里：导出器只认密钥，不认人。
+
+处置与教训：
+
+1. 导出前必须**先按会话判定去留**，再谈导出。`tools/dsh-export/export-ignore.txt` 里记 id 与理由，
+   导出时打印「按清单跳过 N 场会话」——静默跳过和没跳过一样糟。
+2. 密钥正则救不了个人信息。补 `phone` / `idcard` / `email` 三条规则 + 本地词表（`.redact-local.txt`，gitignore），
+   导完必须 `grep` 关键词复核，不能只看「脱敏命中 N 项」那一行。
+3. 邮箱被拆开写时（比如正则示例里只剩 QQ 号）三条规则与整串词表都盖不住，裸数字也要列进词表。
+4. 已经推上去的东西删不干净：删文件只是又一个提交，历史里还在。要收口就得重写历史并强推——
+   所以导出前的一次核对，比事后重写 160 多个提交便宜得多。

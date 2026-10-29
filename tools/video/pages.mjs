@@ -56,7 +56,7 @@ const files = {};
 files.b6 = page('证据锚定', `
 <div class="kicker">六 · AI 协同：证据锚定</div>
 <h1>坐标不信模型，只信引文能不能回原文</h1>
-<p class="lead">Prompt 链快照 <b>66 份</b>（其中 <b>55 份分片</b>），由 <code>npm run export:prompt</code> 从会话日志自动导出，不是事后补写。</p>
+<p class="lead">Prompt 链快照 <b>64 份</b>（其中 <b>58 份分片</b>），由 <code>npm run export:prompt</code> 从会话日志自动导出，不是事后补写。</p>
 <div class="cols">
   <div class="panel">
     <h2>模型返回的锚点</h2>
