@@ -795,8 +795,7 @@ P1-3 报告导出 PDF/Word；随后是真机可见浏览器逐功能点测（用
 **处置**：导出器补 `--exclude-file` / `--redact-file` 两个参数、`phone` / `idcard` / `email` 三条规则与本地词表
 逐字替换（`.redact-local.txt`，已 gitignore）；删 6 个文件后重导 → 64 份（58 份分片，约 26.5 MB）、9 场会话，
 五个关键词 `git grep` 全部 CLEAN。视频 b6 段的「66 份」同步改成「64 份（58 份分片）」并重录该段
-（710 帧 / 44.4 秒），成片重拼 45.7 MB / 7 分 22 秒。历史用 git plumbing 逐提交重写（只动 `docs/prompt-chain/` 下的 blob
-与那 6 个路径），`v0.1.0` 的 tag 跟着挪到新 HEAD。
+（710 帧 / 44.4 秒），成片重拼 45.7 MB / 7 分 22 秒。历史用 git plumbing 逐提交重写（两遍：第一遍只动 `docs/prompt-chain/` 下的 blob 与那 6 个路径；第二遍扫全仓库 blob 时发现 `findings.md` 的旧版本里也有 QQ 邮箱，又补了一遍——两遍合计 394 个提交、131 个 blob 重写，HEAD 的树逐字节不变），`v0.1.0` 的 tag 跟着挪到新 HEAD。强推后从远端 `git clone --bare` 复核：2393 个 blob、5 个关键词 0 命中、0 个被删路径。
 
 **门禁**：`npm run verify` exit 0——73 个测试文件 / 765 条断言、9 项冒烟、56 modules、14 项性能预算全绿
 （起服 392 ms、健康检查 4 ms、整场回放 88 ms、JS gzip 121 KB / 预算 128 KB）。
