@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import zlib from 'node:zlib';
-import { findFrameOffsets, decompressFrames } from '../src/zstd-frames.mjs';
+import { findFrameOffsets, frameLength, decompressFrames } from '../src/zstd-frames.mjs';
 
 /** DSH 的会话文件是「多帧拼接」的 zstd，用真实压缩器造测试数据比手写字节靠谱 */
 function multiFrame(chunks) {
@@ -15,9 +15,16 @@ describe('zstd 多帧解压', () => {
     expect(findFrameOffsets(buf)).toEqual([0, f1.length]);
   });
 
-  it('单帧调用只能拿到第一帧——这正是必须自己扫帧的原因', () => {
-    const buf = multiFrame(['第一帧\n', '第二帧\n']);
-    expect(zlib.zstdDecompressSync(buf).toString('utf8')).toBe('第一帧\n');
+  // 这条**不能**断言「zstdDecompressSync 只解第一帧」：那是平台行为。
+  // Windows 的 Node 24 解到第一帧末尾就停，Linux 上会把后面拼接的帧一起解出来，
+  // CI 因此在 Ubuntu 红过一次（findings F100）。所以断言我们自己算出来的帧长。
+  it('能算出每一帧的精确字节数（与平台无关）', () => {
+    const f1 = zlib.zstdCompressSync(Buffer.from('第一帧\n'));
+    const f2 = zlib.zstdCompressSync(Buffer.from('第二帧\n'));
+    const buf = Buffer.concat([f1, f2]);
+    expect(frameLength(buf, 0)).toBe(f1.length);
+    expect(frameLength(buf, f1.length)).toBe(f2.length);
+    expect(frameLength(buf, f1.length + f2.length)).toBeNull();
   });
 
   it('逐帧扫描能把全部内容拼回来', () => {
