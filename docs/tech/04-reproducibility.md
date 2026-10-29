@@ -202,7 +202,7 @@ c8a6e90 fix(shared): 修改建议不再要求模型自报主张编号
 | 环节 | 实现 |
 | --- | --- |
 | 原始数据 | DSH 把每一次会话写成 zstd 多帧压缩的 JSONL，落在 `%APPDATA%\dsh-desktop\harness\sessions\<工作区>\<会话>\session.v4.jsonl.zstd` |
-| 解析 | `tools/dsh-export` 逐帧解压（`zstdDecompressSync` 只解第一帧，必须扫描魔数 `28 B5 2F FD`），按 turn 组织成时间线 |
+| 解析 | `tools/dsh-export` 扫描魔数 `28 B5 2F FD` 定位帧起点，按 RFC 8878 算出每帧的精确字节数后逐帧解压（不依赖解压器「解到帧尾就停」这种平台相关行为），按 turn 组织成时间线 |
 | 脱敏 | 自动识别 6 类密钥格式（OpenAI / Anthropic / GitHub / AWS / Bearer / KEY=value 赋值），命中即替换 |
 | 过滤 | 只把 `source.kind === 'user'` 的消息当真人提问，系统注入（runtime-context / skill-catalog / plugin:hindsight / time-context / agent-instructions）全部丢弃 |
 | 分页 | 超过 40 万字符自动按**条目**边界切分（不是按轮次，因为单轮可能 144 万字符），每份都能在网页上直接渲染 |
