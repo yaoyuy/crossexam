@@ -79,7 +79,7 @@ npm run portable:verify    # 解压到 .tmp/ 后真启动一遍，八项验收
 ### 方式二：命令行（开发与评审）
 
 ```bash
-git clone <仓库地址> crossexam
+git clone https://github.com/yaoyuy/crossexam.git crossexam
 cd crossexam
 npm install
 npm run preview        # 构建前端 + 起服务，默认 http://127.0.0.1:8787
