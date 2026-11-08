@@ -32,6 +32,8 @@
     "seed:demo": "node packages/server/src/bin/seed-demo.ts",
     "docs:pdf": "node tools/docs/build-doc.mjs",
     "docs:html": "node tools/docs/build-doc.mjs --html-only",
+    "docs:intro": "node tools/docs/build-intro.mjs",
+    "docs:intro:html": "node tools/docs/build-intro.mjs --html-only",
     "portable:build": "node tools/portable/build.mjs",
     "portable:verify": "node tools/portable/verify.mjs"
   },

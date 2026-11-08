@@ -12,6 +12,7 @@
 | 3 | README 10 分钟极速复现指南（环境、依赖、环境变量模板） | ✅ 干净目录实测 86.6 s（同机多次落在 34–121 s） | `README.md` + `.env.example` |
 | 4 | 演示视频 5–8 分钟 1080p，含 **≥2 分钟 AI 协同过程复现** | ✅ `docs/video/crossexam-demo.mp4`：7 分 22 秒 / 1080p / 45.7 MB，AI 协同段 2 分 52 秒 | 成片 `docs/video/`，管线 `tools/video/`（`README.md` 有跑法） |
 | 5 | 技术文档 PDF ≤30 页 | ✅ 30 页（上限 30，**已无余量**；构建自身在超限时失败），一条命令重建 | `npm run docs:pdf` → `docs/CrossExam-技术文档.pdf` |
+| 6 | 作品介绍文档（赛场第 6 栏，单文件 ≤100MB） | ✅ `docs/submission/CrossExam-作品介绍.pdf`：9 页 / 1.5 MB，按平台七条要求逐节对应 | `npm run docs:intro` → `docs/submission/` |
 
 ## 二、建远端仓库（⛔ 需要本人操作）
 

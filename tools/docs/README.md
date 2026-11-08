@@ -1,6 +1,11 @@
-# tools/docs — 技术文档构建
+# tools/docs — 技术文档与作品介绍构建
 
-把 `docs/tech/*.md` 七份分片渲染成一份 PDF：**零依赖**，只用 Node 内置模块与系统自带的 Edge/Chrome。
+两套产物共用一条链路（Markdown → 单页 HTML → 无头浏览器打印 PDF）：**零依赖**，只用 Node 内置模块与系统自带的 Edge/Chrome。
+
+| 产物 | 源 | 脚本 | 页数上限 |
+| --- | --- | --- | --- |
+| 技术文档 | `docs/tech/*.md`（七份分片，按文件名拼） | `build-doc.mjs` | 30 页（赛题硬要求） |
+| 作品介绍 | `docs/submission/作品介绍.md`（单份，按平台七条要求组织） | `build-intro.mjs` | 18 页（平台只限 100MB，不限页） |
 
 ```bash
 npm run docs:pdf        # 生成 docs/CrossExam-技术文档.pdf（超 30 页直接失败）
@@ -9,6 +14,23 @@ node tools/docs/build-doc.mjs --keep         # 保留中间产物与浏览器 pr
 node tools/docs/build-doc.mjs --allow-long   # 超过 30 页也算成功（默认超了即失败）
 node tools/docs/build-doc.mjs --out <path>   # 换输出路径
 ```
+
+## 作品介绍文档（赛场第 6 栏）
+
+```bash
+npm run docs:intro       # 生成 docs/submission/CrossExam-作品介绍.pdf
+npm run docs:intro:html  # 只出 HTML，排查排版用
+```
+
+源文件用两个 HTML 注释当分隔标记，缺一个构建就失败（避免标记被误删后静默排版错乱）：
+
+| 标记 | 作用 |
+| --- | --- |
+| `<!-- cover-end -->` | 之前的包进 `.cover`（标题页，含作品名 / 赛道 / 仓库 / 一句话） |
+| `<!-- toc-end -->` | 之间的渲染成「本文件与评审要求的对照」表，和技术文档一样靠 `pagebreak` 换页 |
+
+正文每节标题直接写「一、项目详情及使用方式」这类序号，**与平台七条要求一一对应**；
+改正文时不要动这七个序号，否则评委对不上号。
 
 ## 为什么自己写渲染器
 
