@@ -7,7 +7,7 @@
 
 | # | 要求 | 现状 | 位置 / 命令 |
 | --- | --- | --- | --- |
-| 1 | GitHub / Gitee 公开仓库，**细粒度 commit**（禁止一次性 initial commit） | ✅ 390 余次提交，每次对应一次具体开发动作 | 见第二节「建远端」 |
+| 1 | GitHub / Gitee 公开仓库，**细粒度 commit**（禁止一次性 initial commit） | ✅ 400 余次提交，每次对应一次具体开发动作 | 见第二节「建远端」 |
 | 2 | **≥3 个核心功能迭代的完整 Prompt 链**（提问 → AI 建议 → 如何引导修 Bug） | ✅ 自动导出，64 份快照（其中 58 份分页分片，共约 26.5 MB） | `npm run export:prompt` → `docs/prompt-chain/` |
 | 3 | README 10 分钟极速复现指南（环境、依赖、环境变量模板） | ✅ 干净目录实测 86.6 s（同机多次落在 34–121 s） | `README.md` + `.env.example` |
 | 4 | 演示视频 5–8 分钟 1080p，含 **≥2 分钟 AI 协同过程复现** | ✅ `docs/video/crossexam-demo.mp4`：6 分 22 秒 / 1080p / 41.6 MB，AI 协同段 2 分 13 秒 | 成片 `docs/video/`，管线 `tools/video/`（`README.md` 有跑法） |
