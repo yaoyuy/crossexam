@@ -10,7 +10,7 @@
 | # | 交付物 | 文件 / 位置 | 状态 |
 | --- | --- | --- | --- |
 | 1 | **代码仓库（公开）** | https://github.com/yaoyuy/crossexam | ✅ 已推送，无痕窗口可打开；CI 两个 job 全绿 |
-| 2 | **演示视频** | `docs/video/crossexam-demo.mp4`（7 分 22 秒 / 1920×1080 / 30 fps / 45.7 MB / 有声有字幕） | ✅ 已在仓库里；45.7 MB 在常见平台限制（50 / 100 MB）之内，可直接上传 |
+| 2 | **演示视频** | `docs/video/crossexam-demo.mp4`（6 分 22 秒 / 1920×1080 / 30 fps / 41.6 MB / 有声 / 逐句字幕） | ✅ 已在仓库里；41.6 MB 在常见平台限制（50 / 100 MB）之内，可直接上传 |
 | 3 | **作品说明** | `README.md` + `docs/CrossExam-技术文档.pdf`（30 页） | ✅ 两者都在仓库里；README 已填真实 clone 地址 |
 
 ## 二、两件加分（不是硬性，但评委爱看）
@@ -66,7 +66,7 @@ git status            # 必须只剩你有意要提交的文件
 | 1 | 填仓库简介与 topics | 仓库首页右上 ⚙️ → Description / Topics | 简介一句话（如「多 Agent 对抗式面试沙盘，把简历放到火上烤一遍」），topics 填 `ai-agent` `resume` `interview` `typescript` `vibe-coding` |
 | 2 | 把便携包传到 Release（可选，但很值） | 仓库 → Releases → Draft a new release，tag `v0.1.0`，把 36 MB 的 zip 拖进附件 | 评委不装 Node 也能跑 |
 | 3 | 在参赛平台提交作品 | 大赛提交页 | 三个空各填一个链接：仓库地址、视频（仓库内路径或网盘）、技术文档 PDF |
-| 4 | 视频如需单独上传 | 平台的上传框 | 若平台限 50 MB 以内，直接传 `crossexam-demo.mp4`（45.7 MB）即可 |
+| 4 | 视频如需单独上传 | 平台的上传框 | 若平台限 50 MB 以内，直接传 `crossexam-demo.mp4`（41.6 MB）即可 |
 
 **AI 已做完、留档备查**
 

@@ -10,7 +10,7 @@
 | 1 | GitHub / Gitee 公开仓库，**细粒度 commit**（禁止一次性 initial commit） | ✅ 390 余次提交，每次对应一次具体开发动作 | 见第二节「建远端」 |
 | 2 | **≥3 个核心功能迭代的完整 Prompt 链**（提问 → AI 建议 → 如何引导修 Bug） | ✅ 自动导出，64 份快照（其中 58 份分页分片，共约 26.5 MB） | `npm run export:prompt` → `docs/prompt-chain/` |
 | 3 | README 10 分钟极速复现指南（环境、依赖、环境变量模板） | ✅ 干净目录实测 86.6 s（同机多次落在 34–121 s） | `README.md` + `.env.example` |
-| 4 | 演示视频 5–8 分钟 1080p，含 **≥2 分钟 AI 协同过程复现** | ✅ `docs/video/crossexam-demo.mp4`：7 分 22 秒 / 1080p / 45.7 MB，AI 协同段 2 分 52 秒 | 成片 `docs/video/`，管线 `tools/video/`（`README.md` 有跑法） |
+| 4 | 演示视频 5–8 分钟 1080p，含 **≥2 分钟 AI 协同过程复现** | ✅ `docs/video/crossexam-demo.mp4`：6 分 22 秒 / 1080p / 41.6 MB，AI 协同段 2 分 13 秒 | 成片 `docs/video/`，管线 `tools/video/`（`README.md` 有跑法） |
 | 5 | 技术文档 PDF ≤30 页 | ✅ 30 页（上限 30，**已无余量**；构建自身在超限时失败），一条命令重建 | `npm run docs:pdf` → `docs/CrossExam-技术文档.pdf` |
 | 6 | 作品介绍文档（赛场第 6 栏，单文件 ≤100MB） | ✅ `docs/submission/CrossExam-作品介绍.pdf`：9 页 / 1.5 MB，按平台七条要求逐节对应 | `npm run docs:intro` → `docs/submission/` |
 
@@ -156,3 +156,12 @@ AI 协同段（证据锚定 / claimId 真 Bug / 唯一约束 / 真进程冒烟�
 数字累计变化：Prompt 链 66 → **64** 份（其中 58 份分片，约 26.5 MB）、9 场会话；其余数字不动——
 这一批只改导出器与文档，没有改产品行为，也就没有重跑门禁的必要（`npm run verify` 仍 73 文件 / 765 断言）。
 视频第六段那句「66 份」也一并改成 64 并重录该段（710 帧 / 44.4 秒），成片重拼为 45.7 MB / 7 分 22 秒；历史里 `docs/prompt-chain/` 下的那批文件用 git plumbing 逐提交重写（其余字节不动），`v0.1.0` 的 tag 跟着挪到新 HEAD。
+
+**同日第九批（用户指出「字幕跟说的话没有对上」，重烧成片）**：字幕从「一段一句总结」改成**逐句字幕**——
+`tools/video/cues.mjs` 以逐片音频的真实时长当锚点，把旁白原文切成 99 条 ASS（最长 25 字），
+`build.mjs` 用 libass 烧进画面；同时修掉段长公式的陷阱：录制帧比旁白长时不再留静音尾巴，
+帧按比例压快、封顶 1.3 倍速，成片 **6 分 22 秒 / 41.6 MB**（原 7 分 22 秒 / 45.7 MB，其中约 75 秒是干等静音，
+b6 尾段实测 −91.0 dB）。AI 协同段（b6–b9）2 分 52 秒 → **2 分 13 秒**，仍越过「≥2 分钟」。
+成片 sha256 `aea5bed8…a3f65`；抽帧目视核对字幕与旁白逐字一致，`silencedetect` 只剩 3.4 s / 3.8 s 两段段间停顿。
+新坑写进 findings F103（字幕粒度、逐片音频当锚点、ASCII 句号切数字、`max(帧, 旁白)` 把多出来的帧表现成静音）。
+
