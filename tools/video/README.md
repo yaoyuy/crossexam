@@ -1,6 +1,6 @@
 # tools/video — 演示视频是怎么录出来的
 
-成片：`docs/video/crossexam-demo.mp4`，7 分 22 秒 / 1920×1080 / 30 fps / 45.7 MB。
+成片：`docs/video/crossexam-demo.mp4`，6 分 22 秒 / 1920×1080 / 30 fps / 41.6 MB，99 条逐句字幕。
 这一页说明它是**脚本录出来的**，不是人手录屏再剪辑——每一段都能重跑。
 
 ## 为什么要有这一套
@@ -17,9 +17,11 @@
       │               → frames/<beat>/f000001.jpg + meta.json（每帧的毫秒时间戳）
       ├─ record2.mjs  b6–b11：静态证据页（pages.mjs 生成），渐进滚动
       │
-narrate.mjs  ── Edge TTS 逐句合成（整段长文本会被掐断）→ audio/<beat>.mp3
+narrate.mjs  ── Edge TTS 逐句合成（整段长文本会被掐断）→ audio/<beat>.mp3 + audio/raw/<beat>/NNN/
       │
-build.mjs    ── 按帧时间戳生成 concat 清单 → ffmpeg 出每段 mp4（30 fps、字幕由 drawtext 烧进画面）
+cues.mjs     ── 读逐片音频的真实时长 → 切句 → 一句一条 ASS → captions/<beat>.ass
+      │
+build.mjs    ── 按帧时间戳生成 concat 清单 → ffmpeg 出每段 mp4（30 fps、逐句字幕烧进画面）
       │
 assemble.mjs ── 拼接 11 段、加淡入淡出 → docs/video/crossexam-demo.mp4
 ```
@@ -27,6 +29,10 @@ assemble.mjs ── 拼接 11 段、加淡入淡出 → docs/video/crossexam-dem
 - `cdp.mjs`：零依赖 CDP 封装（起 headless Edge/Chrome、导航、截图、求值）。
 - `cap.mjs`：`Page.captureScreenshot` 循环抓帧，实测 **17 fps**；`Page.startScreencast` 只有 ~10 fps 且不均匀。
 - `lines.mjs`：11 段旁白与字幕（章节名、一句话字幕、旁白原文）。
+- `subtitles.mjs`：切句、切显示条、算 ASS 时间轴（`splitSentences` / `splitDisplayCues` / `buildAss`）。
+- `cues.mjs`：`cd .tmp/video && node ../../tools/video/cues.mjs` 生成 `captions/*.ass`；
+  它拿**逐片音频的真实时长**当锚点，所以字幕不会和声音错位。改了 `lines.mjs` 的旁白却没重录，
+  片数与切句数对不上会直接抛错——这是故意的。
 - `pages.mjs`：把真实材料（`anchor.ts` 的代码、`findings.md` 的错误行、`verify.log`/`smoke.log` 的输出）渲染成深色证据页。
 
 ## 跑之前要准备
@@ -39,10 +45,18 @@ assemble.mjs ── 拼接 11 段、加淡入淡出 → docs/video/crossexam-dem
    b1 要录首访体验，**必须先删库**——有历史会话时新手向导不会弹。
 4. 录制机的绝对路径写在脚本顶部（`D:/CZB/...`），换机器改这一处常量即可。
 
-## 三条踩过的坑（改脚本前先看）
+## 踩过的坑（改脚本前先看）
 
 1. concat 清单里的路径会被拼到**清单所在目录**后面，写绝对路径会变成 `captions/D:/...` 打不开；
    清单放帧目录、只写文件名。
 2. `drawtext` 的选项用冒号分隔，路径里的盘符会被截断（`fontfile=C:/...` 被切成 `fontfile=C`），
    要写 `C\\:/Windows/...`；**报错信息是 `Both text and text file provided`，完全不指向真因**。
 3. 帧序列比旁白短时，末帧会被冻住十几秒；`record.mjs` 里的 `fill()` 用很慢的小幅往返把时间补足。
+4. **每条字幕只有一句总结**（一段 20–50 秒里字幕永远不动）是早期做法，旁白却是整段正文——
+   对不上声音。现在字幕从旁白原文逐句生成，`caption` 只当没有 ASS 时的回退。
+5. 断句符里**不要放 ASCII 句号**：`"2.4 秒"` 会被切成 `"2."` + `"4 秒"`。只认中文标点。
+6. 切显示条时英文/数字要当不可切分原子，否则 `Prompt` 会被劈成 `Pro` / `mpt`、
+   `0.8 秒` 被劈成 `0.` / `8 秒`。
+7. 帧序列比旁白长时（旁白改短过、又没重录），旧公式 `segment = max(span, audio)` 会留下
+   **十几秒纯静音**（实测 b6 尾巴 mean_volume −91 dB）。现在段长跟旁白走、帧按比例压快，
+   但最多压到 1.3 倍速——证据页整屏文字，压太狠看不清。

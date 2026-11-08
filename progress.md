@@ -823,3 +823,30 @@ JS 416.59 kB（gzip 124.98）、14 项性能预算全绿（起服 432 ms、回�
 界面未改，未跑 `e2e:ui`（截图源文件也未动）。
 
 **下一步（只有参赛者本人能做）**：第 6 栏上传该 PDF；第 7 栏把视频传到 B 站等公开平台后填链接。
+
+## Session 50（2026-11-08）：演示视频重烧——逐句字幕、段长跟旁白走
+
+**背景**：用户（m02954）看完成片只指出一件事：「你视频的字幕跟说的话没有对上」。准备上传 B 站，
+还没有上传，所以还来得及换片。
+
+**根因两条**：① 每段只有一个 `caption`，一段几十秒里字幕永远那句总结；② b6–b11 录制帧比旁白长，
+`segment = max(span+0.5, audio+0.9)` 把段长撑长，尾巴纯静音（b6 尾段 36–44 s mean_volume −91.0 dB，
+全片约 75 秒干等）。
+
+**做法**：新增 `tools/video/subtitles.mjs`（切句 / 切显示条 / 算 ASS）与 `cues.mjs`（读逐片音频真实时长
+→ 按字重分配 → 生成 `captions/<beat>.ass`，片数与切句数不符就抛错）；`build.mjs` 改用 `subtitles` 滤镜烧 ASS，
+段长改成 `audioDur + 1.0`、帧按 `scale = min(1, (segment−0.35)/span)` 压快并封顶 1.3 倍速（`MIN_SCALE = 0.77`）。
+字幕 141 条初稿 → **99 条**（b1 12 / b2 9 / b3 8 / b4 12 / b5 6 / b6 8 / b7 12 / b8 10 / b9 6 / b10 11 / b11 5），
+最长 25 字、仅 1 条短于 1 秒。
+
+**门禁与实测**：`npm run verify` 全绿（73 文件 / 767 条断言、9 冒烟、56 modules、CSS 48.26 kB gzip 9.28、
+JS 416.59 kB gzip 124.98、14 项预算）；成片 **6:22.02 / 43,617,035 B（41.6 MB）/ 1920×1080 / 30 fps**，
+sha256 `aea5bed80e16af33ac2b6bf1735bb3dce938a42d303ea77776cca3421b5a3f65`；AI 协同段（b6–b9）
+35.2+38.6+33.7+25.9 = **133.4 s = 2 分 13 秒**；逐段 46.8 / 38.9 / 31.6 / 47.0 / 23.0 / 35.2 / 38.6 / 33.7 / 25.9 / 38.8 / 22.4 s；
+`silencedetect` 只剩两段 3.4 s / 3.8 s（段间停顿），抽帧 200 / 240 / 300 / 375 s 目视核对字幕与旁白逐字一致。
+文档数字按 F93 一次全改（README / task_plan / release-checklist / submission CHECKLIST / feature-candidates /
+作品介绍 / tools/video/README / script.md / preflight.md），并重出作品介绍 PDF。
+
+**踩坑**：ASCII 句号进断句符把「2.4 秒」切成「2.」+「4 秒」；硬切切出只含「，」的条；`ffmpeg -i` 抓逐片
+Duration 在短片子上写 stdout 且 exit 1（改用 PCM 字节数 / 48000）。
+

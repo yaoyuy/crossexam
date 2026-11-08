@@ -1,4 +1,6 @@
 // 旁白与字幕：每段的 chapter 是左上角章节标签，caption 是底部字幕，text 是旁白原文。
+// 注意：caption 现在只是回退用——成片字幕由 cues.mjs 从 text 逐句生成（一句一条），
+// 因为一段几十秒里只显示一句总结，会和旁白对不上。
 export const BEATS = [
   {
     id: 'b1',
