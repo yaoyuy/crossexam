@@ -17,7 +17,7 @@
 
 | 交付物 | 位置 | 说明 |
 | --- | --- | --- |
-| Prompt 链快照 | `docs/prompt-chain/`（64 份，约 26.5 MB） | ✅ 已入库。赛题要「AI 协同过程」，这是最硬的证据 |
+| Prompt 链快照 | `docs/prompt-chain/`（64 份，约 26.7 MB） | ✅ 已入库。赛题要「AI 协同过程」，这是最硬的证据 |
 | 脱敏与排除清单 | `tools/dsh-export/export-ignore.txt`（记录会话 id 与排除理由）· `.redact-local.txt`（本地词表，已 gitignore） | ✅ 导出时先按清单跳过无关会话，再把姓名 / 手机号 / 邮箱 / 院校逐字换掉；本次审计后连历史里的旧快照也一并重写了 |
 | 便携版 zip | `dist/portable/crossexam-portable-0.1.0-win-x64.zip`（36 MB） | ⬜ **不进仓库**（太大且可重建）。要发给评委就传 GitHub Release 或网盘，或让评委自己跑 `npm run portable:build` |
 
@@ -39,8 +39,8 @@
 ## 五、上传前的最后一遍（5 分钟）
 
 ```bash
-npm run verify        # 类型检查 + 765 条断言 + 9 项真进程冒烟 + 构建 + 14 项性能预算
-npm run e2e:ui        # 178 项界面点测（可选，慢）
+npm run verify        # 类型检查 + 767 条断言 + 9 项真进程冒烟 + 构建 + 14 项性能预算
+npm run e2e:ui        # 187 项界面点测（可选，慢）
 git status            # 必须只剩你有意要提交的文件
 ```
 
