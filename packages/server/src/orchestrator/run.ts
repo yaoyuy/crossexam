@@ -60,6 +60,8 @@ import type { AnsweredProbe, VerdictError, VerdictOutcome } from './verdict.ts';
 import { suggestClaims } from './suggest.ts';
 import type { SuggestError, SuggestOutcome } from './suggest.ts';
 import { counterRound } from './counter.ts';
+import { createSynthesizingClient, syntheticTallyOf } from '../llm/synth-demo.ts';
+import type { SynthesizingClient, SyntheticTally } from '../llm/synth-demo.ts';
 
 export const DEFAULT_PANEL: readonly InterviewerRole[] = ['tech', 'hr', 'hiring_manager'];
 export const DEFAULT_MAX_ROUNDS = 3;
@@ -82,6 +84,11 @@ export type RunEvent =
   | { type: 'suggestions'; suggestions: SuggestOutcome[]; errors: SuggestError[] }
   /** 反问环节：沙盘跑完之后轮到求职者提问 */
   | { type: 'counter'; counters: CounterQuestion[]; rejected: RejectedCounter[] }
+  /**
+   * 本场有多少条响应是离线合成兜底（既不是卡带回放，也不是真实模型）。
+   * 只在真的发生过合成时才发：完全命中卡带的一场，事件序列与以前一模一样。
+   */
+  | { type: 'synthetic'; count: number; stages: string[] }
   | { type: 'error'; fatal: boolean; message: string };
 
 export interface RunSessionInput {
@@ -142,6 +149,8 @@ export interface RunSessionResult {
   rounds: number;
   /** 如实记录"哪里没跑通"，不假装一切顺利 */
   notices: string[];
+  /** 合成兜底的计数：报告与界面据此如实标注「这一场有多少内容是合成的」 */
+  synthetic: SyntheticTally;
   usage: LlmUsage;
 }
 
@@ -173,6 +182,14 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionResu
   // 谁上场以契约 id 为准：预算闸门按 id 记账，界面也按 id 渲染卡片，两边必须是同一份名单。
   const roster: readonly string[] = contracts.map((contract) => contract.id);
   const notices: string[] = [];
+  // 所有阶段都换成这个客户端：卡带没录过时按提示词确定性合成，而不是让整场断在这里。
+  // strict 模式、以及 live/record 模式下它都是纯透传，行为与以前完全一致。
+  // 调用方自己已经包过一层兜底时不再套第二层：里层先兜住 cassette-missing，外层就永远看不到错，
+  // 计数会归零——报告、会话详情与预检会集体谎报「这一场没有合成」，而这正是最不能出的错。
+  const client: LlmClient =
+    syntheticTallyOf(input.client) === null
+      ? createSynthesizingClient(input.client)
+      : (input.client as SynthesizingClient);
 
   let usage = EMPTY_USAGE;
   async function emit(event: RunEvent): Promise<void> {
@@ -182,7 +199,7 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionResu
   try {
     await emit({ type: 'stage', stage: 'extract', round: null });
     const extracted = await extractClaims({
-      client: input.client,
+      client,
       resumeText: input.resumeText,
       jdText,
       outline,
@@ -211,20 +228,20 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionResu
     let requirementSummary: MatchSummary = { hit: 0, weak: 0, missing: 0, total: 0 };
     if (jds.length > 0) {
       await emit({ type: 'stage', stage: 'jd-extract', round: null });
-      const pulled = await extractRequirements({ client: input.client, jds });
+      const pulled = await extractRequirements({ client, jds });
       usage = addUsage(usage, pulled.usage);
       for (const note of pulled.notices) notices.push(note);
       requirementRejected = pulled.rejected;
 
       await emit({ type: 'stage', stage: 'jd-merge', round: null });
-      const grouped = await mergeRequirements({ client: input.client, jds, items: pulled.items });
+      const grouped = await mergeRequirements({ client, jds, items: pulled.items });
       usage = addUsage(usage, grouped.usage);
       for (const note of grouped.notices) notices.push(note);
       requirements = grouped.merged.requirements;
       if (requirements.length === 0) notices.push('岗位要求里没有抽出任何可对照的条目');
 
       await emit({ type: 'stage', stage: 'jd-match', round: null });
-      const matched = await matchRequirements({ client: input.client, jds, requirements, claims });
+      const matched = await matchRequirements({ client, jds, requirements, claims });
       usage = addUsage(usage, matched.usage);
       for (const note of matched.notices) notices.push(note);
       requirementMatches = matched.matches;
@@ -252,7 +269,7 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionResu
       const round = rounds;
       await emit({ type: 'stage', stage: 'probe', round });
       const probed = await runProbeRound({
-        client: input.client,
+        client,
         contracts,
         claims,
         resumeText: input.resumeText,
@@ -276,7 +293,7 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionResu
 
       await emit({ type: 'stage', stage: 'answer', round });
       const answered = await answerProbes({
-        client: input.client,
+        client,
         probes: probed.probes,
         claims,
         resumeText: input.resumeText,
@@ -312,7 +329,7 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionResu
 
     await emit({ type: 'stage', stage: 'verdict', round: null });
     const judged = await verdictClaims({
-      client: input.client,
+      client,
       claims,
       transcriptByClaim,
       resumeText: input.resumeText,
@@ -327,7 +344,7 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionResu
 
     await emit({ type: 'stage', stage: 'suggest', round: null });
     const advised = await suggestClaims({
-      client: input.client,
+      client,
       claims,
       verdicts,
       transcriptByClaim,
@@ -350,7 +367,7 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionResu
     const verdictByClaim = new Map<string, VerdictKind>();
     for (const o of judged.outcomes) verdictByClaim.set(o.verdict.claimId, o.verdict.kind);
     const asked = await counterRound({
-      client: input.client,
+      client,
       resumeText: input.resumeText,
       jds,
       requirements,
@@ -360,6 +377,19 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionResu
     usage = addUsage(usage, asked.usage);
     await emit({ type: 'counter', counters: asked.counters, rejected: asked.rejected });
     for (const note of asked.notices) notices.push(note);
+
+    const synthetic: SyntheticTally = syntheticTallyOf(client) ?? { count: 0, stages: [] };
+    if (synthetic.count > 0) {
+      // 合成必须吵：写进事件（落库）与 notices（报告、界面都会显示），绝不当成正常回放
+      notices.push(
+        '本次运行有 ' +
+          String(synthetic.count) +
+          ' 条响应没有录过卡带，由离线兜底按提示词确定性合成（阶段：' +
+          synthetic.stages.join('、') +
+          '）。它不是真实模型的判断，建议补录卡带或配上 API Key 后重跑。',
+      );
+      await emit({ type: 'synthetic', count: synthetic.count, stages: synthetic.stages });
+    }
 
     return {
       resumeText: input.resumeText,
@@ -387,6 +417,7 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionResu
       budgetState: budget,
       rounds,
       notices,
+      synthetic,
       usage,
     };
   } catch (err) {

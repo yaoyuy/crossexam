@@ -44,7 +44,9 @@ import {
 } from '@crossexam/shared';
 import type { Difficulty, IntentContract, InterviewerDraft, JobDescription, RewriteStyle } from '@crossexam/shared';
 import { DEMO_JD, DEMO_RESUME, DEMO_TITLE } from '../demo-content.ts';
-import { createLlmClient, defaultCassetteDir, describeClient, listLiveModels, LLM_MODES, MODE_LABEL, resolveLiveConfig } from '../llm/index.ts';
+import { createLlmClient, createReplayClient, defaultCassetteDir, describeClient, listLiveModels, LlmError, LLM_MODES, MODE_LABEL, resolveLiveConfig } from '../llm/index.ts';
+import { createSynthesizingClient, syntheticTallyOf } from '../llm/synth-demo.ts';
+import type { SyntheticTally } from '../llm/synth-demo.ts';
 import type { LlmClient, LlmMode } from '../llm/types.ts';
 import { assembleSession, metaPanelIds, runAndPersist, viewsOfContracts } from '../pipeline.ts';
 import type { SessionView } from '../pipeline.ts';
@@ -85,6 +87,7 @@ import {
   saveInterviewer,
 } from '../store/index.ts';
 import type { Db, InterviewerRow } from '../store/index.ts';
+import { runSession } from '../orchestrator/run.ts';
 import type { RunSessionResult } from '../orchestrator/run.ts';
 import { PRESET_ROLES, budgetView, isPresetRole, normalizePanelIds, presetContracts, resolvePanel } from '../orchestrator/panel.ts';
 import { bundleOf, localOutcome, optimizeDraft } from '../orchestrator/optimize.ts';
@@ -92,6 +95,31 @@ import type { DraftOutcome } from '../orchestrator/optimize.ts';
 
 /** 简历短于这个长度就没法抽出可被追问的主张，与其跑一盘空的不如直接说清楚 */
 const MIN_RESUME_CHARS = 30;
+
+/**
+ * 离线卡带不够用时，给用户的两条出路。
+ * 为什么写成常量：预检、运行失败、报告三处必须说同一句话，散着写迟早有一处还留着上一版的说法。
+ * 开发者那条路（重新录卡带）放进括号里——它不是用户该做的第一步。
+ */
+const OFFLINE_EXITS =
+  '这台机器现在是离线回放模式（不联网）：可以改用演示简历跑一遍（仓库里的卡带就是按它录的），或者配上 API Key 走真实模型。';
+
+/**
+ * 建档输入的规范化结果：POST /api/sessions 与 POST /api/preflight 用的是同一份。
+ * 两个接口共用它，才会出现「预检说能跑、建档却被打回」以外的第三种情况——没有。
+ */
+interface Intake {
+  useDemo: boolean;
+  resumeText: string;
+  jobTitle: string;
+  jds: JobDescription[];
+  mode: LlmMode;
+  wantedModel: string;
+  difficulty: Difficulty;
+  style: RewriteStyle;
+  resolved: ReturnType<typeof resolvePanel>;
+  parentSessionId: string | null;
+}
 const IMPORT_FIELD = 'file';
 
 /** 导入失败时给哪个状态码：太大是 413，格式不收是 415，内容是空的/认不出来是 422。 */
@@ -204,6 +232,73 @@ async function readBody(c: Context): Promise<Record<string, unknown>> {
 
 function messageOf(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+/**
+ * 失败时给用户看的错误体：{ error, code, hint? } 三件套。
+ *
+ * 为什么统一成三件套：界面要按 code 决定说什么话（离线缺卡带 vs 别的毛病），
+ * 按 hint 给出路。只给一句 error，用户看到的是「离线回放找不到这一条记录」这种内部说法，
+ * 得自己猜下一步——而下一步其实只有两条，写在这里界面就能直接显示。
+ */
+function errorBodyOf(err: unknown): { error: string; code: string; hint?: string } {
+  const message = messageOf(err);
+  const code = err instanceof LlmError ? err.code : 'internal';
+  const hint = hintOf(code);
+  return hint === '' ? { error: message, code } : { error: message, code, hint };
+}
+
+/** 「我该怎么办」的一句话。同一个 code 可能在预检、运行、报告三处冒头，文案只留这一份。 */
+function hintOf(code: string): string {
+  if (code === 'cassette-missing') return OFFLINE_EXITS;
+  if (code === 'not-configured') {
+    return '这台机器的模型配置不完整：请补上 .env 里的 LLM_BASE_URL 与 LLM_API_KEY，或者切回离线回放模式（CROSSEXAM_MODE=replay）。';
+  }
+  if (code === 'cassette-corrupt' || code === 'cassette-version') {
+    return '卡带文件本身有问题：可以让开发者重新生成 fixtures/llm（npm run seed:demo），或者配上 API Key 走真实模型。';
+  }
+  return '';
+}
+
+/** SSE 的 fatal 载荷。字段名沿用事件流里的 message（前端按它显示），但把 code/hint 一并带上。 */
+function fatalEvent(err: unknown): Record<string, unknown> {
+  const body = errorBodyOf(err);
+  return body.hint === undefined
+    ? { fatal: true, message: body.error, code: body.code }
+    : { fatal: true, message: body.error, code: body.code, hint: body.hint };
+}
+
+/**
+ * 这一场的合成兜底记录。run.ts 只在真的发生过合成时才往事件流里写一条 kind='synthetic'，
+ * 所以「没有这条事件」= 一条都没合成。字段必须始终存在：界面靠它决定挂不挂横幅，
+ * 缺字段会被读成「不知道」，而「不知道」会让用户以为结果是真模型给的。
+ */
+function syntheticOf(events: readonly { kind: string; payload: Record<string, unknown> }[]): SyntheticTally {
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const event = events[i];
+    if (event === undefined || event.kind !== 'synthetic') continue;
+    const rawCount = event.payload['count'];
+    const rawStages = event.payload['stages'];
+    return {
+      count: typeof rawCount === 'number' ? rawCount : 0,
+      stages: Array.isArray(rawStages) ? rawStages.filter((item): item is string => typeof item === 'string') : [],
+    };
+  }
+  return { count: 0, stages: [] };
+}
+
+/**
+ * 报告开头那段「这一场有多少是合成的」。放在正文最前面：
+ * 它是读者判断后面每一条结论可信度的前提，塞在末尾等于没写。
+ */
+function syntheticIntro(tally: SyntheticTally): string {
+  if (tally.count === 0) return '';
+  return (
+    '> **本次运行的合成说明**：这一场有 ' + String(tally.count) + ' 条响应没有录过卡带，' +
+    '由离线兜底按提示词确定性合成（阶段：' + tally.stages.join('、') + '）。' +
+    '它不是真实模型的判断，请勿当作评价结论；补录卡带或配上 API Key 后再跑，就能拿到真实结果。' +
+    String.fromCharCode(10) + String.fromCharCode(10)
+  );
 }
 
 /** 给前端的跑完小结。详细内容走 GET /api/sessions/:id，这里只给"跑完了、结果长这样" */
@@ -343,6 +438,99 @@ export function createApp(opts: AppOptions): Hono {
   };
   const app = new Hono();
 
+  /**
+   * 建档输入的读取与校验：POST /api/sessions 与 POST /api/preflight 共用同一份。
+   *
+   * 为什么必须共用：预检要回答的是「按这次建档的输入，离线卡带够不够跑完」，
+   * 而卡带是按提示词指纹寻址的，指纹又是输入的纯函数。两边各读一遍 body，
+   * 迟早会出现「预检说能跑、建档却被打回」这种自相矛盾的回答，用户只会更糊涂。
+   * 返回 ok:false 只带一句人话：这些全是输入错误，状态码统一 400。
+   */
+  const intakeOf = (
+    body: Record<string, unknown>,
+  ): { ok: true; value: Intake } | { ok: false; error: string } => {
+    const useDemo = body['useDemo'] === true;
+    const given = textField(body['resumeText']);
+    const resumeText = given === '' && useDemo ? DEMO_RESUME : given;
+    if (resumeText.length < MIN_RESUME_CHARS) {
+      return { ok: false, error: '简历太短了：至少 ' + String(MIN_RESUME_CHARS) + ' 个字符，才有东西可追问。' };
+    }
+    const jobTitle = textField(body['jobTitle']) || (useDemo ? DEMO_TITLE : '未填写岗位');
+    const jds = jdsOf(body['jds'], textField(body['jdText']) || (useDemo ? DEMO_JD : ''));
+    if (jds.problem !== null) return { ok: false, error: jds.problem };
+
+    // 这一场用什么跑：默认沿用进程启动时的模式，页面上可以逐场改。
+    const wantedMode = modeField(body['mode']);
+    if (wantedMode === null) {
+      return {
+        ok: false,
+        error: '运行模式只能是 ' + LLM_MODES.join(' / ') + '，收到「' + textField(body['mode']) + '」。',
+      };
+    }
+    const mode = wantedMode ?? client.mode;
+    const wantedModel = mode === 'replay' ? '' : textField(body['model']);
+    if (wantedMode !== undefined && wantedMode !== 'replay') {
+      // 用户显式选了联网，就先查配置：缺哪个环境变量当场说，而不是跑了一半才发现。
+      // 没写 mode 时沿用进程启动时的客户端，那是部署者自己的配置，不在这里拦。
+      try {
+        resolveLiveConfig({ model: wantedModel === '' ? undefined : wantedModel });
+      } catch (err) {
+        return { ok: false, error: messageOf(err) };
+      }
+    }
+
+    // 问多深要在建会话时就定下来，和阵容同理：重跑时必须还是那一档，
+    // 否则同一场会话的契约指纹会随页面此刻的选择变化，对账就没意义了。
+    // 写接口对档位**严格**：认不出的档位是打错字，静默当默认档会让人以为生效了。
+    const rawDifficulty = body['difficulty'];
+    if (rawDifficulty !== undefined && rawDifficulty !== null && !isDifficulty(rawDifficulty)) {
+      return {
+        ok: false,
+        error: '追问强度只能是 ' + DIFFICULTIES.join(' / ') + '，收到「' + textField(rawDifficulty) + '」。',
+      };
+    }
+    const difficulty = difficultyOf(rawDifficulty);
+    // 改稿口径与追问强度分两件事：一个决定问多深，一个决定改多狠。同一条规矩——
+    // 建会话时定下来写进 meta，跑的时候读它，页面此刻选了什么不算数。
+    const rawStyle = body['style'];
+    if (rawStyle !== undefined && rawStyle !== null && !isRewriteStyle(rawStyle)) {
+      return {
+        ok: false,
+        error: '改写风格只能是 ' + REWRITE_STYLES.join(' / ') + '，收到「' + textField(rawStyle) + '」。',
+      };
+    }
+    const style: RewriteStyle = rewriteStyleOf(rawStyle);
+
+    // 阵容在建会话时就定下来：重跑同一场不会因为页面此刻勾了别人就换人。
+    const { resolved } = panelFrom(stringList(body['interviewers']), difficulty);
+    if (resolved.missing.length > 0) {
+      return {
+        ok: false,
+        error: '找不到这几位面试官：' + resolved.missing.join('、') + '。' + knownPanelHint(),
+      };
+    }
+
+    // 改完再跑一遍：链是显式的，页面点那个按钮时把上一场 id 带过来。
+    // 刻意不按简历相似度自动认亲——改过之后的简历本来就不一样了，自动认亲会认错，
+    // 而错认出来的「比上次」比没有对比更糟。
+    const rawParent = body['parentSessionId'];
+    let parentSessionId: string | null = null;
+    if (rawParent !== undefined && rawParent !== null) {
+      const wanted = textField(rawParent);
+      if (wanted !== '') {
+        if (getSession(db, wanted) === null) {
+          return { ok: false, error: '找不到要对比的上一场会话：' + wanted + '。' };
+        }
+        parentSessionId = wanted;
+      }
+    }
+
+    return {
+      ok: true,
+      value: { useDemo, resumeText, jobTitle, jds: jds.list, mode, wantedModel, difficulty, style, resolved, parentSessionId },
+    };
+  };
+
   app.get('/api/health', (c) =>
     c.json({
       ok: true,
@@ -354,6 +542,11 @@ export function createApp(opts: AppOptions): Hono {
       modes: LLM_MODES,
       modeLabels: MODE_LABEL,
       live: liveReadiness(),
+      // 明说「这台机器支持开跑前预检」：界面据此决定要不要先问一句，
+      // 不声明的话它会盲探一次 POST /api/preflight，在门禁里留下一行 404。
+      preflight: true,
+      // 也想按「能力表」读的服务端（不同版本命名不一）一并给出，两条路径都指向同一个事实。
+      capabilities: { preflight: true },
       // 档位清单由 shared 提供：界面按它渲染 chip，服务端按它算预算，两边不各写一份
       difficulties: difficultyViews(),
       defaultDifficulty: DEFAULT_DIFFICULTY,
@@ -610,82 +803,15 @@ export function createApp(opts: AppOptions): Hono {
 
   app.post('/api/sessions', async (c) => {
     const body = await readBody(c);
-    const useDemo = body['useDemo'] === true;
-    const given = textField(body['resumeText']);
-    const resumeText = given === '' && useDemo ? DEMO_RESUME : given;
-    if (resumeText.length < MIN_RESUME_CHARS) {
-      return c.json({ error: '简历太短了：至少 ' + String(MIN_RESUME_CHARS) + ' 个字符，才有东西可追问。' }, 400);
-    }
-    const jobTitle = textField(body['jobTitle']) || (useDemo ? DEMO_TITLE : '未填写岗位');
-    const jds = jdsOf(body['jds'], textField(body['jdText']) || (useDemo ? DEMO_JD : ''));
-    if (jds.problem !== null) return c.json({ error: jds.problem }, 400);
-
-    // 这一场用什么跑：默认沿用进程启动时的模式，页面上可以逐场改。
-    const wantedMode = modeField(body['mode']);
-    if (wantedMode === null) {
-      return c.json({
-        error: '运行模式只能是 ' + LLM_MODES.join(' / ') + '，收到「' + textField(body['mode']) + '」。',
-      }, 400);
-    }
-    const mode = wantedMode ?? client.mode;
-    const wantedModel = mode === 'replay' ? '' : textField(body['model']);
-    if (wantedMode !== undefined && wantedMode !== 'replay') {
-      // 用户显式选了联网，就先查配置：缺哪个环境变量当场说，而不是跑了一半才发现。
-      // 没写 mode 时沿用进程启动时的客户端，那是部署者自己的配置，不在这里拦。
-      try {
-        resolveLiveConfig({ model: wantedModel === '' ? undefined : wantedModel });
-      } catch (err) {
-        return c.json({ error: messageOf(err) }, 400);
-      }
-    }
-
-    // 问多深要在建会话时就定下来，和阵容同理：重跑时必须还是那一档，
-    // 否则同一场会话的契约指纹会随页面此刻的选择变化，对账就没意义了。
-    // 写接口对档位**严格**：认不出的档位是打错字，静默当默认档会让人以为生效了。
-    const rawDifficulty = body['difficulty'];
-    if (rawDifficulty !== undefined && rawDifficulty !== null && !isDifficulty(rawDifficulty)) {
-      return c.json({
-        error: '追问强度只能是 ' + DIFFICULTIES.join(' / ') + '，收到「' + textField(rawDifficulty) + '」。',
-      }, 400);
-    }
-    const difficulty = difficultyOf(rawDifficulty);
-    // 改稿口径与追问强度分两件事：一个决定问多深，一个决定改多狠。同一条规矩——
-    // 建会话时定下来写进 meta，跑的时候读它，页面此刻选了什么不算数。
-    const rawStyle = body['style'];
-    if (rawStyle !== undefined && rawStyle !== null && !isRewriteStyle(rawStyle)) {
-      return c.json({
-        error: '改写风格只能是 ' + REWRITE_STYLES.join(' / ') + '，收到「' + textField(rawStyle) + '」。',
-      }, 400);
-    }
-    const style: RewriteStyle = rewriteStyleOf(rawStyle);
-
-    // 阵容在建会话时就定下来：重跑同一场不会因为页面此刻勾了别人就换人。
-    const wantedIds = stringList(body['interviewers']);
-    const panel = normalizePanelIds(wantedIds, panelLimit);
-    const resolved = resolvePanel(db, panel, budgetOf(difficulty));
-    if (resolved.missing.length > 0) {
-      return c.json({ error: '找不到这几位面试官：' + resolved.missing.join('、') + '。' + knownPanelHint() }, 400);
-    }
-
-    // 改完再跑一遍：链是显式的，页面点那个按钮时把上一场 id 带过来。
-    // 刻意不按简历相似度自动认亲——改过之后的简历本来就不一样了，自动认亲会认错，
-    // 而错认出来的「比上次」比没有对比更糟。
-    const rawParent = body['parentSessionId'];
-    let parentSessionId: string | null = null;
-    if (rawParent !== undefined && rawParent !== null) {
-      const wanted = textField(rawParent);
-      if (wanted !== '') {
-        if (getSession(db, wanted) === null) {
-          return c.json({ error: '找不到要对比的上一场会话：' + wanted + '。' }, 400);
-        }
-        parentSessionId = wanted;
-      }
-    }
-
+    // 建档与预检共用同一份输入校验：预检能跑通的前提就是「按同一份输入算指纹」。
+    const intake = intakeOf(body);
+    if (!intake.ok) return c.json({ error: intake.error }, 400);
+    const { useDemo, resumeText, jobTitle, jds, mode, wantedModel, difficulty, style, resolved, parentSessionId } =
+      intake.value;
     const id = insertSession(db, {
       jobTitle,
       // 老字段只留第一份：它是给旧代码与报告头部看的投影，真正的清单在 jd 表里。
-      jdText: jds.list.length > 0 ? jds.list[0]!.text : '',
+      jdText: jds.length > 0 ? (jds[0]?.text ?? '') : '',
       resumeText,
       resumeHash: shortHash(resumeText, 24),
       llmMode: mode,
@@ -700,10 +826,10 @@ export function createApp(opts: AppOptions): Hono {
         parentSessionId,
         panel: resolved.ids,
         // 指纹逐份留档：JD 原文是输入，日后想核对「当时贴的是不是这一版」只看指纹就够。
-        jdDigests: jds.list.map((jd) => jdDigest(jd.text)),
+        jdDigests: jds.map((jd) => jdDigest(jd.text)),
       },
     });
-    if (jds.list.length > 0) insertJds(db, id, jds.list);
+    if (jds.length > 0) insertJds(db, id, jds);
     return c.json(
       {
         id,
@@ -715,16 +841,85 @@ export function createApp(opts: AppOptions): Hono {
         parentSessionId,
         panel: resolved.ids,
         // 只回编号与标题：原文界面本来就有，没必要再传一遍。
-        jds: jds.list.map((jd) => ({ id: jd.id, ordinal: jd.ordinal, title: jd.title })),
+        jds: jds.map((jd) => ({ id: jd.id, ordinal: jd.ordinal, title: jd.title })),
       },
       201,
     );
   });
 
+  /**
+   * 只读预检：按与建档一致的输入在内存里空跑一场，回答「这份简历在离线回放下跑得完吗」。
+   *
+   * 为什么是「空跑」而不是逐条查指纹：后面阶段的提示词里含前面阶段的产出（主张、追问、回答），
+   * 只有真的走一遍才算得出指纹。空跑不写库、不落卡带、不联网，合成出来的内容当场丢掉——
+   * 它唯一的产出就是「有多少条响应没有卡带可回放」这个数字。
+   *
+   * coverable 只认「一条都不用合成」。靠兜底硬跑出来的一场不是卡带的证据：
+   * 界面要能在开跑之前就告诉用户「这一场会被标注为合成」，而不是跑完才在报告里发现。
+   */
+  app.post('/api/preflight', async (c) => {
+    const body = await readBody(c);
+    const intake = intakeOf(body);
+    if (!intake.ok) return c.json({ error: intake.error }, 400);
+    const value = intake.value;
+    if (value.mode !== 'replay') {
+      return c.json({
+        mode: value.mode,
+        coverable: true,
+        reason: MODE_LABEL[value.mode] + '：这一场会真的调用模型，不读卡带，所以什么简历都跑得完。',
+      });
+    }
+    // 兜底开着跑：这样一趟能问出「缺哪些阶段」，而不是撞上第一处缺口就停。
+    const probe = createSynthesizingClient(createReplayClient(cassetteDir));
+    // 落库时 insertJds 存的 ordinal 是数组下标（store/repo.ts:891），run 读回来的就是这一份编号。
+    // 预检不写库，必须在这里复刻同一份编号：否则提示词里「第 N 份 JD」对不上，
+    // JD 之后的所有阶段都会被判成「没录过」——那是对着与真实运行不同的提示词算的指纹。
+    const dryJds = value.jds.map((jd, index) => ({ ...jd, ordinal: index }));
+    let failure = '';
+    let claims = 0;
+    let probes = 0;
+    let verdicts = 0;
+    try {
+      const result = await runSession({
+        client: probe,
+        resumeText: value.resumeText,
+        jdText: dryJds.length > 0 ? (dryJds[0]?.text ?? '') : '',
+        jds: dryJds,
+        style: value.style,
+        contracts: value.resolved.contracts,
+        budgetConfig: budgetOf(value.difficulty),
+      });
+      claims = result.claims.length;
+      probes = result.probes.length;
+      verdicts = result.verdicts.length;
+    } catch (err) {
+      failure = messageOf(err);
+    }
+    const tally = syntheticTallyOf(probe) ?? { count: 0, stages: [] };
+    if (failure !== '') {
+      return c.json({ mode: value.mode, coverable: false, reason: '这一场在离线回放下跑不完：' + failure + '。' + OFFLINE_EXITS });
+    }
+    if (tally.count > 0) {
+      return c.json({
+        mode: value.mode,
+        coverable: false,
+        reason:
+          '离线卡带不够跑完这一场：' + tally.stages.join('、') + ' 这些阶段（共 ' + String(tally.count) + ' 条响应）没有录过，' +
+          '跑起来会由离线兜底按提示词合成、并在会话详情与报告里如实标注「合成」。' + OFFLINE_EXITS,
+      });
+    }
+    return c.json({
+      mode: value.mode,
+      coverable: true,
+      reason:
+        '离线卡带正好覆盖这一场：' + String(claims) + ' 条主张、' + String(probes) + ' 条追问、' + String(verdicts) + ' 条判定都能原样回放。',
+    });
+  });
   app.get('/api/sessions/:id', (c) => {
     const view = assembleSession(db, c.req.param('id'));
     if (view === null) return c.json({ error: '会话不存在' }, 404);
-    return c.json(view);
+    // synthetic 恒定出现（没兜底时 count=0、stages=[]）：界面据此决定挂不挂「这一场有合成」的横幅
+    return c.json({ ...view, synthetic: syntheticOf(view.events) });
   });
 
   /**
@@ -766,7 +961,9 @@ export function createApp(opts: AppOptions): Hono {
     const view = assembleSession(db, id);
     if (view === null) return c.json({ error: '会话不存在' }, 404);
     // 对比一并交给渲染器：报告是被带走的产物，看不出「这一版比上一版怎么样」，它就只是单场记录。
-    return c.body(renderReport(view, revisedOf(db, id)?.applied ?? [], compareSessions(db, id)), 200, {
+    // 合成说明放在正文最前面：读者先知道哪些不是真模型的判断，再决定要不要信后面的结论。
+    const markdown = syntheticIntro(syntheticOf(view.events)) + renderReport(view, revisedOf(db, id)?.applied ?? [], compareSessions(db, id));
+    return c.body(markdown, 200, {
       'content-type': 'text/markdown; charset=utf-8',
       'content-disposition': 'attachment; filename="' + reportFileName(view) + '"',
     });
@@ -1044,7 +1241,8 @@ export function createApp(opts: AppOptions): Hono {
         return c.json(summaryOf(result));
       } catch (err) {
         const message = messageOf(err);
-        return c.json({ error: message }, message.includes('已经跑过了') ? 409 : 500);
+        // 结构化错误体：界面按 code 说人话、按 hint 给出路
+        return c.json(errorBodyOf(err), message.includes('已经跑过了') ? 409 : 500);
       }
     }
 
@@ -1063,13 +1261,13 @@ export function createApp(opts: AppOptions): Hono {
         });
         await stream.writeSSE({ event: 'result', data: JSON.stringify(summaryOf(result)) });
       } catch (err) {
-        await stream.writeSSE({ event: 'fatal', data: JSON.stringify({ fatal: true, message: messageOf(err) }) });
+        await stream.writeSSE({ event: 'fatal', data: JSON.stringify(fatalEvent(err)) });
       }
     });
   });
 
   app.notFound((c) => c.json({ error: '没有这个接口：' + c.req.path }, 404));
-  app.onError((err, c) => c.json({ error: messageOf(err) }, 500));
+  app.onError((err, c) => c.json(errorBodyOf(err), 500));
 
   return app;
 }

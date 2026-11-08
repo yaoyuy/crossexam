@@ -44,13 +44,18 @@ function load(dir: string, req: LlmRequest): { entry: CassetteEntry; digest: str
   const digest = digestFor(req);
   const entry = readCassette(dir, digest);
   if (!entry) {
+    // 这句话会被前端原样显示给用户，所以主句说「怎么办」，指纹与开发者指令退到括号里：
+    // 用户不关心指纹，但排查的人需要它；两种读者都要照顾到。
+    // 「回放模式找不到这一条记录」这半句被界面用于识别离线缺卡带，措辞不要改。
     throw new LlmError(
       'cassette-missing',
       '回放模式找不到这一条记录。用途「' +
         req.purpose +
         '」的指纹是 ' +
         digest +
-        '，请用 CROSSEXAM_MODE=record 联网跑一次把它录下来。',
+        '。这台机器现在是离线回放模式（不联网），只能播放已经录好的卡带——' +
+        '可以改用演示简历跑一遍（仓库里的卡带就是按它录的），或者配上 API Key 走真实模型。' +
+        '（开发者要补录这一条：用 CROSSEXAM_MODE=record 联网跑一次同样的输入。）',
     );
   }
   return { entry: entry, digest: digest };
