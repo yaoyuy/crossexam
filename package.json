@@ -35,7 +35,11 @@
     "docs:intro": "node tools/docs/build-intro.mjs",
     "docs:intro:html": "node tools/docs/build-intro.mjs --html-only",
     "portable:build": "node tools/portable/build.mjs",
-    "portable:verify": "node tools/portable/verify.mjs"
+    "portable:verify": "node tools/portable/verify.mjs",
+    "accept": "node tools/accept/api-matrix.mjs && node tools/accept/report-check.mjs",
+    "accept:api": "node tools/accept/api-matrix.mjs",
+    "accept:report": "node tools/accept/report-check.mjs",
+    "accept:live": "node tools/accept/live-accept.mjs"
   },
   "devDependencies": {
     "@types/node": "^24.19.2",
