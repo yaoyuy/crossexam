@@ -15,7 +15,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { NODE_HELP, SHORTCUT_NAME, browserOpenArgs, chooseAppBrowser, desktopShortcutDir, launcherSteps, makeShortcutScript, nodeVersionOk, reuseNote } from './src/plan.mjs';
+import { NODE_HELP, SHORTCUT_NAME, browserOpenArgs, chooseAppBrowser, desktopShortcutDir, launcherSteps, makeShortcutScript, nodeVersionProblem, reuseNote } from './src/plan.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '..', '..');
@@ -55,11 +55,12 @@ function run(command, cmdArgs, label) {
 const shortcutOnly = args.has('--shortcut-only');
 const desktop = shortcutOnly || args.has('--shortcut') || args.has('--desktop');
 
-if (!nodeVersionOk(process.versions.node)) {
+const versionProblem = nodeVersionProblem(process.versions.node);
+if (versionProblem !== null) {
   say('');
   NODE_HELP.forEach(say);
   say('');
-  say('当前版本：' + process.versions.node);
+  say(versionProblem);
   process.exit(1);
 }
 

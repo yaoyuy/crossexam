@@ -7,11 +7,14 @@
  */
 import { join } from 'node:path';
 
-/** 低于这个版本会死在 node:sqlite 与原生类型剥离上。 */
-export const NODE_MIN = '22.5.0';
+/**
+ * 低于这个版本会死在两处：node:sqlite 从 v22.13.0 起才免 --experimental-sqlite，
+ * 而原生类型剥离（不做构建直接跑 .ts）要到 v22.18.0 才默认开启——本仓库两样都吃，所以下界取后者。
+ */
+export const NODE_MIN = '22.18.0';
 
 export const NODE_HELP = [
-  '这台机器上的 Node 版本太旧或没装（需要 ' + NODE_MIN + ' 或更高）。',
+  '这台机器上的 Node 版本太旧或没装。',
   '装一个就行，装完重新双击本文件，不需要改任何选项：',
   '  https://nodejs.org/zh-cn/download',
   '（Windows 一路「下一步」；macOS 装 pkg 包即可）',
@@ -38,8 +41,21 @@ export function compareVersions(a, b) {
 export function nodeVersionOk(version, min = NODE_MIN) {
   const current = typeof version === 'string' ? parseNodeVersion(version) : version;
   const floor = typeof min === 'string' ? parseNodeVersion(min) : min;
-  if (current === null || floor === null) return false;
+  // 用 Array.isArray 而不是「不等于 null」：环境变量没配、或者 process.versions 被测试替身顶掉时
+  // 会传进 undefined，那种时候要判「不达标」并照常打印版本提示，而不是在比较里崩掉。
+  if (!Array.isArray(current) || !Array.isArray(floor)) return false;
   return compareVersions(current, floor) >= 0;
+}
+
+/**
+ * 版本不达标时给出一句能照着办的话，达标返回 null。
+ * 为什么要同时写两个版本号：只说「版本太低」用户不知道该升到哪一档，
+ * 也分不清这台机器是根本没装 Node，还是装了个旧的。
+ */
+export function nodeVersionProblem(version, min = NODE_MIN) {
+  if (nodeVersionOk(version, min)) return null;
+  const detected = typeof version === 'string' && version.trim() !== '' ? version.trim() : '没检测到';
+  return '检测到的 Node 版本：' + detected + '；本仓库要求：' + min + ' 或更高。';
 }
 
 /**

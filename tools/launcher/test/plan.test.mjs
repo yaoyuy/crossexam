@@ -12,6 +12,7 @@ import {
   launcherSteps,
   makeShortcutScript,
   nodeVersionOk,
+  nodeVersionProblem,
   parseNodeVersion,
   psQuote,
   reuseNote,
@@ -20,25 +21,33 @@ import {
 describe('Node 版本判定', () => {
   it('认得 v 前缀与三段式，认不出就返回 null 而不是猜', () => {
     expect(parseNodeVersion('v24.14.0')).toEqual([24, 14, 0]);
-    expect(parseNodeVersion(' 22.5.0')).toEqual([22, 5, 0]);
+    expect(parseNodeVersion(' 22.18.0')).toEqual([22, 18, 0]);
     expect(parseNodeVersion('24.14')).toBeNull();
     expect(parseNodeVersion('')).toBeNull();
     expect(parseNodeVersion(undefined)).toBeNull();
   });
 
   it('比较按数值而不是按字符串', () => {
-    expect(compareVersions([24, 14, 0], [22, 5, 0])).toBeGreaterThan(0);
-    expect(compareVersions([9, 0, 0], [22, 5, 0])).toBeLessThan(0);
-    expect(compareVersions([22, 5, 0], [22, 5, 0])).toBe(0);
+    expect(compareVersions([24, 14, 0], [22, 18, 0])).toBeGreaterThan(0);
+    expect(compareVersions([9, 0, 0], [22, 18, 0])).toBeLessThan(0);
+    expect(compareVersions([22, 18, 0], [22, 18, 0])).toBe(0);
   });
 
-  it('正好等于下限算通过，差一个补丁号也算通过', () => {
-    expect(nodeVersionOk('v22.5.0')).toBe(true);
-    expect(nodeVersionOk('v22.5.1')).toBe(true);
-    expect(nodeVersionOk('v22.4.9')).toBe(false);
-    expect(nodeVersionOk('v20.11.1')).toBe(false);
+  it('正好等于下限算通过，差一个补丁号也算通过；不通过时把实际版本与要求版本都说出来', () => {
+    expect(nodeVersionOk('v22.18.0')).toBe(true);
+    expect(nodeVersionOk('v22.18.1')).toBe(true);
+    expect(nodeVersionOk('v22.17.9')).toBe(false);
     expect(nodeVersionOk('unknown')).toBe(false);
-    expect(NODE_MIN).toBe('22.5.0');
+    expect(nodeVersionOk(undefined)).toBe(false);
+    expect(NODE_MIN).toBe('22.18.0');
+    // 22.5.0 是曾经的旧下界：那会儿 node:sqlite 要 --experimental-sqlite、.ts 也跑不起来，
+    // 这条留着是为了防止有人把下界改回去。
+    expect(nodeVersionOk('v22.5.0')).toBe(false);
+    expect(nodeVersionProblem('v22.18.0')).toBeNull();
+    const problem = nodeVersionProblem('v22.5.0');
+    expect(problem).toContain('22.5.0');
+    expect(problem).toContain('22.18.0');
+    expect(nodeVersionProblem(undefined)).toContain('没检测到');
   });
 });
 

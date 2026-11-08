@@ -7,7 +7,7 @@
 
 | 步骤 | 什么时候走 | 做什么 |
 | --- | --- | --- |
-| `check-node` | 总是 | 版本低于 22.5 就打印下载页并退出，不静默升级 |
+| `check-node` | 总是 | 版本低于 22.18.0 就把下载页 +「检测到的版本 / 要求的版本」一起打出来并退出，不静默升级 |
 | `install` | 缺 `node_modules` | `npm install` |
 | `build` | 缺 `packages/web/dist` | `npm run build` |
 | `serve` | 总是（且端口上还没有实例） | `node packages/server/src/bin/serve.ts` |
@@ -40,6 +40,7 @@ ADR-0010）。桌面快捷方式指向 `启动.cmd` 而不是 node 本体，所�
 | 变量 | 作用 |
 | --- | --- |
 | `CROSSEXAM_PORT` | 端口，默认 8787 |
+| `CROSSEXAM_HOST` | 服务的监听地址，默认 `127.0.0.1`（只在确实要对外时才改成 `0.0.0.0`，登录器只是把它透传给服务） |
 | `CROSSEXAM_LAUNCH_NO_BROWSER=1` | 不起浏览器（自动化测试用） |
 | `USERPROFILE` / `HOME` | 决定桌面快捷方式建到哪（测试里可以指向临时目录） |
 

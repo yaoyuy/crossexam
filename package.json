@@ -9,7 +9,7 @@
     "tools/*"
   ],
   "engines": {
-    "node": ">=22.5.0"
+    "node": ">=22.18.0"
   },
   "scripts": {
     "dev": "concurrently -n server,web -c cyan,magenta \"npm:dev:server\" \"npm:dev:web\"",
