@@ -168,3 +168,77 @@ describe('简历修改建议', function () {
     expect(newNumbersIn('首屏 0.8s，日订单量 30 万', RESUME)).toEqual([]);
   });
 });
+
+describe('升格闸门：不靠提示词，靠程序比对 before/after 的贡献阶梯', function () {
+  const RESUME2 = ['项目经历', '参与支付网关迁移，完成 12 个渠道的对接。'].join(String.fromCharCode(10));
+  const QUOTE2 = '参与支付网关迁移';
+
+  const C2: Claim = {
+    id: 'C2', text: '支付网关迁移', category: 'ownership', weight: 0.8,
+    anchor: {
+      quote: QUOTE2,
+      start: RESUME2.indexOf(QUOTE2),
+      end: RESUME2.indexOf(QUOTE2) + QUOTE2.length,
+      exact: true,
+    },
+  };
+
+  const P2: Probe = {
+    id: 'P2', claimId: 'C2', interviewerId: 'tech', round: 1, question: '这条迁移你参与了多少？',
+    anchor: C2.anchor, parentProbeId: null, rationale: '个人贡献边界',
+  };
+
+  const TRANSCRIPT2: Readonly<Record<string, readonly AnsweredProbe[]>> = {
+    C2: [
+      {
+        probe: P2,
+        answer: { probeId: 'P2', text: '只做了对接渠道。', mode: 'simulated', citedAnchors: [] },
+        answered: true,
+      },
+    ],
+  };
+
+  function input2(after: string) {
+    return {
+      client: createScriptedClient(handler(JSON.stringify({
+        problem: '参与被写成了主导',
+        before: QUOTE2,
+        after,
+        why: '这是评审用来复现的那条输入',
+      }))),
+      claims: [C2] as readonly Claim[],
+      verdicts: [{ claimId: 'C2', kind: 'overstated', confidence: 0.7, rationale: '理由', evidence: [], probeIds: ['P2'] }] as readonly Verdict[],
+      transcriptByClaim: TRANSCRIPT2,
+      resumeText: RESUME2,
+      outline: segmentResume(RESUME2),
+    };
+  }
+
+  it('红队输入：参与 → 主导 + 独立完成全流程，必须拒收并给可读理由', async function () {
+    const result = await suggestClaims(input2('主导支付网关迁移，独立完成全流程'));
+    const outcome = result.outcomes[0]!;
+    expect(outcome.status).toBe('rejected');
+    expect(outcome.reason).toContain('升格');
+    expect(outcome.reason).toContain('参与');
+    expect(outcome.reason).toContain('主导');
+    expect(outcome.suggestion).toBeNull();
+  });
+
+  it('反面：before 是窄引文、但该主张所在的简历原句里写了「主导」时不能误杀', async function () {
+    // style.test.ts 的常规档就是这种形状：before 只挑数字那半句，after 把整句补全。
+    // 依据必须取简历原句（而不是 before 本身），否则正常改写会被当成升格拦下。
+    const result = await suggestClaims(baseInput({
+      client: createScriptedClient(handler(draft({
+        before: '首屏从 2.4s 降到 0.8s',
+        after: '主导重构订单系统，首屏从 2.4s 降到 0.8s，日订单量 30 万。',
+      }))),
+    }));
+    expect(result.outcomes[0]?.status).toBe('suggested');
+  });
+
+  it('反面：同一个人的降级改写（参与 → 协助）必须放行', async function () {
+    const result = await suggestClaims(input2('协助完成支付网关迁移的联调与灰度'));
+    expect(result.outcomes[0]?.status).toBe('suggested');
+  });
+});
+

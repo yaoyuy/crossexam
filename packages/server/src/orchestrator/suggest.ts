@@ -4,18 +4,28 @@
  * 这一步是产品闭环的最后一环：压力测试的意义不在于"证明你不行"，
  * 而在于"告诉你这句话该怎么写"。
  *
- * 四道代码级闸门（都不是提示词里的请求，是拦得住的门）：
+ * 五道代码级闸门（都不是提示词里的请求，是拦得住的门）：
  *
  *   1. 只给需要改的主张出建议。判定"站得住"的直接跳过，不为改而改。
  *   2. before 必须是简历原文里定位得到的片段 —— 定位不到，这条建议用户根本没法应用。
  *   3. **after 里不允许出现简历原文没有的数字。** 这是"只能改表述、不能加事实"里
  *      最容易被模型破坏的一条：它很擅长顺手把"重构了订单系统"写成"重构后 QPS 提升 3 倍"。
  *      数字是最硬的编造物，所以这里对数字做指纹比对。
- *   4. after 不能等于 before，否则等于没改。
+ *   4. **after 不许把个人贡献升格。** 把"参与"写成"主导""独立完成"是最典型的放大事实，
+ *      过去只写在提示词里（style.ts 的红线 2），评审实测「参与→主导+独立完成」两闸全过；
+ *      现在按 style.ts 的贡献阶梯做集合比对，命中就拒收。
+ *   5. after 不能等于 before，否则等于没改。
  */
 
 import type { Anchor, Answer, Claim, Probe, ResumeOutline, RewriteStyle, Suggestion, Verdict, VerdictKind } from '@crossexam/shared';
-import { DEFAULT_REWRITE_STYLE, VERDICT_LABEL, parseLlmOutput, resolveAnchor, suggestionDraftSchema } from '@crossexam/shared';
+import {
+  DEFAULT_REWRITE_STYLE,
+  VERDICT_LABEL,
+  contributionEscalation,
+  parseLlmOutput,
+  resolveAnchor,
+  suggestionDraftSchema,
+} from '@crossexam/shared';
 import type { LlmClient, LlmUsage } from '../llm/types.ts';
 import { EMPTY_USAGE } from '../llm/types.ts';
 import { buildSuggestPrompt, stageRequest, suggestSystem } from './prompts.ts';
@@ -47,7 +57,7 @@ export interface SuggestClaimsInput {
   transcriptByClaim: Readonly<Record<string, readonly AnsweredProbe[]>>;
   resumeText: string;
   outline: ResumeOutline;
-  /** 改写风格：只调措辞的收敛程度，事实边界由下面四道闸门兜底。不传按默认档 */
+  /** 改写风格：只调措辞的收敛程度，事实边界由下面五道闸门兜底。不传按默认档 */
   style?: RewriteStyle;
 }
 
@@ -67,6 +77,20 @@ export function newNumbersIn(after: string, resumeText: string): string[] {
     if (!known.has(hit) && out.indexOf(hit) < 0) out.push(hit);
   }
   return out;
+}
+
+/**
+ * 这条主张所在的简历原句 —— 升格闸门的依据。
+ *
+ * 为什么不拿 before 当依据：before 是模型挑的窄引文，常常只是那句话里的一小截，
+ * 于是「把简历原句补全」这种正常改写会被误判成升格（style.test.ts 的常规档正是如此）。
+ * 也不拿整份简历当依据：别处写过「主导」不等于这条经历写的是主导，那等于没闸门。
+ * 取原句（按换行切）是这条确定性规则里粒度最合适的一档，代价是同一行里的两段经历共用依据。
+ */
+function claimLineOf(resumeText: string, claim: Claim): string {
+  const from = resumeText.lastIndexOf(String.fromCharCode(10), Math.max(0, claim.anchor.start - 1)) + 1;
+  const to = resumeText.indexOf(String.fromCharCode(10), claim.anchor.end);
+  return resumeText.slice(from, to < 0 ? resumeText.length : to);
 }
 
 function addUsage(a: LlmUsage, b: LlmUsage): LlmUsage {
@@ -123,6 +147,15 @@ async function suggestOne(
         suggestion: null,
         reason: '建议里出现了简历原文中不存在的数字，属于新增事实：' + invented.join('、'),
       },
+      usage: result.usage ?? EMPTY_USAGE,
+    };
+  }
+
+  // 升格检查排在数字检查之后：同一条建议既多了数字又升了级时，先报更硬的那个编造物
+  const escalation = contributionEscalation(before, after, claimLineOf(input.resumeText, claim));
+  if (escalation !== null) {
+    return {
+      outcome: { claimId: claim.id, status: 'rejected', suggestion: null, reason: escalation.reason },
       usage: result.usage ?? EMPTY_USAGE,
     };
   }

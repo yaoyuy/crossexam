@@ -199,3 +199,78 @@ describe('一轮追问', function () {
     expect(MAX_PROBES_PER_TURN).toBe(2);
   });
 });
+
+describe('契约③④的代码闸门', function () {
+  function probe(claimId: string, question: string, quote: string, rationale = '闸门测试。'): string {
+    return JSON.stringify({ probes: [{ claimId, question, quote, rationale }] });
+  }
+
+  async function roundWith(byInterviewer: Record<string, string>) {
+    return runProbeRound(baseInput({ client: createScriptedClient(handlerWith(byInterviewer)) }));
+  }
+
+  it('③ 一条提问里塞三个问号：整条拒收，理由点名是哪条契约，也不消耗预算', async function () {
+    const three = probe('C1', '这个 2.4s 是怎么测出来的？口径是什么？测试环境呢？', '首屏从 2.4s 降到 0.8s');
+    const result = await roundWith({ tech: three, hr: HR_Q });
+    expect(result.probes.map((p) => p.interviewerId)).toEqual(['hr']);
+    expect(result.rejected).toHaveLength(1);
+    expect(result.rejected[0]?.reason).toContain('契约③');
+    expect(result.rejected[0]?.reason).toContain('3');
+    expect(result.budget.totalProbes).toBe(1);
+    expect(result.outcomes.find((o) => o.interviewerId === 'tech')?.asked).toBe(0);
+  });
+
+  it('③ 中英文问号混用一起数', async function () {
+    const mixed = probe('C1', '口径是什么?测试环境呢？', '首屏从 2.4s 降到 0.8s');
+    const result = await roundWith({ tech: mixed, hr: HR_Q });
+    expect(result.rejected[0]?.reason).toContain('契约③');
+    expect(result.rejected[0]?.reason).toContain('2');
+  });
+
+  it('④ 红队复现输入：三个问号 + 「在字节跳动主导过的高并发架构」→ accepted=0 / rejected=2', async function () {
+    const red = probe(
+      'C1',
+      '这个 2.4s 是怎么测出来的？口径是什么？在字节跳动主导过的高并发架构又是怎么回事？',
+      '首屏从 2.4s 降到 0.8s',
+      '评审用来打「意图控制」的输入。',
+    );
+    const result = await roundWith({ tech: red, hr: red });
+    expect(result.probes).toHaveLength(0);
+    expect(result.rejected).toHaveLength(2);
+    expect(result.rejected.every((r) => r.reason.indexOf('契约③') >= 0)).toBe(true);
+  });
+
+  it('④ 单问版本的红队输入也要被挡下：机构名与断言片段都要能给用户解释', async function () {
+    const result = await roundWith({
+      tech: probe('C1', '在字节跳动主导过的高并发架构，你是怎么拆的？', '首屏从 2.4s 降到 0.8s'),
+      hr: HR_Q,
+    });
+    expect(result.probes.map((p) => p.interviewerId)).toEqual(['hr']);
+    expect(result.rejected[0]?.reason).toContain('契约④');
+    expect(result.rejected[0]?.reason).toContain('字节跳动');
+    expect(result.rejected[0]?.reason).toContain('高并发架构');
+  });
+
+  it('④ 简历里没写过的贡献断言（主导过 X）同样拒收', async function () {
+    const result = await roundWith({
+      tech: probe('C1', '你主导过的高并发架构是怎么设计的？', '首屏从 2.4s 降到 0.8s'),
+      hr: HR_Q,
+    });
+    expect(result.probes.map((p) => p.interviewerId)).toEqual(['hr']);
+    expect(result.rejected[0]?.reason).toContain('契约④');
+    expect(result.rejected[0]?.reason).toContain('高并发架构');
+  });
+
+  it('反面：问归属、问边界的合法追问不能被误杀', async function () {
+    const legit = JSON.stringify({
+      probes: [
+        { claimId: 'C2', question: 'Node.js 的哪些部分是你独立完成的，团队其他人在做什么？', quote: '熟悉 TypeScript 与 Node.js', rationale: '问个人边界。' },
+        { claimId: 'C1', question: '这个重构是你主导的还是参与的？', quote: '首屏从 2.4s 降到 0.8s', rationale: '问归属。' },
+      ],
+    });
+    const result = await roundWith({ tech: legit, hr: HR_Q });
+    expect(result.rejected).toEqual([]);
+    expect(result.probes).toHaveLength(3);
+  });
+});
+

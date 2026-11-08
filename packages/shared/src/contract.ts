@@ -11,6 +11,7 @@
 
 import type { BudgetConfig } from './budget.ts';
 import type { InterviewerRole, Persona } from './domain.ts';
+import { CONTRIBUTION_HIGH_MARKERS } from './style.ts';
 import { shortHash, stableStringify } from './util.ts';
 
 export interface ContractBudgetView {
@@ -52,7 +53,15 @@ export interface IntentContract {
   budget: ContractBudgetView;
 }
 
-/** 所有面试官共享的硬约束——注意它们和 anchor.ts 的实现是一一对应的，不是嘴上说说 */
+/**
+ * 所有面试官共享的硬约束——它们和代码闸门是一一对应的，不是嘴上说说：
+ *   ①② 引文可逐字锚回 / 引文长度 → anchor.ts 的 resolveAnchor
+ *   ③ 一次只问一个问题 → 本文件的 questionMarkCount
+ *   ④ 不得假设简历没写的事实 → 本文件的 assumedFactsIn（打击面三档：数字、机构名、断言式贡献）
+ * 这层对应关系最容易悄悄断掉（写进提示词就算「约束」了），所以实现就和声明放同一个文件。
+ * ④ 是确定性的词表匹配，不是语义理解：两位整数、中文数字、名单外的机构、换个说法的贡献断言
+ * 都可能漏过——边界写在 assumedFactsIn 上方，宁可说清覆盖到哪儿，也不假装它全覆盖。
+ */
 export const COMMON_CONSTRAINTS: readonly string[] = [
   '每一次提问都必须携带一条简历原文引文 quote，该引文必须能在简历中逐字找到。',
   '引文长度不得少于 4 个字符，不得只引标点或单个词。',
@@ -186,4 +195,146 @@ export function renderSystemPrompt(c: IntentContract): string {
 /** 契约指纹：用于版本比对与「这条追问出自哪一版契约」的追溯 */
 export function contractDigest(c: IntentContract): string {
   return shortHash(stableStringify(c), 16);
+}
+
+// ---------------------------------------------------------------------------
+// 契约 ③④ 的代码闸门
+//
+// 为什么校验函数和契约文本住在同一个文件：COMMON_CONSTRAINTS 里这两条写着「由程序强制校验」，
+// 声明和实现一旦分家，「程序强制」就退化成提示词里的一句好听话——全仓库零引用正是这么发生的。
+// 放一起，改契约措辞的人抬头就能看见实现，改实现的人也躲不开测试。
+// ---------------------------------------------------------------------------
+
+/** 问号（中英文都算）：一次只问一个问题，就是数问号——问号本身就是「这里在问」 */
+const QUESTION_MARKS = /[?？]/g;
+
+/** 一次提问允许的问号数：两个问号就是两个问题；句号、逗号再多也不算 */
+export const MAX_QUESTION_MARKS = 1;
+
+export function questionMarkCount(question: string): number {
+  const hits = question.match(QUESTION_MARKS);
+  return hits === null ? 0 : hits.length;
+}
+
+/**
+ * 机构名词表。为什么不写成「某某公司」这类正则：`X公司` 会把「你在这家公司负责什么」当成机构名，
+ * 误杀比漏杀贵得多——面试官用指代词回指刚说过的话，是最正常的问法。
+ * 名单只收常见的、能人工核对的大厂与院校；它不穷尽，但「把简历挂到大厂名下」这类最典型的编造拦得住，
+ * 边界写在注释里，不假装它全覆盖。
+ */
+export const WELL_KNOWN_ORGS: readonly string[] = [
+  '字节跳动',
+  '阿里巴巴',
+  '阿里云',
+  '腾讯',
+  '腾讯云',
+  '百度',
+  '美团',
+  '京东',
+  '网易',
+  '小米',
+  '华为',
+  '华为云',
+  '滴滴',
+  '快手',
+  '拼多多',
+  '蚂蚁集团',
+  '微软',
+  '谷歌',
+  '亚马逊',
+  '苹果',
+  'Meta',
+  'IBM',
+  '英特尔',
+  '英伟达',
+  '清华大学',
+  '北京大学',
+  '浙江大学',
+  '复旦大学',
+  '上海交通大学',
+  '中国科学院',
+];
+
+/**
+ * 只把「三位以上、或带小数点」的数字当事实断言，且不认紧贴字母的编号（P75、S3）。
+ *
+ * 为什么不用「所有数字」：中文提问里的小整数多半是序数或泛指（「第 2 次追问」「岗位写 5 年以上」），
+ * 拿它们当编造会大面积误杀合法追问；真正撑起「数字口径」这类追问、也最容易被编造的，是 5000、2.4 这种量级。
+ * 代价是两位整数与中文数字（「三条业务线」）不在此列——这条边界写进回报，不假装它全覆盖。
+ */
+const NUMBER_FACT = /(?<![A-Za-z0-9])([0-9]{3,}(?:\.[0-9]+)?|[0-9]+\.[0-9]+)/g;
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * 断言式贡献：「主导过 X」「独立完成了 Y」——高阶梯动词 + 过/了，后面跟的才是被当成既成事实的对象。
+ * 「这个重构是你主导的还是参与的？」不在此列：那是在问归属，不是往简历上添经历；
+ * 用「的」而不是「过/了」正是这两类句子的分水岭。
+ */
+function assertedContributionObjects(question: string): string[] {
+  const found: string[] = [];
+  for (const marker of CONTRIBUTION_HIGH_MARKERS) {
+    const pattern = new RegExp(escapeRegExp(marker) + '(?:过|了)([^?？!！。，,、；;：:]{2,})', 'g');
+    let hit = pattern.exec(question);
+    while (hit !== null) {
+      const object = (hit[1] ?? '').replace(/^的/, '').trim();
+      if (object.length >= 2) found.push(object);
+      hit = pattern.exec(question);
+    }
+  }
+  return found;
+}
+
+/**
+ * 对象短语有没有原文依据：切词元后任一能在原文里找到就算有依据。
+ *
+ * 为什么是二字滑窗而不是分词：引分词器要么带原生依赖、要么带一份大词表，都不划算（AGENTS 第 6 条）；
+ * 二字窗对「高并发架构」这类技术名词足够区分，而且「任一命中即放行」的方向是宁可漏杀不误杀——
+ * 闸门误杀一条合法追问，代价比放走一条夸大追问高得多。
+ */
+function evidenceTokens(phrase: string): string[] {
+  const tokens: string[] = [];
+  for (const chunk of phrase.match(/[\u4e00-\u9fa5]{2,}/g) ?? []) {
+    for (let i = 0; i + 2 <= chunk.length; i += 1) tokens.push(chunk.slice(i, i + 2));
+    if (chunk.length > 2) tokens.push(chunk);
+  }
+  for (const latin of phrase.match(/[A-Za-z][A-Za-z0-9.+#-]*/g) ?? []) tokens.push(latin);
+  return tokens;
+}
+
+function groundedIn(phrase: string, evidence: string): boolean {
+  return evidenceTokens(phrase).some((token) => evidence.indexOf(token) >= 0);
+}
+
+export type AssumedFactKind = 'number' | 'org' | 'contribution';
+
+export interface AssumedFact {
+  kind: AssumedFactKind;
+  /** 触发拒绝的原文片段：拒绝理由要指名道姓，用户才知道改哪句 */
+  token: string;
+}
+
+/**
+ * 契约④的确定性检查：把这句提问里「简历没写过、却被当成既成事实」的东西挑出来。
+ * evidence 传简历原文；调用方可以把该主张的锚定引文一起拼进来。
+ */
+export function assumedFactsIn(question: string, evidence: string): AssumedFact[] {
+  const facts: AssumedFact[] = [];
+  // 带 g 的正则是有状态的，跨次调用必须复位，否则第二次开始会从上次的位置往后找
+  NUMBER_FACT.lastIndex = 0;
+  let number = NUMBER_FACT.exec(question);
+  while (number !== null) {
+    const token = number[1] ?? '';
+    if (token !== '' && evidence.indexOf(token) < 0) facts.push({ kind: 'number', token });
+    number = NUMBER_FACT.exec(question);
+  }
+  for (const org of WELL_KNOWN_ORGS) {
+    if (question.indexOf(org) >= 0 && evidence.indexOf(org) < 0) facts.push({ kind: 'org', token: org });
+  }
+  for (const object of assertedContributionObjects(question)) {
+    if (!groundedIn(object, evidence)) facts.push({ kind: 'contribution', token: object });
+  }
+  return facts;
 }

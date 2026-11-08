@@ -1,9 +1,15 @@
 /**
  * 阶段二：一轮并发追问。
  *
- * 这里有两道闸门，缺一不可：
+ * 这里有四道闸门，缺一不可：
  * 1. **预算闸门**（canProbe）：代码强制记账，模型看不到也突破不了。死循环在设计上不成立。
  * 2. **锚定闸门**（resolveAnchor）：提问必须携带能在简历里逐字找到的引文。
+ * 3. **单问闸门**（questionMarkCount）：一条提问里两个以上问号就是两个问题，整条拒收。
+ * 4. **接地闸门**（assumedFactsIn）：问题里当成既成事实的数字、机构名、贡献断言，
+ *    必须在简历原文里有依据，否则拒收。
+ *
+ * 3、4 两条对应 contract.ts 里的契约③④。把「由程序强制校验」写在契约里、却不落到这道循环里，
+ * 就是假声明——评审正是靠「全仓库零引用」把这两条抓出来的。
  *
  * 一个刻意的设计：面试官是**并发**发问的，但记账是**串行**的。
  * 并发的意义是演示时四路流式同时吐字；串行的意义是预算账本不依赖时序，
@@ -26,7 +32,19 @@ import type {
   RequirementNote,
   ResumeOutline,
 } from '@crossexam/shared';
-import { REJECTION_LABEL, canProbe, consumeProbe, openClaims, parseLlmOutput, probeListSchema, resolveAnchor } from '@crossexam/shared';
+import {
+  MAX_QUESTION_MARKS,
+  REJECTION_LABEL,
+  assumedFactsIn,
+  canProbe,
+  consumeProbe,
+  openClaims,
+  parseLlmOutput,
+  probeListSchema,
+  questionMarkCount,
+  resolveAnchor,
+} from '@crossexam/shared';
+import type { AssumedFactKind } from '@crossexam/shared';
 import type { LlmClient, LlmUsage } from '../llm/types.ts';
 import { EMPTY_USAGE, LlmError } from '../llm/types.ts';
 import { buildProbePrompt, probeSystem, stageRequest } from './prompts.ts';
@@ -114,6 +132,33 @@ function jdAnchorOf(
 
 function normalizeQuestion(q: string): string {
   return q.replace(/\s+/g, '').replace(/[？?！!。，,、]/g, '');
+}
+
+/**
+ * 契约③的拒绝理由：把「哪条契约、几个问号」写清楚。
+ * 只说「问题不合法」用户改不动；说清是几个问号，用户才知道要拆成几条。
+ */
+function singleQuestionReason(question: string): string | null {
+  const marks = questionMarkCount(question);
+  if (marks <= MAX_QUESTION_MARKS) return null;
+  return '违反契约③（一次只问一个问题）：这条提问里有 ' + String(marks) + ' 个问号，请拆成多条再问';
+}
+
+const ASSUMED_FACT_LABEL: Record<AssumedFactKind, string> = {
+  number: '数字',
+  org: '机构名',
+  contribution: '个人贡献说法',
+};
+
+/**
+ * 契约④的拒绝理由。依据 = 简历原文 + 该主张的锚定引文：
+ * 引文本来就出自简历，但主张也可能是调用方直接构造的（测试、导入），带上它更稳。
+ */
+function assumptionReason(question: string, claim: Claim, resumeText: string): string | null {
+  const assumed = assumedFactsIn(question, resumeText + ' ' + claim.anchor.quote);
+  if (assumed.length === 0) return null;
+  const items = assumed.map((fact) => ASSUMED_FACT_LABEL[fact.kind] + '「' + fact.token + '」');
+  return '违反契约④（不得假设简历里没写的事实）：提问假设了简历里没有的' + items.join('、');
 }
 
 function notesFor(contract: IntentContract, state: BudgetState, claims: readonly Claim[]): Record<string, string> {
@@ -213,6 +258,18 @@ export async function runProbeRound(input: ProbeRoundInput): Promise<ProbeRoundR
       const gate = canProbe(budget, claim.id, outcome.contract.id);
       if (!gate.allowed) {
         localRejected.push({ claimId: claim.id, question: draft.question, reason: '预算闸门拦截：' + gate.reason });
+        continue;
+      }
+
+      // 契约③④先过：它们只看问题文本，比锚定便宜，也更容易给用户解释清楚要改哪一句
+      const tooManyQuestions = singleQuestionReason(draft.question);
+      if (tooManyQuestions !== null) {
+        localRejected.push({ claimId: claim.id, question: draft.question, reason: tooManyQuestions });
+        continue;
+      }
+      const assumed = assumptionReason(draft.question, claim, input.resumeText);
+      if (assumed !== null) {
+        localRejected.push({ claimId: claim.id, question: draft.question, reason: assumed });
         continue;
       }
 
