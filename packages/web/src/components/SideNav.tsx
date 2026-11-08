@@ -54,7 +54,7 @@ export function SideNav(props: {
           </button>
         );
       })}
-      <p className="mt-auto hidden px-2.5 pb-1 pt-3 text-[10.5px] leading-relaxed text-ink-600 xl:block">
+      <p className="mt-auto hidden px-2.5 pb-1 pt-3 text-[10.5px] leading-relaxed text-ink-400 xl:block">
         全部数据只在本机
       </p>
     </nav>

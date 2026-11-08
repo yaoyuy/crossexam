@@ -20,7 +20,7 @@ function Bar(props: { label: string; title: string; solidHeight: number; judgedH
           <div className="w-full rounded-sm bg-emerald-500/70" style={{ height: props.solidHeight + '%' }} />
         </div>
       </div>
-      <span className="truncate text-[10px] text-ink-500">{props.label}</span>
+      <span className="truncate text-[10px] text-ink-400">{props.label}</span>
     </div>
   );
 }
@@ -33,7 +33,7 @@ export function OverviewBar(props: { view: HistoryOverview | null }) {
     <div className="flex flex-col gap-1.5 border-t border-ink-800 pt-2.5" data-shot="overview">
       <span className="flex items-center justify-between gap-2 text-[11px] text-ink-400">
         <span>这些场次加起来</span>
-        <span className="text-[10px] text-ink-500">最近 {String(Math.min(props.view?.window ?? 0, MAX_BARS))} 场见右侧</span>
+        <span className="text-[10px] text-ink-400">最近 {String(Math.min(props.view?.window ?? 0, MAX_BARS))} 场见右侧</span>
       </span>
       <p className="text-[11.5px] leading-relaxed text-ink-200" data-shot="overview-headline">
         {facts.headline}
@@ -52,7 +52,7 @@ export function OverviewBar(props: { view: HistoryOverview | null }) {
         </div>
       ) : null}
       {facts.trendNote !== null ? (
-        <p className="text-[10.5px] text-ink-500" data-shot="overview-note">
+        <p className="text-[10.5px] text-ink-400" data-shot="overview-note">
           {facts.trendNote}
         </p>
       ) : null}
@@ -66,12 +66,12 @@ export function OverviewBar(props: { view: HistoryOverview | null }) {
         </ul>
       ) : null}
       {facts.sameJdNote !== null ? (
-        <p className="text-[10.5px] text-ink-500" data-shot="overview-jd">
+        <p className="text-[10.5px] text-ink-400" data-shot="overview-jd">
           {facts.sameJdNote}
         </p>
       ) : null}
       {facts.sameResumeNote !== null ? (
-        <p className="text-[10.5px] text-ink-500" data-shot="overview-resume">
+        <p className="text-[10.5px] text-ink-400" data-shot="overview-resume">
           {facts.sameResumeNote}
         </p>
       ) : null}

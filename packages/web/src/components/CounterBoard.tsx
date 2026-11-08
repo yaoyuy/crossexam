@@ -94,7 +94,7 @@ export function CounterBoard(props: {
                     <Badge tone='ember'>{COUNTER_KIND_LABEL[item.kind]}</Badge>
                   </span>
                   <Badge tone='muted'>{COUNTER_SOURCE_LABEL[item.source]}</Badge>
-                  <span className='ml-auto font-mono text-[11px] text-ink-500'>{item.id}</span>
+                  <span className='ml-auto font-mono text-[11px] text-ink-400'>{item.id}</span>
                 </div>
                 <p className='text-[13px] leading-relaxed text-ink-100'>{item.text}</p>
                 <button
@@ -118,7 +118,7 @@ export function CounterBoard(props: {
                     <Icon name="user" size={11} className="mt-0.5 shrink-0 text-ink-500" />
                     <span>
                       对方大概会答：{item.reply}
-                      <span className='text-ink-500'>（沙盘模拟，不是真 HR 在答）</span>
+                      <span className='text-ink-400'>（沙盘模拟，不是真 HR 在答）</span>
                     </span>
                   </p>
                 </div>

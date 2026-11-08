@@ -93,7 +93,7 @@ function VerdictBlock(props: { outcome: VerdictOutcome; onFocus: (anchor: Anchor
           {VERDICT_CRITERIA[verdict.kind].rule}
         </span>
       </p>
-      <details className="text-[11px] text-ink-500">
+      <details className="text-[11px] text-ink-400">
         <summary className="cursor-pointer select-none hover:text-ink-300">判据展开</summary>
         <p className="mt-1 leading-relaxed">{VERDICT_CRITERIA[verdict.kind].basis}</p>
       </details>
@@ -331,7 +331,7 @@ function ClaimCard(props: {
                   </Note>
                 ) : pv.answer === null ? (
                   liveText(props.state, 'answer:' + pv.probe.id) === null ? (
-                    <p className="flex items-center gap-1.5 text-[11.5px] text-ink-500">
+                    <p className="flex items-center gap-1.5 text-[11.5px] text-ink-400">
                       <Icon name="clock" size={11} />
                       等待作答…
                     </p>

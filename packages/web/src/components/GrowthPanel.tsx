@@ -4,6 +4,7 @@ import { SHIFT_LABEL, SHIFT_TONE } from '../compare.ts';
 import { VERDICT_LABEL, VERDICT_TONE } from '../labels.ts';
 import { Badge, Empty, Note, SectionCard } from './Bits.tsx';
 import { Icon } from './Icon.tsx';
+import { useModal } from './useModal.ts';
 
 /**
  * 成长档案（P12 · ②）：这一场所在那条版本链上，每一版的主张轨迹。
@@ -15,9 +16,12 @@ import { Icon } from './Icon.tsx';
  * 版本链改成竖排时间线（每一版一行 .row，带进度条），判定一律用 .badge-*。
  */
 export function GrowthPanel(props: { view: GrowthView | null; open: boolean; onClose: () => void }) {
+  // hook 必须写在提前 return 之前：弹层关着时也得保持同样的 hook 顺序
+  const modalRef = useModal(props.open, props.onClose);
   if (!props.open) return null;
   return (
     <div
+      ref={modalRef}
       className="fixed inset-0 z-50 flex items-start justify-center overflow-auto bg-ink-950/80 p-4 backdrop-blur-sm"
       data-shot="growth"
       role="dialog"
@@ -196,10 +200,10 @@ function VersionStrip(props: { view: GrowthView }) {
                 <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
                   <span className="text-[12.5px] font-semibold text-ink-100">第 {point.version + 1} 版</span>
                   <span className="text-[11.5px] text-ink-300">站得住 {point.solid}/{point.judged}</span>
-                  <span className="text-[11px] text-ink-500">
+                  <span className="text-[11px] text-ink-400">
                     追问 {point.probes === null ? '没取到' : String(point.probes) + ' 次'}
                   </span>
-                  <span className="ml-auto truncate text-[11px] text-ink-500" title={point.jobTitle}>
+                  <span className="ml-auto truncate text-[11px] text-ink-400" title={point.jobTitle}>
                     {point.jobTitle}
                   </span>
                 </div>
@@ -219,7 +223,7 @@ function TrailRow(props: { trail: ClaimTrail; tone: 'warn' | 'solid' | 'muted' }
   const trail = props.trail;
   return (
     <li className="row" data-shot="growth-trail">
-      <span className="shrink-0 font-mono text-[11px] text-ink-500">{trail.steps[0]?.claimId ?? ''}</span>
+      <span className="shrink-0 font-mono text-[11px] text-ink-400">{trail.steps[0]?.claimId ?? ''}</span>
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <div className="flex flex-wrap items-center gap-2">
           <Badge tone={props.tone}>{trail.versions + ' 版'}</Badge>

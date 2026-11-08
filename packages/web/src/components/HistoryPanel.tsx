@@ -34,7 +34,7 @@ export function HistoryPanel(props: {
         bodyClassName="p-3"
       >
         {props.sessions.length === 0 ? (
-          <p className="text-[11.5px] text-ink-500">
+          <p className="text-[11.5px] text-ink-400">
             还没有跑过。跑完一场就会出现在这里，可以随时翻回来重看过程。
           </p>
         ) : (
@@ -55,7 +55,7 @@ export function HistoryPanel(props: {
                   onClick={() => props.onLoadSession(session.id)}
                 >
                   <span className="block truncate text-[12.5px] text-ink-100">{session.jobTitle}</span>
-                  <span className="block truncate font-mono text-[10.5px] text-ink-500">
+                  <span className="block truncate font-mono text-[10.5px] text-ink-400">
                     {session.id} · {session.llmMode}
                   </span>
                 </button>
@@ -63,7 +63,7 @@ export function HistoryPanel(props: {
                 <button
                   type="button"
                   title="删除这一场"
-                  className="px-1 text-[13px] text-ink-500 hover:text-rose-ink"
+                  className="px-1 text-[13px] text-ink-400 hover:text-rose-ink"
                   onClick={() => props.onDeleteSession(session.id)}
                 >
                   ×

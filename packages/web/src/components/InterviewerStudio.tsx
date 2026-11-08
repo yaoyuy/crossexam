@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Note } from './Bits.tsx';
 import { Icon } from './Icon.tsx';
+import { useModal } from './useModal.ts';
 import { deleteInterviewer, draftInterviewer, saveInterviewer } from '../api.ts';
 import type {
   DraftDiff,
@@ -45,6 +46,9 @@ export function InterviewerStudio(props: {
   const [note, setNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showPrompt, setShowPrompt] = useState(false);
+
+  // hook 必须写在提前 return 之前：弹层关着时也得保持同样的 hook 顺序
+  const modalRef = useModal(props.open, props.onClose);
 
   if (!props.open) return null;
 
@@ -168,6 +172,7 @@ export function InterviewerStudio(props: {
 
   return (
     <div
+      ref={modalRef}
       className="fixed inset-0 z-50 flex items-start justify-center overflow-auto bg-ink-950/80 p-4 backdrop-blur-sm"
       data-shot="studio"
       role="dialog"
@@ -185,7 +190,7 @@ export function InterviewerStudio(props: {
           </span>
           <div className="min-w-0">
             <h2 className="text-[16px] font-semibold leading-tight text-ink-100">面试官工作室</h2>
-            <p className="text-[11px] text-ink-500">任何行业都能配一位自己的面试官</p>
+            <p className="text-[11px] text-ink-400">任何行业都能配一位自己的面试官</p>
           </div>
           <button
             type="button"
@@ -219,7 +224,7 @@ export function InterviewerStudio(props: {
               onChange={(event) => setDescription(event.target.value)}
             />
             <div className="flex flex-col gap-1">
-              <span className="text-[11px] text-ink-500">不知道怎么写？挑一个例子：</span>
+              <span className="text-[11px] text-ink-400">不知道怎么写？挑一个例子：</span>
               <div className="flex flex-wrap gap-1.5">
                 {DRAFT_SEEDS.map((seed) => (
                   <button
@@ -258,7 +263,7 @@ export function InterviewerStudio(props: {
               </button>
             </div>
             {props.runMode === 'replay' ? (
-              <p className="text-[11px] leading-relaxed text-ink-500">
+              <p className="text-[11px] leading-relaxed text-ink-400">
                 当前是离线回放模式：点「用 AI 补成契约」会去查卡带，查不到就自动退回本地规则，不会偷偷联网。想真调模型，先在左边把运行模式切成联网。
               </p>
             ) : null}

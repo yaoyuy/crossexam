@@ -129,7 +129,7 @@ export function JdPane(props: {
               accent={props.hits.length === 0 ? 'slate' : 'sky'}
             />
           </div>
-          <div className='mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10.5px] text-ink-500'>
+          <div className='mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10.5px] text-ink-400'>
             <span className='flex items-center gap-1'>
               <span className='inline-block h-2.5 w-2.5 rounded-[3px] bg-ember-500/35' />
               被抽成要求的位置

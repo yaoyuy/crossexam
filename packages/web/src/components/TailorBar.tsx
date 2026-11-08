@@ -89,7 +89,7 @@ export function TailorBar(props: {
         {view.lines.length === 0 ? null : (
           <div className="grid grid-cols-2 gap-2">
             <section className="flex min-w-0 flex-col gap-1">
-              <h3 className="flex items-center gap-1 text-[10.5px] uppercase tracking-wide text-ink-500">
+              <h3 className="flex items-center gap-1 text-[10.5px] uppercase tracking-wide text-ink-400">
                 <Icon name="check" size={11} className="text-mint-400" />
                 留在这一版
               </h3>
@@ -103,7 +103,7 @@ export function TailorBar(props: {
               </ul>
             </section>
             <section className="flex min-w-0 flex-col gap-1">
-              <h3 className="flex items-center gap-1 text-[10.5px] uppercase tracking-wide text-ink-500">
+              <h3 className="flex items-center gap-1 text-[10.5px] uppercase tracking-wide text-ink-400">
                 <Icon name="x" size={11} />
                 被去掉的行
               </h3>

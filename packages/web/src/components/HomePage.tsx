@@ -128,7 +128,7 @@ export function HomePage(props: {
         ) : (
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-[12px] text-ink-300">{latest.createdAt}</span>
-            <span className="font-mono text-[11px] text-ink-500">{latest.id}</span>
+            <span className="font-mono text-[11px] text-ink-400">{latest.id}</span>
             <button
               type="button"
               className="btn px-2.5 py-1 text-[12px]"

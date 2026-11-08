@@ -530,7 +530,7 @@ mark.anchor-revised {
   font-size: 10.5px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--color-ink-500);
+  color: var(--color-ink-400);
 }
 
 /* ---------- 标签页 ---------- */
@@ -653,7 +653,7 @@ mark.anchor-revised {
 }
 .stat-hint {
   font-size: 10.5px;
-  color: var(--color-ink-500);
+  color: var(--color-ink-400);
 }
 
 /* ---------- 磁贴里的小图标方块 ---------- */

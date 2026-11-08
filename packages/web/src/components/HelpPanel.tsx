@@ -3,6 +3,7 @@ import type { ModeRow } from '../help.ts';
 import { Badge, Note } from './Bits.tsx';
 import { Icon } from './Icon.tsx';
 import type { IconName } from './Icon.tsx';
+import { useModal } from './useModal.ts';
 
 /**
  * 新手教程：一屏讲完「这是什么 / 怎么用 / 三种模式区别 / 隐私」。
@@ -12,9 +13,12 @@ import type { IconName } from './Icon.tsx';
  * 内部再分三小节（怎么用 / 三种模式 / 常见问题），每节一个小标题而不是一大段裸文字。
  */
 export function HelpPanel(props: { open: boolean; onClose: () => void }) {
+  // hook 必须写在提前 return 之前：弹层关着时也得保持同样的 hook 顺序
+  const modalRef = useModal(props.open, props.onClose);
   if (!props.open) return null;
   return (
     <div
+      ref={modalRef}
       className="fixed inset-0 z-50 flex items-start justify-center overflow-auto bg-ink-950/80 p-4 backdrop-blur-sm"
       data-shot="help"
       role="dialog"

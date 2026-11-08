@@ -154,7 +154,7 @@ export function IntakePanel(props: {
         accent="sky"
         actions={
           <>
-            <span className="text-[11px] text-ink-500">{draft.resumeText.length} 字</span>
+            <span className="text-[11px] text-ink-400">{draft.resumeText.length} 字</span>
             <button
               type="button"
               data-shot="import"
@@ -250,7 +250,7 @@ export function IntakePanel(props: {
             >
               <div className="flex items-center gap-2">
                 <span className="badge badge-sky">{'第 ' + String(index + 1) + ' 份'}</span>
-                <span className="text-[11px] text-ink-500">{String(jd.text.length) + " 字"}</span>
+                <span className="text-[11px] text-ink-400">{String(jd.text.length) + " 字"}</span>
                 {draft.jds.length <= 1 ? null : (
                   <button
                     type="button"
@@ -403,7 +403,7 @@ export function IntakePanel(props: {
               ))}
             </div>
             {props.runMode === 'replay' ? (
-              <p data-shot="mode-note" className="text-[11px] leading-relaxed text-ink-500">
+              <p data-shot="mode-note" className="text-[11px] leading-relaxed text-ink-400">
                 {props.modeChoices.find((item) => item.value === 'replay')?.hint}
               </p>
             ) : (
@@ -457,7 +457,7 @@ export function IntakePanel(props: {
               ))}
             </div>
             {props.difficultyChoices.length === 0 ? null : (
-              <p data-shot="difficulty-note" className="text-[11px] leading-relaxed text-ink-500">
+              <p data-shot="difficulty-note" className="text-[11px] leading-relaxed text-ink-400">
                 {
                   (props.difficultyChoices.find((item) => item.id === props.difficulty) ?? props.difficultyChoices[0])
                     ?.hint ?? ''
@@ -488,7 +488,7 @@ export function IntakePanel(props: {
               ))}
             </div>
             {props.styleChoices.length === 0 ? null : (
-              <p data-shot="style-note" className="text-[11px] leading-relaxed text-ink-500">
+              <p data-shot="style-note" className="text-[11px] leading-relaxed text-ink-400">
                 {
                   (props.styleChoices.find((item) => item.id === props.style) ?? props.styleChoices[0])
                     ?.hint ?? ''

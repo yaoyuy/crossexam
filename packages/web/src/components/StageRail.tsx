@@ -177,7 +177,7 @@ export function StageRail(props: {
             );
           })}
         </ul>
-        <p className="text-[11px] leading-relaxed text-ink-500">
+        <p className="text-[11px] leading-relaxed text-ink-400">
           每位面试官都有自己的意图契约：谁问什么、问到哪为止，都由契约决定，不靠模型临场发挥。
         </p>
       </div>
@@ -185,7 +185,7 @@ export function StageRail(props: {
       {props.contracts === null || props.contracts.length === 0 ? null : (
         <div className="flex flex-col gap-2" data-shot="contracts">
           <h3 className="text-[11px] font-semibold uppercase tracking-wide text-ink-400">意图契约</h3>
-          <p className="text-[11px] leading-relaxed text-ink-500">
+          <p className="text-[11px] leading-relaxed text-ink-400">
             每位面试官的目标、手法、禁区、预算都是结构化数据，System Prompt 由它确定性渲染；
             指纹可与会话里落库的那一份对账——改了契约却忘了重跑，这里会直接报漂移。
           </p>
@@ -229,7 +229,7 @@ export function StageRail(props: {
                       <dl className="flex flex-col gap-1">
                         {contractLines(view).map((line) => (
                           <div key={line.label} className="flex gap-2 text-[11px] leading-relaxed">
-                            <dt className="w-[62px] shrink-0 text-ink-500">{line.label}</dt>
+                            <dt className="w-[62px] shrink-0 text-ink-400">{line.label}</dt>
                             <dd className="min-w-0 flex-1 text-ink-300">{line.value}</dd>
                           </div>
                         ))}
@@ -292,7 +292,7 @@ export function StageRail(props: {
                   <span className="text-[11.5px]">
                     {STAGE_LABEL[mark.stage] ?? mark.stage}
                   </span>
-                  <span className={'text-[10.5px] ' + (active ? 'text-ember-300' : 'text-ink-500')}>
+                  <span className={'text-[10.5px] ' + (active ? 'text-ember-300' : 'text-ink-400')}>
                     {mark.round === null ? (active ? '进行中' : '已完成') : '第 ' + String(mark.round) + ' 轮'}
                   </span>
                 </li>
@@ -301,7 +301,7 @@ export function StageRail(props: {
           </ol>
         )}
         {state.stages.length === 0 ? null : (
-          <p className="flex items-start gap-1.5 text-[11px] leading-relaxed text-ink-500">
+          <p className="flex items-start gap-1.5 text-[11px] leading-relaxed text-ink-400">
             <Icon name="info" size={11} className="mt-0.5 shrink-0 text-ink-600" />
             <span>
               绿色勾是已经走完的段，橙色是高亮着的那一段；
@@ -318,7 +318,7 @@ export function StageRail(props: {
             <Icon name="zap" size={12} className="text-ember-400" />
             实时输出
           </h3>
-          <p className="text-[11px] leading-relaxed text-ink-500">
+          <p className="text-[11px] leading-relaxed text-ink-400">
             模型正在一个字一个字地写。斜体那行是它「想」的（只有会思考的模型才给），正下方是它「说」的——
             分片不进事件日志、刷新就没了，能断线续传的只有上面那条阶段时间线。
           </p>
@@ -336,14 +336,14 @@ export function StageRail(props: {
                       <Icon name="sparkles" size={11} />
                       {channelLabel(buffer.channel, (id) => personaLabelOf(id, personaOf(id).name))}
                     </span>
-                    <span className="text-[10px] text-ink-500">
+                    <span className="text-[10px] text-ink-400">
                       {buffer.reasoning === '' ? '输出' : '思考 + 输出'}
                     </span>
                   </div>
                   {thought === '' ? null : (
                     <p
                       data-shot="live-reasoning"
-                      className="max-h-20 overflow-hidden whitespace-pre-wrap border-l-2 border-ink-700 pl-2 text-[11px] italic leading-relaxed text-ink-500"
+                      className="max-h-20 overflow-hidden whitespace-pre-wrap border-l-2 border-ink-700 pl-2 text-[11px] italic leading-relaxed text-ink-400"
                     >
                       {thought}
                     </p>
@@ -399,7 +399,7 @@ export function StageRail(props: {
               );
             })}
           </ul>
-          <p className="text-[11px] text-ink-500">
+          <p className="text-[11px] text-ink-400">
             共判定 {String(judged)} 条；绿色是站得住的，橙色是还得改的，灰色是没答上来的。
           </p>
         </div>
@@ -433,7 +433,7 @@ export function StageRail(props: {
                       />
                       <span className="text-[12px] text-ink-200">{item.label}</span>
                     </span>
-                    <span className={'ml-auto text-[11px] ' + (item.weak > 0 ? 'text-amber-ink' : 'text-ink-500')}>
+                    <span className={'ml-auto text-[11px] ' + (item.weak > 0 ? 'text-amber-ink' : 'text-ink-400')}>
                       欠证据 {String(item.weak)} / {String(item.judged)}
                     </span>
                   </div>
@@ -451,7 +451,7 @@ export function StageRail(props: {
           </ul>
           {plan.weakest.length === 0 ? null : (
             <div className="flex flex-col gap-1">
-              <p className="text-[11px] text-ink-500">
+              <p className="text-[11px] text-ink-400">
                 最该先补的 {plan.weakest.length} 处（点一下在简历原文里定位）：
               </p>
               {plan.weakest.map((item) => (
@@ -474,7 +474,7 @@ export function StageRail(props: {
                       {' · '}
                       {CLAIM_CATEGORY_LABEL[item.category]}
                     </span>
-                    <span className="mt-0.5 block truncate text-[11px] text-ink-500">{item.text}</span>
+                    <span className="mt-0.5 block truncate text-[11px] text-ink-400">{item.text}</span>
                   </span>
                   <Icon name="chevron-right" size={13} className="text-ink-500" />
                 </button>
@@ -502,7 +502,7 @@ export function StageRail(props: {
                   ? '，还没有主张被关停'
                   : '，' + String(state.budget.closed.length) + ' 条主张已关停（继续问也没有信息增量）'}
               </p>
-              <p className="mt-0.5 text-[11px] text-ink-500">
+              <p className="mt-0.5 text-[11px] text-ink-400">
                 额度由代码守：每位面试官、每条主张、每一轮各有上限，死循环在结构上不成立。
               </p>
             </div>
@@ -534,7 +534,7 @@ export function StageRail(props: {
       <ErrorNotes errors={state.errors} />
 
       {props.health === null ? null : (
-        <p className="mt-auto flex items-center gap-1.5 text-[11px] leading-relaxed text-ink-500">
+        <p className="mt-auto flex items-center gap-1.5 text-[11px] leading-relaxed text-ink-400">
           <Icon name="monitor" size={11} />
           运行方式：{props.health.runMode}
           {' · '}

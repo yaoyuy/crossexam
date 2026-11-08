@@ -151,7 +151,7 @@ export function ResumePane(props: {
               ))}
             </div>
             {tailored !== null ? null : (
-              <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10.5px] text-ink-500">
+              <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10.5px] text-ink-400">
                 <span className="flex items-center gap-1">
                   <span className="inline-block h-2.5 w-2.5 rounded-[3px] bg-ember-500/35" />
                   被追问过的原文

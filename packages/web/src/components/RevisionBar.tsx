@@ -129,7 +129,7 @@ export function RevisionBar(props: {
           {revised === null ? null : (
             <>
               <div className="flex flex-col gap-1.5">
-                <p className="flex items-center gap-1.5 text-[10.5px] uppercase tracking-wide text-ink-500">
+                <p className="flex items-center gap-1.5 text-[10.5px] uppercase tracking-wide text-ink-400">
                   <Icon name="download" size={12} />
                   导出改完的这一版
                 </p>

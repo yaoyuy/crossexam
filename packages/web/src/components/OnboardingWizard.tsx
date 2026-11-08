@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { WIZARD_STEPS } from '../help.ts';
 import type { PageId } from '../pages.ts';
 import { Icon } from './Icon.tsx';
+import { useModal } from './useModal.ts';
 
 /**
  * 多步新手向导：第一次打开时牵着走一遍，一步只讲一件事。
@@ -32,12 +33,16 @@ export function OnboardingWizard(props: {
     if (page !== undefined) props.onPage(page);
   }, [props.open, index]);
 
+  // hook 必须写在提前 return 之前：弹层关着时也得保持同样的 hook 顺序
+  const modalRef = useModal(props.open, props.onClose);
+
   if (!props.open || step === undefined) return null;
   const last = index === WIZARD_STEPS.length - 1;
   const percent = Math.round(((index + 1) / WIZARD_STEPS.length) * 100);
 
   return (
     <div
+      ref={modalRef}
       className="fixed inset-0 z-50 flex items-center justify-center bg-ink-950/80 p-4 backdrop-blur-sm"
       data-shot="wizard"
       role="dialog"
@@ -75,7 +80,7 @@ export function OnboardingWizard(props: {
               <span className="text-[11.5px] font-semibold text-ink-200">
                 第 {index + 1} / {WIZARD_STEPS.length} 步
               </span>
-              <span className="text-[11px] text-ink-500">
+              <span className="text-[11px] text-ink-400">
                 {last ? '最后一步，点「开始用」收工' : '还剩 ' + String(WIZARD_STEPS.length - index - 1) + ' 步'}
               </span>
             </div>
@@ -138,7 +143,7 @@ export function OnboardingWizard(props: {
               {last ? '开始用' : '下一步'}
               <Icon name={last ? 'check' : 'chevron-right'} size={14} />
             </button>
-            <span className="text-[11px] text-ink-500">随时可以在顶部「新手教程」里重看这几步</span>
+            <span className="text-[11px] text-ink-400">随时可以在顶部「新手教程」里重看这几步</span>
           </div>
         </div>
       </section>

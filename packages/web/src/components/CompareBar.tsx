@@ -77,7 +77,7 @@ export function CompareBar(props: { view: CompareView | null; onOpenGrowth?: (()
     >
       <div className="flex flex-wrap items-center gap-2">
         <Badge tone={compared ? 'solid' : isMissing ? 'warn' : 'sky'}>{facts.status}</Badge>
-        {isFirst ? <span className="text-[11px] text-ink-500">这一版之前没有可比的场次</span> : null}
+        {isFirst ? <span className="text-[11px] text-ink-400">这一版之前没有可比的场次</span> : null}
         {isMissing ? (
           <span className="inline-flex items-center gap-1 text-[11px] text-amber-ink">
             <Icon name="alert" size={12} />
@@ -104,7 +104,7 @@ export function CompareBar(props: { view: CompareView | null; onOpenGrowth?: (()
             <ul className="flex flex-col gap-1.5" data-shot="compare-rows">
               {facts.rows.map((row) => (
                 <li key={row.id + row.shift} className="row">
-                  <span className="shrink-0 font-mono text-[11px] text-ink-500">{row.id}</span>
+                  <span className="shrink-0 font-mono text-[11px] text-ink-400">{row.id}</span>
                   <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                     <Badge tone={SHIFT_TONE[row.shift]}>{row.detail}</Badge>
                     <p className="text-[11.5px] leading-relaxed text-ink-300">{row.text}</p>
@@ -128,7 +128,7 @@ export function CompareBar(props: { view: CompareView | null; onOpenGrowth?: (()
               title="上一版有、这一版没了的主张（往往就是改掉的那几句）："
               items={facts.removed}
               icon="x"
-              className="text-ink-500"
+              className="text-ink-400"
             />
           )}
         </div>

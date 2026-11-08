@@ -71,7 +71,7 @@ export function TemplatePicker(props: {
             </span>
             <span className="flex min-w-0 flex-1 flex-col gap-0.5">
               <span className="truncate text-[12.5px] font-semibold text-ink-100">{item.title}</span>
-              <span className="truncate text-[11px] text-ink-500">{item.hints[0] ?? '点一下装进投料台'}</span>
+              <span className="truncate text-[11px] text-ink-400">{item.hints[0] ?? '点一下装进投料台'}</span>
             </span>
             <Icon name="chevron-right" size={14} className="text-ink-500" />
           </button>
