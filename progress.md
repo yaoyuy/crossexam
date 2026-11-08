@@ -850,3 +850,66 @@ sha256 `aea5bed80e16af33ac2b6bf1735bb3dce938a42d303ea77776cca3421b5a3f65`；AI �
 **踩坑**：ASCII 句号进断句符把「2.4 秒」切成「2.」+「4 秒」；硬切切出只含「，」的条；`ffmpeg -i` 抓逐片
 Duration 在短片子上写 stdout 且 exit 1（改用 PCM 字节数 / 48000）。
 
+## Session 51（2026-11-08）：评审团六方评审 + 验收脚本入库、文档数字收敛
+
+**背景**：作品进入提交前最后一次自查。评审按赛题五个评分维度分开复查，结论是「功能与证据密度够，
+但『证据在不在评委手里』这一栏有硬伤」。本轮先修不涉及产品行为的两类问题：验收脚本没入库、文档数字口径不一。
+
+**一、验收脚本入库（`.tmp` → `tools/accept/`）**：`docs/tech/05-evidence.md` 自述 122 项验收证据，
+脚本却住在 `.tmp/`（`git ls-files .tmp` = 0 行），评委复不出来。搬成三个可移植脚本 + 两个共享库：
+`lib/accept.mjs`（端口/临时目录/浏览器探测/进程回收/`Recorder` 记账/`startServer`）、`lib/cdp.mjs`（无头 CDP：
+`evalJs`/`waitFor`/`shot`/`close`）、`api-matrix.mjs`（**78 项**）、`report-check.mjs`（**12 项**）、
+`live-accept.mjs`（**32 项**）；`package.json` 追加 `accept` / `accept:api` / `accept:report` / `accept:live`。
+去掉全部硬编码本机路径（端口默认现找空端口、临时库落 `os.tmpdir()`、浏览器按候选清单探测），Key 只从
+`LLM_API_KEY` 读——顺带删掉旧联网脚本里从 DSH 会话日志正则捞 `sk-…` 的 `findKey()`（那是把本机密钥
+搬进验收脚本，改完无 Key 时**整脚本打印 32 行 SKIPPED 并退出 0**，不许静默通过）。
+
+**搬进来第一次跑就抓到 10 项过期断言**（详见 F104）：usage 2267 → 4120、事件 18 → 24、`?from=10` 续传
+8 → 14、账本 29 → 33、报告 4 节 → 6 节、外加一条 JD 太短撞上 `REQUIREMENT_LIMITS.jdMinChars = 40` 的新校验。
+改的是脚本里的期望值（当前值从接口读），产品代码一行没动。
+
+**二、文档数字收敛**：断言 765 → **767**（`npm run verify` 实测 73 文件 / 767 条；历史批次记录与
+`docs/prompt-chain/` 快照按 F93 的规矩不回填）；`docs/tech/05-evidence.md` 的 5.3 / 5.5.5 / 5.7 改写成
+真实路径与真实命令（`.tmp/api-matrix.mjs` → `npm run accept:api`，附实测 78 PASS / 0 FAIL / 1.6 秒；
+5.5.5 的真实简历路径改成 `CROSSEXAM_ACCEPT_RESUME`，隐私数据不进仓库）；`docs/tech/04-reproducibility.md`
+的 token 行明确标注为**估算**并给出卡带按字符折半的口径，表后补一段说明哪一行不是实测；
+`task_plan.md` 的交付物表「演示视频」⬜ → ✅（与 P18 一致）、P14 的「只剩演示视频」一并改掉。
+
+**实测数字（本机真跑）**：`npm run accept:api` **78 PASS / 0 FAIL / 0 SKIP（real 1.556 s）**；
+`npm run accept:report` **12 PASS / 0 FAIL / 0 SKIP（real 5.412 s）**；`npm run accept`（两条串联）
+**90 项全绿（real 8.677 s）**；无浏览器时 report-check `PASS 8 / SKIP 4`（exit 0），
+`CROSSEXAM_ACCEPT_STRICT=1` 时按失败退出 1；无 dist 时 api-matrix `PASS 73 / SKIP 5`（理由写明「先跑 npm run build」）；
+`node tools/accept/live-accept.mjs` 无 Key → `SKIPPED：32 项整体跳过`（exit 0）。
+`git rev-list --count HEAD` = **402**（文档里的「400 余次」与之一致，未改）。
+
+**本轮没做**：联网 32 项没有 Key，只验证了「正确跳过」，真机结论仍是 2026-10-28 那次；
+截图张数（30）与界面点测项数（177/178）等 T4 加完窄屏截图与断言后再统一（本轮刻意不动这两个数字）；
+成片 b10 的旁白与画面里仍是「765」（`tools/video/lines.mjs` / `pages.mjs`），三份视频文档已注明「成片录于 765」。
+
+
+## Session 52（2026-11-08）：评审团评审后的修复轮（P19）
+
+六方只读评审给出加权 **83.75 ≈ 84/100**（红队独立判 78）与 P1/P2/P3 修复清单，用户一句「做，全部修复」后
+全部执行完毕。六个工作流并行：Lead（门禁与全局清扫）+ 队友 `fix-gates` / `fix-replay` + 子智能体
+`fix-a11y` / `fix-web` / `fix-accept` / `fix-intent`（Team 成员上限 8，四个只读评审占着名额，
+所以四个工作流只能走 `subagent`——它们不在 `list_agents` 里，中途无法 `send_message` 追加约束）。
+
+**交付**：Node 门槛 22.5 → **22.18.0** + 服务默认只绑 `127.0.0.1`（ADR-0031）；
+`POST /api/preflight` 预检 + 兜底合成（默认 `synth`、`strict` 可关）且恒带 `synthetic` 计数（ADR-0032）；
+契约③④ 与「禁止升格」升级为程序闸门（ADR-0033）；50 处小字换 `ink-400` + 四个弹层 Esc / 焦点管理（ADR-0034）；
+三栏断点降到 1024；`.tmp` 三个验收脚本搬进 `tools/accept/` 并接 `npm run accept`。
+
+**实测**（`npm run verify && npm run e2e:ui && npm run shots && npm run accept`，exit 0）：
+77 个测试文件 / **820** 条断言 · 冒烟 9 项 · 构建 58 modules（CSS 48.97 kB / JS 430.39 kB，gzip 129.67）·
+预算 14 项全绿（前端 JS gzip 126 KB / 预算 128 KB，**只剩 2 KB 余量**）· `e2e:ui` **187/187** ·
+`shots` **36 张** · `accept` **90 项全绿**（78 + 12）· 复现 99.3 s（区间 34–157 s）。
+
+**教训**：新功能要配断言（`run-error.test.ts` 9 例、意图闸门 45 例），
+否则「说清楚了但没人量」——评审里两条最重的扣分点都是这么来的。
+
+**没做 / 留给下一轮**：视频画面与旁白里的旧数字（765 断言 / 177 项点测 / 86.6 秒）不重录，三份视频文档已注明画面时点；
+作者邮箱换 GitHub noreply 的历史重写按计划留到最后一步；提交包与两份 PDF 待重出。
+
+**已知不完美**：1024 宽的中栏只有 336px（把右栏从 430 收窄到 520 会把中栏压到 ~340，取舍后保留 430）；
+兜底判定的 verdict 一律 `unsupported`（只敢说证据不足）；兜底合成默认不落盘（保护简历隐私），
+所以 `fixtures/llm` 仍是 149 盘、评委看到的默认演示与之前一致；既有的 400/404 参数校验错仍是 `{error}` 形态。
