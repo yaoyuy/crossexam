@@ -241,7 +241,30 @@ export type RunEvent =
     }
   | { type: 'counter'; counters: CounterQuestion[]; rejected: RejectedCounter[] }
   | { type: 'suggestions'; suggestions: SuggestOutcome[]; errors: SuggestError[] }
-  | { type: 'error'; fatal: boolean; message: string };
+  | {
+      type: 'error';
+      fatal: boolean;
+      message: string;
+      /** 结构化错误码（T2 加）。旧服务端不给，界面按文案猜。 */
+      code?: string;
+      /** 服务端建议的下一步（人话）。 */
+      hint?: string;
+      /** 服务端给的出口按钮。字段还没定死，所以整块可选。 */
+      actions?: RunErrorAction[];
+    }
+  /**
+   * 这一场跑出了几条「离线兜底」合成响应。
+   * 服务端只在真的合成过时才推这一条（run.ts 的 synthetic），所以「没推」= 一条都没合成；
+   * 界面靠它决定要不要把合成这件事摆到台面上。
+   */
+  | { type: 'synthetic'; count: number; stages: string[] };
+
+/** 结构化错误里带的一个出口。id 是机器可认的动作名，label 直接上屏。 */
+export interface RunErrorAction {
+  id: string;
+  label: string;
+  hint?: string;
+}
 
 export interface RunSummary {
   rounds: number;
@@ -272,6 +295,15 @@ export interface HealthInfo {
   /** 三档改写风格：只给名字与一句话说明，不给指南——指南是提示词的事。 */
   styles?: StyleChoice[];
   defaultStyle?: string;
+  /**
+   * 服务端声明「支持开跑前预检」（名字是 preflight，precheck 是上一版的叫法，两个都认）。
+   * 声明过就照它说的路由问；没声明则允许问一次、问到 404 就不再问：
+   * 盲探一条不存在的路由会在控制台留下 404，而截图与点测门禁把控制台的 4xx 一律算失败，
+   * 所以「问一次」是为了兼容没来得及声明的服务端，「不再问」是为了不把门禁弄红。
+   */
+  preflight?: boolean | { ready?: boolean; path?: string };
+  precheck?: boolean | { ready?: boolean; path?: string };
+  capabilities?: { preflight?: boolean; precheck?: boolean };
 }
 
 /** 一档改写风格。它不进契约指纹：契约描述「谁在问」，风格描述「改得多狠」。 */
@@ -438,6 +470,59 @@ export interface SessionView {
   difficulty?: string;
   /** 这一场的改写建议改得多狠。旧会话可能没有，界面按默认档处理。 */
   style?: string;
+  /**
+   * 这一场里有几条是合成兜底数据（模型没产出、由本地规则顶上）。
+   * 字段名由 T2 定；读不到时界面显示「未标注」，不能显示成 0——
+   * 那等于替服务端保证「这一场全是模型真实产出」。
+   */
+  synthesized?: number;
+  synthesizedCount?: number;
+  /** 合成数据的逐条说明：哪一条、为什么是合成的 */
+  synthesizedNotes?: string[];
+  /**
+   * 服务端给的合成账（恒存在，没兜底时 count=0）。
+   * 它比下面那串候选字段权威，所以读的时候排第一。
+   */
+  synthetic?: { count: number; stages: string[] };
+}
+
+/**
+ * 合成兜底条数。字段名还没定死，所以按候选顺序读一遍；都读不到返回 null（= 服务端没说）。
+ * 之所以要这个函数而不是直接读一个字段：换字段名时只改这里，界面不用跟着动。
+ */
+export function synthesizedCount(view: SessionView): number | null {
+  const loose = view as unknown as Record<string, unknown>;
+  const stats = (loose.llm ?? {}) as Record<string, unknown>;
+  // 服务端的正式口径：{ count, stages }，恒存在（没兜底时 count = 0）
+  const tally = loose.synthetic;
+  if (typeof tally === 'object' && tally !== null) {
+    const count = (tally as { count?: unknown }).count;
+    if (typeof count === 'number' && Number.isFinite(count)) return count;
+  }
+  const candidates: unknown[] = [
+    loose.synthesized,
+    loose.synthesizedCount,
+    loose.fallbackCount,
+    loose.simulatedCount,
+    stats.synthesized,
+  ];
+  for (const value of candidates) {
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+  }
+  // 服务端把合成这件事落成了事件（kind='synthetic'），事件流随会话详情一起回来，
+  // 所以哪怕详情里还没有专门的字段，界面也读得到——合成绝不能因为字段没定下来就隐形。
+  for (let i = view.events.length - 1; i >= 0; i -= 1) {
+    const row = view.events[i];
+    if (row === undefined || row.kind !== 'synthetic') continue;
+    const count = row.payload['count'];
+    if (typeof count === 'number' && Number.isFinite(count)) return count;
+  }
+  // 再退一步：从公告那句人话里抠数字（报告与通知都引用同一句）
+  for (const note of view.notices) {
+    const matched = /(\d+)\s*条响应没有录过卡带/.exec(note);
+    if (matched !== null) return Number(matched[1]);
+  }
+  return null;
 }
 
 
@@ -930,6 +1015,100 @@ export async function createSession(input: CreateSessionInput): Promise<CreatedS
   });
   if (!res.ok) throw new ApiError(await readError(res), res.status);
   return (await res.json()) as CreatedSession;
+}
+
+/* ---------------------------------------------- 开跑前的离线预检（T2 的接口） */
+
+/**
+ * 预检结论。界面只硬依赖两个字段：
+ * mode（这一场按哪种模式跑）与 coverable（离线状态能不能命中卡带）。
+ * 其余一律当「有就用、没有就不显示」。
+ */
+export interface PrecheckResult {
+  mode: LlmMode;
+  coverable: boolean;
+  /** 服务端给的一句人话（说明缺口在哪、或者证明正好覆盖）；有就优先显示 */
+  reason?: string;
+  /** 与 reason 同义的旧字段名，认到就用，免得服务端换过名字界面就哑了 */
+  message?: string;
+  /** 缺哪几条、命中哪几条；服务端愿意说时给 */
+  digests?: { purpose: string; hit: boolean }[];
+}
+
+export interface PrecheckInput {
+  resumeText?: string;
+  jds?: { title: string; text: string }[];
+  jobTitle?: string;
+  mode?: LlmMode;
+  model?: string;
+  interviewers?: string[];
+  difficulty?: string;
+  style?: string;
+}
+
+/** 与服务端 packages/server/src/http/app.ts 的 POST /api/preflight 对应 */
+const PRECHECK_DEFAULT_PATH = '/api/preflight';
+
+/**
+ * 预检能力：服务端声明过就直接用；没声明也允许问一次，问不到才彻底放弃。
+ *
+ * 为什么要留「问一次」这个口子：能力声明（health 里的 preflight 字段）是后加的，
+ * 没有它的服务端其实是有的。但也不能每场都盲探——老服务端上每开一场就在控制台留一条 404，
+ * 而截图与点测门禁把控制台的 4xx 都算失败，为了一个提前量把门禁撞红不值得。
+ */
+let preflightMissing = false;
+
+export function precheckSupported(health: HealthInfo | null): boolean {
+  if (health !== null) {
+    const cap = health.preflight ?? health.precheck;
+    if (cap === true) return true;
+    if (typeof cap === 'object' && cap !== null) return cap.ready !== false;
+    if (health.capabilities?.preflight === true || health.capabilities?.precheck === true) return true;
+  }
+  return !preflightMissing;
+}
+
+/** 预检走哪条路由由服务端指定，它没说才用默认那条。 */
+export function precheckPathOf(health: HealthInfo | null): string {
+  const cap = health?.preflight ?? health?.precheck;
+  if (typeof cap === 'object' && cap !== null && typeof cap.path === 'string' && cap.path.length > 0) return cap.path;
+  return PRECHECK_DEFAULT_PATH;
+}
+
+/**
+ * 开跑前问一句「这台机器离线能不能跑完这一场」。
+ * 任何失败都返回 null（= 不知道）：预检只是提前量，绝不能因为预检本身挂了就把人挡在门外。
+ */
+export async function precheckRun(
+  input: PrecheckInput,
+  path: string = PRECHECK_DEFAULT_PATH,
+): Promise<PrecheckResult | null> {
+  try {
+    const res = await fetch(path, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(input),
+    });
+    if (res.status === 404 || res.status === 405) {
+      preflightMissing = true; // 服务端没有这条路由：这一版页面不再问第二次
+      return null;
+    }
+    if (!res.ok) return null;
+    const body = (await res.json()) as Record<string, unknown>;
+    const mode = body.mode;
+    if (mode !== 'replay' && mode !== 'live' && mode !== 'record') return null;
+    if (typeof body.coverable !== 'boolean') return null;
+    return {
+      mode,
+      coverable: body.coverable,
+      ...(typeof body.reason === 'string' ? { reason: body.reason } : {}),
+      ...(typeof body.message === 'string' ? { message: body.message } : {}),
+      ...(Array.isArray(body.digests) ? { digests: body.digests as PrecheckResult['digests'] } : {}),
+    };
+  } catch {
+    preflightMissing = true; // 连不上：当「没有预检」处理，照常开跑，且不再重试
+    return null;
+  }
 }
 
 export type ImportKind = 'pdf' | 'docx' | 'text';

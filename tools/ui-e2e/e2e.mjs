@@ -502,14 +502,48 @@ const runEnabled = await evalJs('document.querySelector(String.fromCharCode(91) 
 check('够长了按钮就亮起来', runEnabled === false, String(runEnabled));
 await shot('01-typed.png');
 await clickText('开始质询');
-const failedText = await waitText('回放模式找不到这一条记录', 40000);
-check('自建简历在回放模式下给出响亮报错', failedText.indexOf('回放模式找不到这一条记录') >= 0, '');
-check('报错里带了补救办法', failedText.indexOf('CROSSEXAM_MODE=record') >= 0, '');
-const railSub = await evalJs('document.querySelector(String.fromCharCode(91) + "data-shot=" + String.fromCharCode(34) + "stage" + String.fromCharCode(34) + String.fromCharCode(93) + "").innerText');
-check('过程面板显示「中断」', railSub.indexOf('中断') >= 0, railSub.slice(0, 40));
-const cardsAfterFail = await countCards();
-check('失败时不产出主张卡片', cardsAfterFail === 0, String(cardsAfterFail));
-await shot('02-fatal.png');
+// 服务端若声明了预检能力，点下去会先弹「这一场没有卡带」的闸门。这里走「仍然跑这一场」那条出口：
+// 离线撞上没录过的响应时，服务端不再中断，而是用离线兜底按提示词确定性合成。
+// 所以这一段断言的变了：不是「炸得体面」，而是「合成这件事必须摆在台面上」——
+// 要么顶栏写清合成条数，要么给人话报错与一条出口，绝不许让评委以为这是真模型给的。
+// 预检是服务端真跑一遍空场（不联网、不落库），要几秒才出结论：这里必须等它出现，
+// 抢在闸门之前点按钮等于没点，界面就停在投料台上了（固定 sleep 曾在这里假绿过一次）。
+const gateBtn = JSON.stringify('[data-shot="gate-run-anyway"]');
+const gateReady = await waitFor(async () => {
+  if ((await evalJs('document.querySelector(' + gateBtn + ') !== null')) === true) return 'gate';
+  if ((await countCards()) > 0) return 'running';
+  return '';
+}, '预检闸门或直接开跑', 60000);
+check('离线跑自建简历：开跑前先出「这一场没有录制卡带」的闸门', gateReady === 'gate', String(gateReady));
+await evalJs('(() => { const b = document.querySelector(' + gateBtn + '); if (b === null) return 0; b.click(); return 1; })()');
+// 注意：JSON.stringify 出来的已经是「带引号的字面量」，直接当 querySelector 的实参用；
+// 早期版本在外面又套了一层引号，选择器变成空串，于是怎么等都等不到——假超时最难查。
+const synthSel = JSON.stringify('[data-shot="synth-note"]');
+const synthTextOf = () => evalJs('(() => { const el = document.querySelector(' + synthSel + '); return el === null ? "" : el.innerText; })()');
+let lastSeen = '';
+let outcome = '';
+try {
+  outcome = await waitFor(async () => {
+    const banner = await synthTextOf();
+    lastSeen = await bodyText();
+    if (String(banner).indexOf('合成兜底数据') >= 0) return 'synth';
+    if (lastSeen.indexOf('这一场没有录好的卡带') >= 0) return 'fatal';
+    return '';
+  }, '离线跑自建简历的结果（合成兜底或人话报错）', 90000);
+} catch (error) {
+  // 超时是最难查的一种失败：把现场留下来，省得下次还得重跑四分钟去猜界面停在哪
+  await shot('02-offline-timeout.png');
+  console.log('--- 超时现场：正文末 1200 字 ---');
+  console.log(String(lastSeen).slice(-1200));
+  throw error;
+}
+check('离线跑自建简历不许静默：合成兜底或人话报错必须摆在台面上', outcome !== '', outcome === '' ? '既没写合成条数、也没报错' : outcome);
+const synthNoteText = await synthTextOf();
+const retryVisible = await evalJs('document.querySelector(' + JSON.stringify('[data-shot="error-retry"]') + ') !== null');
+check('合成兜底条数写在顶栏、没藏起来（或明确给出一条出口）', /本场含 \d+ 条合成兜底数据/.test(String(synthNoteText)) || retryVisible === true, '结局 ' + String(outcome) + ' / 横幅「' + String(synthNoteText) + '」');
+const cardsAfterRun = await countCards();
+check('离线这一场要么跑出主张卡片、要么给人话出口', cardsAfterRun > 0 || retryVisible === true, '卡片 ' + String(cardsAfterRun) + ' / 出口 ' + String(retryVisible));
+await shot('02-offline-fallback.png');
 
 // 一键示例在投料台；上一场是失败的，页面停在质询台，所以先回去。
 await gotoPage('intake');
@@ -1100,7 +1134,9 @@ await sleep(400);
 await gotoPage('history');
 await sleep(300);
 const historyText = await evalJs('(document.querySelector("[data-shot=history]") || { innerText: "" }).innerText');
-check('历史会话列出刚才两场', historyText.indexOf('高级后端工程师（Node.js） · 演示简历') >= 0 && historyText.indexOf('已完成') >= 0 && historyText.indexOf('失败') >= 0, historyText.slice(-80));
+// 离线兜底上了之后，自建简历那一场也会跑完（被标注成合成），历史里不再有「失败」那一行：
+// 所以这里只要求那几场都在、状态是终态，不再要求必须有一场失败。
+check('历史会话把刚才跑过的几场都列出来', historyText.indexOf('高级后端工程师（Node.js） · 演示简历') >= 0 && historyText.indexOf('已完成') >= 0, historyText.slice(-80));
 // C2 历史仪表盘：界面上的数字必须等于接口值。统计块自己算一套数字，
 // 迟早会和报告里的「站得住 N 条」对不上——这里点测的就是这条纪律。
 const apiOverview = await (await fetch('http://127.0.0.1:' + PORT + '/api/sessions/overview')).json();
@@ -1125,6 +1161,86 @@ const loadedCards = await countCards();
 const resumeLen = await evalJs('(() => { const p = document.querySelector(String.fromCharCode(91) + "data-shot=" + String.fromCharCode(34) + "resume" + String.fromCharCode(34) + String.fromCharCode(93) + ""); return p === null ? -1 : p.innerText.length; })()');
 check('载回来后棋盘与简历原文都回来了', loadedCards === 5 && resumeLen > 100, '卡片 ' + String(loadedCards) + ' / 原文 ' + String(resumeLen) + ' 字');
 await shot('04-history-loaded.png');
+
+// ── 窄屏（1280×800 / 1024×768）────────────────────────────────────────────
+// 桌面端 1600×1000 是此前唯一被点过的视口，而质询台三栏的断点刚从 xl 降到 lg：
+// 1024–1280 这一段（笔记本、小屏演示）这次必须真点一遍，否则「三栏塌成一条」
+// 既不会被冒烟抓住，也不会被宽屏点测抓住。
+async function narrowProbe(w, h, stacked) {
+  await send('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: 1, mobile: false });
+  await sleep(500);
+  return evalJs(
+    '(function(){' +
+    ' var stacked=' + (stacked === true ? 'true' : 'false') + ';' +
+    ' var grid=document.querySelector(String.fromCharCode(91)+"data-shot="+String.fromCharCode(34)+"interview-columns"+String.fromCharCode(34)+String.fromCharCode(93));' +
+    ' if(grid===null) return {ok:false,why:"找不到三栏网格"};' +
+    ' var cols=getComputedStyle(grid).gridTemplateColumns.split(" ").filter(function(x){return x.length>0;});' +
+    ' var rail=document.querySelector(String.fromCharCode(91)+"data-shot="+String.fromCharCode(34)+"col-rail"+String.fromCharCode(34)+String.fromCharCode(93));' +
+    ' var boards=document.querySelector(String.fromCharCode(91)+"data-shot="+String.fromCharCode(34)+"col-boards"+String.fromCharCode(34)+String.fromCharCode(93));' +
+    ' var material=document.querySelector(String.fromCharCode(91)+"data-shot="+String.fromCharCode(34)+"col-material"+String.fromCharCode(34)+String.fromCharCode(93));' +
+    ' if(rail===null||boards===null||material===null) return {ok:false,why:"三栏里有一栏不在"};' +
+    ' var r=rail.getBoundingClientRect(); var b=boards.getBoundingClientRect(); var m=material.getBoundingClientRect();' +
+    ' var sideBySide=r.right<=b.left+1&&b.right<=m.left+1;' +
+    // 关键按钮还得点得动：在屏幕上做一次命中测试，被别的层盖住就不算可点。
+    // 先挑一颗露得出来的按钮（可见区非空），再在可见区里取点——直接拿 getBoundingClientRect 的位置测，
+    // 会打在裁剪它的那个盒子上，看着像「按钮点不动」，其实只是没露出来。
+    // lg 以下上下堆叠、整页本来就该滚：把按钮滚到屏幕中间再量，测的是「滚一滚点得到」。
+    // lg 及以上三栏各自撑满一屏、面板内部 overflow:hidden，滚动救不回被裁掉的按钮，
+    // 所以那两档不许滚——一滚就把按钮推到表头底下，反而测出假红。
+    // 「可见区」= 自己的框 ∩ 视口 ∩ 所有会裁剪的祖先（overflow 不是 visible 的）。按钮被自己的面板
+    // 裁掉时，getBoundingClientRect 照样给一个位置，命中测试却打到别人身上——那正是要抓的毛病，
+    // 所以先算可见区：可见区为空就是「这颗按钮在窄屏上根本露不出来」。
+    ' function visBox(el){ var rr=el.getBoundingClientRect();' +
+    '   var box={l:Math.max(rr.left,0),t:Math.max(rr.top,0),r:Math.min(rr.right,window.innerWidth),b:Math.min(rr.bottom,window.innerHeight)};' +
+    '   var p=el.parentElement;' +
+    '   while(p!==null){ var cs=getComputedStyle(p);' +
+    '     if(cs.overflowX!=="visible"||cs.overflowY!=="visible"){ var pr=p.getBoundingClientRect();' +
+    '       box.l=Math.max(box.l,pr.left); box.t=Math.max(box.t,pr.top); box.r=Math.min(box.r,pr.right); box.b=Math.min(box.b,pr.bottom); }' +
+    '     p=p.parentElement; }' +
+    '   return box; }' +
+    ' var pool=material.querySelectorAll("button"); var btn=null; var btnWhy=""; var vis=null;' +
+    ' for(var i=0;i<pool.length;i+=1){' +
+    '   if(stacked){ pool[i].scrollIntoView({block:"center"}); }' +
+    '   var vb=visBox(pool[i]);' +
+    '   if(vb.r-vb.l>6&&vb.b-vb.t>6){ btn=pool[i]; vis=vb; break; } }' +
+    ' var clickable=false; var btnText="";' +
+    ' if(btn===null){ btnWhy="右栏里没有一颗按钮露得出来（可见区都被裁没了）"; } else {' +
+    '   var br=btn.getBoundingClientRect(); btnText=(btn.textContent||"").trim().slice(0,12);' +
+    // 在可见区里取五个采样点：只要有一点落在自己身上就算点得到——边上被压住一角不算「点不动」。
+    '   var cx=(vis.l+vis.r)/2; var cy=(vis.t+vis.b)/2;' +
+    '   var pts=[[cx,cy],[cx,vis.t+2],[cx,vis.b-2],[vis.l+2,cy],[vis.r-2,cy]];' +
+    '   var hits=[];' +
+    '   for(var j=0;j<pts.length;j+=1){ var h=document.elementFromPoint(Math.round(pts[j][0]),Math.round(pts[j][1]));' +
+    '     if(h!==null&&(btn===h||btn.contains(h))){ clickable=true; }' +
+    '     hits.push(h===null?"null":h.tagName+"."+String(h.className).slice(0,16)); }' +
+    '   if(!clickable){ var h0=document.elementFromPoint(Math.round(cx),Math.round(cy));' +
+    '     var h0r=h0===null?null:h0.getBoundingClientRect();' +
+    '     btnWhy="框 "+Math.round(br.left)+","+Math.round(br.top)+" "+Math.round(br.width)+"x"+Math.round(br.height)+" / 可见 "+Math.round(vis.l)+","+Math.round(vis.t)+"-"+Math.round(vis.r)+","+Math.round(vis.b)+" / 命中 "+hits.join(",")+" / 命中框 "+(h0r===null?"null":Math.round(h0r.left)+","+Math.round(h0r.top)+" "+Math.round(h0r.width)+"x"+Math.round(h0r.height)); } }' +
+    ' return {ok:true,cols:cols.length,sideBySide:sideBySide,clickable:clickable,btnText:btnText,btnWhy:btnWhy,' +
+    '   scrollWidth:document.documentElement.scrollWidth,innerWidth:window.innerWidth,' +
+    '   railWidth:Math.round(r.width),materialWidth:Math.round(m.width)};' +
+    '})()'
+  );
+}
+// 900×700 落在 lg 以下：并排本来就不成立，这里要的是「可用降级」——退回上下堆叠、
+// 不横向溢出、按钮照样点得到。三段视口分开断言，才分得清「窄屏能用」和「窄屏勉强没炸」。
+for (const [probeW, probeH, expectCols] of [[1280, 800, 3], [1024, 768, 3], [900, 700, 1]]) {
+  const probe = await narrowProbe(probeW, probeH, expectCols !== 3);
+  // 点不到就把现场拍下来：红了的断言必须能自己说明白是哪儿被盖住了
+  if (probe.ok === true && probe.clickable !== true) await shot('narrow-' + String(probeW) + '-material.png');
+  const where = String(probeW) + '×' + String(probeH);
+  const sizeText = probe.ok === true ? String(probe.cols) + ' 栏 / 左 ' + String(probe.railWidth) + 'px / 右 ' + String(probe.materialWidth) + 'px' : String(probe.why);
+  check(
+    where + (expectCols === 3 ? ' 质询台仍是三栏并排，没有塌成一条' : ' lg 以下退回上下堆叠，没有硬挤成一条'),
+    probe.ok === true && probe.cols === expectCols && (expectCols !== 3 || probe.sideBySide === true),
+    sizeText,
+  );
+  check(where + ' 没有横向溢出（整页不会再被左右拖着走）', probe.ok === true && probe.scrollWidth <= probe.innerWidth + 1, probe.ok === true ? '文档 ' + String(probe.scrollWidth) + 'px / 视口 ' + String(probe.innerWidth) + 'px' : String(probe.why));
+  check(where + ' 右栏的按钮还在原处、点得到（没被别的东西盖住）', probe.ok === true && probe.clickable === true, probe.ok === true ? '按钮「' + String(probe.btnText) + '」' + String(probe.btnWhy) : String(probe.why));
+}
+// 断言完把视口还原：删除那一轮仍按桌面口径点
+await send('Emulation.setDeviceMetricsOverride', { width: 1600, height: 1000, deviceScaleFactor: 1, mobile: false });
+await sleep(400);
 
 // 删除按钮在历史页（每页各管一件事），先切回去再点 ×。
 await gotoPage('history');

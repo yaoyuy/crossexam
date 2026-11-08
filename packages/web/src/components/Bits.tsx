@@ -215,24 +215,169 @@ export function Note(props: { tone?: 'info' | 'warn' | 'plain'; icon?: IconName;
   );
 }
 
-export function ErrorNotes(props: { errors: { message: string; fatal: boolean }[] }) {
+/** 一条错误在界面上的人话版本。开发者文案只留作「技术细节」，不直接怼给用户。 */
+export interface RunErrorExplain {
+  title: string;
+  detail: string;
+  /** 照着点/照着做就能往下走的动作，按顺序排 */
+  steps: string[];
+  /** 服务端原话，收在「技术细节」里 */
+  raw: string;
+  fatal: boolean;
+}
+
+/**
+ * 错误对象的界面口径。旧服务端只推 message + fatal，结构化改造之后才会多推 code 与 hint，
+ * 所以这两个字段一律当「有就用、没有就按文案猜」处理，不能硬依赖。
+ */
+export interface RunErrorLike {
+  message: string;
+  fatal: boolean;
+  code?: string | null;
+  hint?: string | null;
+}
+
+/** 没卡带时最省事的那条出口：一键示例那份简历是仓库里唯一录过卡带的材料。 */
+export const DEMO_EXIT_STEP =
+  '回投料台点「一键示例」，用内置演示简历跑一遍：它是唯一录过卡带的材料';
+
+/** 「想联网跑真实模型」的三步。与 README 同一套口径，界面上照抄即可。 */
+export const LIVE_CONFIG_STEPS: string[] = [
+  '在仓库根目录建一份配置：cp .env.example .env（Windows 下用 copy .env.example .env）',
+  '填 LLM_BASE_URL / LLM_API_KEY / LLM_MODEL 三项：任何 OpenAI 兼容端点都可以',
+  '重启 npm run dev，再在投料台把运行模式切到「联网直连」',
+];
+
+/**
+ * 把错误翻成人话。
+ * 为什么要有这一层：离线回放撞上 cassette-missing 时，服务端原样推的是
+ * 「用途「xxx」的指纹是 digest，请用 CROSSEXAM_MODE=record 联网跑一次把它录下来」——
+ * 这句话是说给开发者听的，评委既看不懂，也不知道下一步该点哪里。
+ * 判定顺序：先看结构化 code，再退回关键词——旧服务端只会给文案。
+ */
+export function explainRunError(error: RunErrorLike): RunErrorExplain {
+  const raw = error.message;
+  const code = (error.code ?? '').trim();
+  const said = raw + ' ' + (error.hint ?? '');
+  const has = (...keys: string[]): boolean => keys.some((key) => said.indexOf(key) >= 0);
+
+  if (code === 'cassette-missing' || has('cassette-missing', '回放模式找不到这一条记录', '找不到卡带')) {
+    return {
+      title: '这一场没有录好的卡带，离线状态下跑不了',
+      detail:
+        '这台机器现在是离线回放模式：它只重放仓库里已经录好的卡带。内置演示简历有卡带，自己贴的简历、换过的模板、改过的档位都还没有。',
+      steps: [DEMO_EXIT_STEP, '或者按下面的三步配一个 API Key，用你自己的模型跑这一场', ...LIVE_CONFIG_STEPS.slice(0, 2)],
+      raw,
+      fatal: error.fatal,
+    };
+  }
+
+  if (code === 'cassette-corrupt' || code === 'cassette-version' || has('cassette-corrupt', 'cassette-version', '卡带坏了', '卡带版本')) {
+    return {
+      title: '卡带文件坏了，或者与这一版程序对不上',
+      detail: '录好的卡带是上一版程序写下的格式，这一版读不了它。重新生成一次即可，不影响别的功能。',
+      steps: ['跑一次 npm run seed:demo，重新生成内置演示卡带', '或者切到「联网直连」，这一场就真调模型'],
+      raw,
+      fatal: error.fatal,
+    };
+  }
+
+  if (code === 'not-configured' || has('not-configured', 'LLM_API_KEY', 'LLM_BASE_URL', '没有配置')) {
+    return {
+      title: '联网模式还没有配好模型',
+      detail: '选了联网直连（或联网录制），但服务端还没有拿到模型地址与 Key，所以这一场没能开始。',
+      steps: LIVE_CONFIG_STEPS,
+      raw,
+      fatal: error.fatal,
+    };
+  }
+
+  if (has('Failed to fetch', 'NetworkError', 'ERR_CONNECTION', '请求失败（HTTP 5')) {
+    return {
+      title: '连不上本地服务',
+      detail: '界面没能和后端说上话：服务可能已经退出，或者端口被别的东西占了。',
+      steps: ['确认 npm run dev 还在运行（终端里没有报错）', '刷新一次页面，再点一次「开始质询」'],
+      raw,
+      fatal: error.fatal,
+    };
+  }
+
+  return {
+    title: error.fatal ? '这一场没能跑完' : '有一处没能完成，其余部分照常',
+    // 认不出来的那种，说明是没归类过的毛病：这时把服务端那句话原样摆在正文里。
+    // 它多半本来就是中文短句、是给用户看的（例如「第 1 份 JD…太短了」），
+    // 藏进「技术细节」等于让人自己猜哪儿错了；标题与下一步仍然是人话。
+    detail: (error.hint ?? '').trim().length > 0 ? (error.hint as string) : raw,
+    steps: error.fatal
+      ? ['先点「开始质询」重试一次：多数中断重跑一遍就好', '还不行就把「技术细节」那段原样发给开发者']
+      : ['这一处不挡其余部分：先接着往下走，回头看这一条', '重复出现就把「技术细节」那段原样发给开发者'],
+    raw,
+    fatal: error.fatal,
+  };
+}
+
+/**
+ * 错误条：一律先翻成人话再上屏，原始文案折叠进「技术细节」。
+ * actions 只由调用方给（质询台那一栏用不上按钮），所以这一层不知道「用演示简历跑一遍」是谁的事。
+ */
+export function ErrorNotes(props: {
+  errors: RunErrorLike[];
+  actions?: { label: string; onClick: () => void; primary?: boolean; dataShot?: string }[];
+}) {
   if (props.errors.length === 0) return null;
+  const actions = props.actions ?? [];
   return (
-    <ul className="flex flex-col gap-1">
-      {props.errors.map((error, index) => (
-        <li
-          key={String(index) + error.message}
-          className={
-            'rounded-lg border px-2.5 py-1.5 text-[12px] leading-relaxed ' +
-            (error.fatal
-              ? 'border-rose-ink/40 bg-rose-ink/10 text-rose-ink'
-              : 'border-amber-ink/30 bg-amber-ink/10 text-amber-ink')
-          }
-        >
-          {error.message}
-        </li>
-      ))}
-    </ul>
+    // data-shot 供点测定位：这一块可能同时出现在质询台左栏与投料台横幅上，所以按「哪一块里有按钮」找
+    <div className="flex flex-col gap-1.5" data-shot="error-notes">
+      <ul className="flex flex-col gap-1">
+        {props.errors.map((error, index) => {
+          const explained = explainRunError(error);
+          return (
+            <li
+              key={String(index) + error.message}
+              className={
+                'rounded-lg border px-2.5 py-1.5 text-[12px] leading-relaxed ' +
+                (error.fatal
+                  ? 'border-rose-ink/40 bg-rose-ink/10 text-rose-ink'
+                  : 'border-amber-ink/30 bg-amber-ink/10 text-amber-ink')
+              }
+            >
+              <p className="font-semibold">{explained.title}</p>
+              <p className="mt-0.5 opacity-90">{explained.detail}</p>
+              {explained.steps.length === 0 ? null : (
+                <ol className="mt-1 list-decimal pl-4 opacity-90">
+                  {explained.steps.map((step, stepIndex) => (
+                    <li key={String(stepIndex) + step}>{step}</li>
+                  ))}
+                </ol>
+              )}
+              <details className="mt-1 opacity-75">
+                <summary className="cursor-pointer select-none">技术细节</summary>
+                <p className="mt-0.5 break-words">{explained.raw}</p>
+              </details>
+            </li>
+          );
+        })}
+      </ul>
+      {actions.length === 0 ? null : (
+        <div className="flex flex-wrap items-center gap-1.5">
+          {actions.map((action) => (
+            <button
+              key={action.label}
+              type="button"
+              className={
+                'btn px-2.5 py-1 text-[12px] ' +
+                (action.primary === true ? '!border-rose-ink/60 !text-rose-ink' : '')
+              }
+              data-shot={action.dataShot}
+              onClick={action.onClick}
+            >
+              {action.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 

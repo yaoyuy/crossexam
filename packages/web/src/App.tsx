@@ -28,7 +28,11 @@ import {
   reportHtmlUrl,
   reportUrl,
   saveSupplement,
+  precheckPathOf,
+  precheckRun,
+  precheckSupported,
   streamRun,
+  synthesizedCount,
 } from './api.ts';
 import type {
   Anchor,
@@ -44,6 +48,7 @@ import type {
   LlmMode,
   Requirement,
   SessionSupplement,
+  PrecheckResult,
   SessionSummary,
   SseEvent,
   TailorView,
@@ -61,7 +66,9 @@ import type { JdFileDraft } from './jds.ts';
 import { acceptAll, choosableClaimIds, skippedReason as skippedReasonOf, toggleAccepted } from './revisions.ts';
 import type { RevisedResume } from './revisions.ts';
 import { RevisionBar } from './components/RevisionBar.tsx';
-import { Chip } from './components/Bits.tsx';
+import { Chip, ErrorNotes } from './components/Bits.tsx';
+import type { RunErrorLike } from './components/Bits.tsx';
+import { ModeBanner, PrecheckGate } from './components/RunGuard.tsx';
 import { ClaimBoard } from './components/ClaimBoard.tsx';
 import { CompareBar } from './components/CompareBar.tsx';
 import { GrowthPanel } from './components/GrowthPanel.tsx';
@@ -130,6 +137,56 @@ function modeChip(mode: LlmMode | null, health: HealthInfo | null): { text: stri
 
 function numberText(value: number): string {
   return value.toLocaleString('zh-CN');
+}
+
+/**
+ * 跑一场需要的全部输入。抽成类型是因为闸门上的「仍然按这份材料跑一次」要原样重放一次，
+ * 而它拿不到当初那次点击的参数。
+ */
+interface RunInput {
+  resumeText: string;
+  /** 交给服务端的 JD；空白行已经被剔掉了 */
+  jds: { title: string; text: string }[];
+  /** 投料台里那几份原始草稿：用来把服务端回的编号与正文对上 */
+  draftJds: IntakeDraft['jds'];
+  jobTitle: string;
+  /** 从哪一场改完再跑出来的；普通的一场是 null */
+  parentSessionId: string | null;
+  /** 跳过开跑前的离线预检：预检判错了，人得能强行跑 */
+  skipPrecheck?: boolean;
+}
+
+/**
+ * 把一条 SSE 错误事件读成界面口径。
+ * 为什么要在 App 里单独截一道：state.ts 的 sandbox.errors 只留 message + fatal（旧约定，
+ * 那一层不归本次改动），而「说人话 + 下一步动作」恰恰要靠 code 与 hint，所以在这里留一份原件。
+ * 认不出来就退回 null——宁可少一条人话提示，也不要瞎猜一个错误类型。
+ */
+function asRunError(event: SseEvent): RunErrorLike | null {
+  if (event.event !== 'error' && event.event !== 'fatal') return null;
+  const data = event.data;
+  if (typeof data !== 'object' || data === null) return null;
+  const raw = data as { message?: unknown; fatal?: unknown; code?: unknown; hint?: unknown };
+  return {
+    message: typeof raw.message === 'string' ? raw.message : '质询没能开始',
+    // fatal 这个事件名本身就是在说「这一场断了」，不看 data 里那个字段
+    fatal: event.event === 'fatal' ? true : raw.fatal !== false,
+    code: typeof raw.code === 'string' ? raw.code : null,
+    hint: typeof raw.hint === 'string' ? raw.hint : null,
+  };
+}
+
+/**
+ * 服务端推的「这一场合成过多少条」。
+ * 只在真的合成过时才推（没推就是 0 条合成），所以这里认不出来就返回 null，
+ * 而不是替服务端断言一个 0——横幅上「0 条」和「没说」是两句不同的话。
+ */
+function asSyntheticCount(event: SseEvent): number | null {
+  if (event.event !== 'synthetic') return null;
+  const data = event.data;
+  if (typeof data !== 'object' || data === null) return null;
+  const count = (data as { count?: unknown }).count;
+  return typeof count === 'number' && Number.isFinite(count) ? count : null;
 }
 
 export function App() {
@@ -215,6 +272,16 @@ export function App() {
   const [page, setPage] = useState<PageId>(readPageFromHash);
   // 多步新手向导：第一次打开自动走一遍，之后从首页或设置页手动重看
   const [wizardOpen, setWizardOpen] = useState(() => shouldAutoOpenWizard());
+  // 开跑前的离线预检结论：非 null 就表示「这一场离线跑不了，先别急着建会话」。
+  // 它只影响提示与出不出闸门，不改跑场路径——预检接口没有时它是 null，一切照旧。
+  const [runGate, setRunGate] = useState<PrecheckResult | null>(null);
+  // 最近一条结构化错误（带 code/hint 的原件）：闸门之外的那条横幅靠它说人话
+  const [runError, setRunError] = useState<RunErrorLike | null>(null);
+  // 这一场里有几条是合成兜底数据。null = 服务端没标注，不是 0：把「没说」显示成 0
+  // 等于替服务端保证「这一场全是模型真实产出」，那是造假。
+  const [synthesized, setSynthesized] = useState<number | null>(null);
+  // 上一次真正发出去的跑场输入：闸门上的「仍然跑一次」要原样重放它
+  const lastRunRef = useRef<RunInput | null>(null);
 
   const queueRef = useRef<SseEvent[]>([]);
   const timerRef = useRef<number | null>(null);
@@ -350,6 +417,13 @@ export function App() {
 
   const pushEvent = useCallback(
     (event: SseEvent) => {
+      // 结构化错误（code / hint）只在原始事件里有：先自己留一份，供横幅说人话
+      const structured = asRunError(event);
+      if (structured !== null) setRunError(structured);
+      // 合成兜底的条数同理：不等跑完重新拉会话，跑到哪一条横幅就更新到哪，
+      // 「这一场有多少不是真模型给的」必须当场看得见。
+      const synthetic = asSyntheticCount(event);
+      if (synthetic !== null) setSynthesized(synthetic);
       // 分片走自己那条更快的队列：即时模式下直接上屏，慢放模式下按小批次吐，
       // 这样离线回放也能看见字一个一个出来（整场回放本来不到一秒，人眼根本跟不上）。
       if (event.event === 'stream') {
@@ -378,20 +452,9 @@ export function App() {
    * 以及「改完再跑一遍」（简历是改完的那一版，并且要把这一场记成上一场）。
    * 两条入口除这三处输入之外完全同一条路径，所以不能各写一份。
    */
-  const startRun = useCallback(
-    async (input: {
-      resumeText: string;
-      /** 交给服务端的 JD；空白行已经被剔掉了 */
-      jds: { title: string; text: string }[];
-      /** 投料台里那几份原始草稿：用来把服务端回的编号与正文对上 */
-      draftJds: IntakeDraft['jds'];
-      jobTitle: string;
-      /** 从哪一场改完再跑出来的；普通的一场是 null */
-      parentSessionId: string | null;
-    }) => {
-      if (busy) return;
+  const runOnce = useCallback(
+    async (input: RunInput) => {
       setBusy(true);
-      setHint(null);
       let sessionId: string | null = null;
       // 新的一场开始前先把上一场的对比结论收起来：留着会让「比上次」说着另一场的事
       setCompare(null);
@@ -432,6 +495,8 @@ export function App() {
         setViewing('original');
         setSupplements([]);
         setSupplementNote(null);
+        // 新的一场还没跑完：合成条数退回「服务端没说」，别把上一场的数字挂在头上
+        setSynthesized(null);
         queueRef.current = [];
         streamingRef.current = true;
         dispatch({ type: 'begin', sessionId: created.id });
@@ -451,6 +516,10 @@ export function App() {
         const message =
           error instanceof ApiError || error instanceof Error ? error.message : '质询没能开始';
         dispatch({ type: 'sse', name: 'fatal', data: { message } });
+        // 建档这一步就失败（比如选了联网却没配 Key）不会走 SSE，也得有人话出口：
+        // 只丢给左栏那条 notice 的话，人站在投料台看不到，还得自己猜下一步
+        setRunError({ message, fatal: true });
+        if (error instanceof ApiError && error.status === 400) setPage('intake');
       } finally {
         streamingRef.current = false;
         if (paceRef.current === 0) drain();
@@ -467,6 +536,8 @@ export function App() {
           void getSession(sessionId)
             .then((view) => {
               if (view.contracts.length > 0) setContracts(view.contracts);
+              // 跑完这一场才问得到合成兜底条数：顶部横幅要常驻显示它
+              setSynthesized(synthesizedCount(view));
             })
             .catch(() => undefined);
           // 跑完才问「比上次」：开跑时上一版是确定的，但这一版还没有判定，问了也是空
@@ -476,8 +547,82 @@ export function App() {
         }
       }
     },
-    [busy, panel, runMode, runModel, difficulty, style, pushEvent, drain, refreshSessions],
+    [panel, runMode, runModel, difficulty, style, pushEvent, drain, refreshSessions],
   );
+
+  /**
+   * 跑一场的入口。抽成独立函数是因为有两条入口：投料台点「开始质询」（简历是现在输入框里那份），
+   * 以及「改完再跑一遍」（简历是改完的那一版，并且要把这一场记成上一场）。
+   * 两条入口除这三处输入之外完全同一条路径，所以不能各写一份。
+   *
+   * 它在建档之前先问一句预检：离线模式下这一场到底有没有卡带。
+   * 服务端没有声明预检能力就根本不问（盲探会给控制台留 404），
+   * 问了而失败（网络抖了 / 接口自己挂了）也一律当「不知道」放行——探测挡路比撞错更糟。
+   */
+  const startRun = useCallback(
+    async (input: RunInput) => {
+      if (busy) return;
+      // 记下这一次的输入：闸门上那个「仍然按这份材料跑一次」要原样重放它
+      lastRunRef.current = input;
+      setHint(null);
+      setRunError(null);
+      setRunGate(null);
+      // 服务端声明过预检就照它说的路由问；没声明则最多问一次，404 之后这一版页面不再问
+      // （每场都盲探会在控制台留一片 404，截图与点测门禁都会因此变红）
+      if (input.skipPrecheck !== true && precheckSupported(health)) {
+        const verdict = await precheckRun(
+          {
+            resumeText: input.resumeText,
+            jds: input.jds,
+            ...(input.jobTitle.trim().length > 0 ? { jobTitle: input.jobTitle.trim() } : {}),
+            mode: runMode,
+            ...(runMode === 'replay' || runModel.trim() === '' ? {} : { model: runModel.trim() }),
+            interviewers: panel,
+            difficulty,
+            style,
+          },
+          precheckPathOf(health),
+        );
+        if (verdict !== null && verdict.mode === 'replay' && verdict.coverable === false) {
+          // 拦下来只是为了先说清「为什么跑不了」，而不是把路堵死：闸门上有三个出口
+          setRunGate(verdict);
+          setPage('intake');
+          return;
+        }
+      }
+      await runOnce(input);
+    },
+    [busy, runOnce, health, runMode, runModel, panel, difficulty, style],
+  );
+
+  /** 闸门第一个出口：换成内置演示简历并立刻跑一遍——它是唯一录过卡带的材料 */
+  const handleRunDemo = useCallback(() => {
+    if (demo === null) {
+      setHint('示例简历还没加载好，稍等一下再点。');
+      return;
+    }
+    setRunGate(null);
+    void startRun({
+      resumeText: demo.resume,
+      jds: [{ title: '', text: demo.jd }],
+      draftJds: [{ title: '', text: demo.jd }],
+      jobTitle: demo.title,
+      parentSessionId: null,
+    });
+  }, [demo, startRun]);
+
+  /** 闸门第三个出口：预检只是一次快速判断，判错了不该把人锁在原地 */
+  const handleRunAnyway = useCallback(() => {
+    const last = lastRunRef.current;
+    if (last === null) return;
+    void startRun({ ...last, skipPrecheck: true });
+  }, [startRun]);
+
+  /** 预检说离线跑不了、而服务端其实已经配好 Key 时，一键切到联网直连（不自动开跑） */
+  const handleSwitchLive = useCallback(() => {
+    setRunMode('live');
+    setRunGate(null);
+  }, []);
 
   const handleRun = useCallback(() => {
     void startRun({
@@ -547,7 +692,8 @@ export function App() {
         jobTitle: view.session.jobTitle,
       });
       setActiveJdId(view.jds.length > 0 ? view.jds[0]!.id : null);
-      dispatch({ type: 'load', state: stateFromHistory(id, view.events, view.notices) });
+      const loaded = stateFromHistory(id, view.events, view.notices);
+      dispatch({ type: 'load', state: loaded });
       if (view.contracts.length > 0) setContracts(view.contracts);
       // 历史会话可能早就采纳过改写：把那一版一起取回来，勾选状态照它回填
       const stored = await fetchRevisions(id).catch(() => null);
@@ -564,6 +710,13 @@ export function App() {
       // 否则用户会以为「我明明选的是敢改」——而报告与建议都是当年那一档产的。
       if (typeof view.difficulty === 'string' && view.difficulty !== '') setDifficulty(view.difficulty);
       if (typeof view.style === 'string' && view.style !== '') setStyle(view.style);
+      // 这一场里有没有合成兜底数据：会话详情说了就照实显示；没说就是 null（不是 0）
+      setSynthesized(synthesizedCount(view));
+      // 打开历史会话时把上一场残留的闸门收起来：它说的是另一场的事
+      setRunGate(null);
+      // 但这一场自己炸过就得说：事件表重放出来的 errors 里留着当时那一条，
+      // 只给左栏一句 notice 的话，人翻历史时不知道该干什么，所以照样走人话横幅。
+      setRunError(loaded.errors.length > 0 ? loaded.errors[loaded.errors.length - 1]! : null);
       setHint('这是历史会话：过程由事件表重放，和当时直播看到的是同一条代码路径。');
       // 翻历史是为了看过程：直接把质询台摆出来，而不是让人回来再点一次
       setPage('interview');
@@ -677,6 +830,8 @@ export function App() {
    */
   const handleRunModeChange = useCallback((mode: LlmMode) => {
     setRunMode(mode);
+    // 换了模式，上一模式给出的离线预检结论就不再成立：闸门收回
+    setRunGate(null);
     setModelOptions([]);
     setModelNote(null);
     if (mode === 'replay') return;
@@ -1000,6 +1155,18 @@ export function App() {
   );
 
   const mode = modeChip(health === null ? null : runMode, health);
+  // 横幅上的下一步动作，只给现在这一步真能做的那几个：
+  // 一场都没跑过时不给「重试」，服务端没配 Key 时不给「切到联网直连」。
+  const errorActions: { label: string; onClick: () => void; primary?: boolean; dataShot?: string }[] = [];
+  if (lastRunRef.current !== null) {
+    errorActions.push({ label: '按现在这份材料重试一次', onClick: handleRunAnyway, primary: true, dataShot: 'error-retry' });
+  }
+  if (demo !== null) {
+    errorActions.push({ label: '用演示简历跑一遍', onClick: handleRunDemo, dataShot: 'error-use-demo' });
+  }
+  if (health?.live?.ready === true) {
+    errorActions.push({ label: '切到联网直连', onClick: handleSwitchLive, dataShot: 'error-switch-live' });
+  }
   const hasReport = sandbox.sessionId !== null && sandbox.claims.length > 0;
   const reportHref = hasReport && sandbox.sessionId !== null ? reportUrl(sandbox.sessionId) : null;
   const reportPrintHref = hasReport && sandbox.sessionId !== null ? reportHtmlUrl(sandbox.sessionId, true) : null;
@@ -1027,7 +1194,7 @@ export function App() {
               多 Agent 对抗式面试沙盘 · 把简历放到火上烤一遍
             </span>
           </h1>
-          <p className="text-[11px] text-ink-500">
+          <p className="text-[11px] text-ink-400">
             提问必须锚定简历原文，追问有预算上限，判定可以被代码改写，整场可以离线回放。
           </p>
         </div>
@@ -1117,6 +1284,17 @@ export function App() {
       </header>
 
       {/*
+        模式横幅常驻在头部下面：这一场怎么跑、里面有没有合成数据，两件事都不能藏在弹层里。
+        评审实测最伤的一点就是「只有内置演示简历有卡带」这句前提没人说，人一贴自己的简历就撞墙。
+      */}
+      <ModeBanner
+        mode={health === null ? null : runMode}
+        synthesized={synthesized}
+        cassetteDir={health === null ? '' : health.cassetteDir}
+        {...(health?.live === undefined ? {} : { live: health.live })}
+      />
+
+      {/*
         从 P15 起界面分页：左侧栏只管「去哪一页」，每页只放这一页该有的东西。
         以前六件事挤在同一屏，跑完一场要往下滚很久才够得到报告。
       */}
@@ -1124,6 +1302,30 @@ export function App() {
         <SideNav page={page} onPick={handlePickPage} badges={navBadges} />
 
         <main className="min-h-0 flex-1 overflow-auto p-3">
+          {runGate === null ? null : (
+            <div className="mb-3">
+              <PrecheckGate
+                mode={runGate.mode}
+                {...(runGate.reason === undefined && runGate.message === undefined
+                  ? {}
+                  : { message: runGate.reason ?? runGate.message })}
+                demoReady={demo !== null}
+                onUseDemo={handleRunDemo}
+                onRunAnyway={handleRunAnyway}
+                onSwitchLive={health?.live?.ready === true ? handleSwitchLive : null}
+              />
+            </div>
+          )}
+          {/*
+            质询台左栏的 StageRail 也会把同一条错误说成人话，但那一条没有出口；
+            这一条带「重试 / 换演示简历 / 切联网」，所以哪怕重复也要挂：
+            出错的地方就是人站着的地方，不能让他跑到别的页面去找下一步。
+          */}
+          {runError === null ? null : (
+            <div className="mb-3">
+              <ErrorNotes errors={[runError]} actions={errorActions} />
+            </div>
+          )}
           {page === 'home' ? (
             <div className="mx-auto w-full max-w-4xl xl:max-w-5xl">
               <HomePage
@@ -1192,13 +1394,21 @@ export function App() {
           {/*
             质询台：三列与以前一样（实时过程与阶段轨 / 三栏结论 / 两份原文与改写），
             区别只是「投料」不在这里了——贴材料属于投料台那一页。
-            三列在宽屏下各占满一屏高、各自滚动（xl:h-full）：少了这个约束，
+            三列在 ≥1024px 时各占满一屏高、各自滚动（lg:h-full）：少了这个约束，
             三栏就会各自长到内容那么高，整页变成一个长条，左栏阶段轨、
             中栏主张、右栏原文会被整页一起卷走。
+            断点从 xl 降到 lg 是因为 1024–1280 这一段正是笔记本与小屏演示的常见宽度：
+            1024px 到 1536px 之间右栏只给 430px、左栏 210px，先把这一屏装下；
+            如果这一段仍按 1600px 那套（左 300 / 右 660），中栏在 1280px 上只剩不到 100px，
+            主张会一个字一行竖着排。真正宽到 1536px 以上才用回 300/660 那套原尺寸。
+            真要窄到 <1024px 就退回上下堆叠（页本身能滚），宁可长一点也不横向溢出。
           */}
           {page === 'interview' ? (
-            <div className="grid min-h-0 gap-3 xl:h-full xl:grid-cols-[300px_minmax(0,1fr)_minmax(0,660px)]">
-              <aside className="flex min-h-0 flex-col gap-3">
+            <div
+              className="grid min-h-0 gap-3 lg:h-full lg:grid-cols-[210px_minmax(0,1fr)_minmax(0,430px)] 2xl:grid-cols-[300px_minmax(0,1fr)_minmax(0,660px)]"
+              data-shot="interview-columns"
+            >
+              <aside className="flex min-h-0 flex-col gap-3" data-shot="col-rail">
                 <StageRail state={sandbox} panel={panel} health={health} contracts={contracts} onFocusClaim={handleFocusClaim} />
               </aside>
 
@@ -1206,7 +1416,7 @@ export function App() {
           中栏放三栏结论：谁被追问、追出了什么（主张与追问）／岗位要求对上了几条（要求对照）／
           你还能反问什么（轮到你了）。三栏都能点，点的都是同一份原文。
         */}
-        <div className="grid min-h-0 gap-3 xl:grid-rows-[minmax(0,3fr)_minmax(0,2fr)_minmax(0,2fr)]">
+        <div className="grid min-h-0 gap-3 lg:grid-rows-[minmax(0,3fr)_minmax(0,2fr)_minmax(0,2fr)]" data-shot="col-boards">
           <ClaimBoard
             state={sandbox}
             onFocus={(anchor) => dispatch({ type: 'focus', anchor })}
@@ -1244,8 +1454,8 @@ export function App() {
           右栏是两份原文并排：左边简历（可能已经换成改完的版本），右边岗位要求。
           多 JD 之后，一条追问的锚点可能落在任何一边，所以两边都得看得见。
         */}
-        <div className="flex min-h-0 flex-col gap-3">
-          <div className="grid min-h-0 flex-1 gap-3 xl:grid-cols-2">
+        <div className="flex min-h-0 flex-col gap-3" data-shot="col-material">
+          <div className="grid min-h-0 flex-1 gap-3 2xl:grid-cols-2">
             <ResumePane
               text={material.resumeText}
               title={material.title}

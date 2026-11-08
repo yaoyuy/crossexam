@@ -592,6 +592,29 @@ async function main() {
     await sleep(400);
     await cdp.shot(opts.out, '29-settings.png');
 
+    // ── 窄屏补拍（1280×800 / 1024×768）──────────────────────────────────
+    // 此前这批图全在 1600×1000 一个视口下拍：窄屏一次都没被看过，而质询台的三栏
+    // 恰恰是最容易在窄屏塌成一条的布局（三栏断点从 xl 降到 lg 就是为它改的）。
+    // 只补三页：质询台（三栏）、首页（磁贴）、报告页（长文读数）——其余页面都是单列文档流。
+    for (const [shotW, shotH, tag] of [[1280, 800, '1280'], [1024, 768, '1024']]) {
+      await cdp.send('Emulation.setDeviceMetricsOverride', { width: shotW, height: shotH, deviceScaleFactor: 1, mobile: false });
+      await sleep(450);
+      await cdp.evaluate(goto('interview'));
+      await cdp.waitFor("document.querySelector('[data-shot=\"interview-columns\"]') !== null", '窄屏质询台出现', 15000);
+      await sleep(400);
+      await cdp.shot(opts.out, '3' + (tag === '1280' ? '0' : '3') + '-interview-' + tag + '.png');
+      await cdp.evaluate(goto('home'));
+      await cdp.waitFor("document.querySelector('[data-shot=\"home-page\"]') !== null", '窄屏首页出现', 15000);
+      await sleep(400);
+      await cdp.shot(opts.out, '3' + (tag === '1280' ? '1' : '4') + '-home-' + tag + '.png');
+      await cdp.evaluate(goto('report'));
+      await cdp.waitFor("document.querySelector('[data-shot=\"report-page\"]') !== null", '窄屏报告页出现', 15000);
+      await sleep(400);
+      await cdp.shot(opts.out, '3' + (tag === '1280' ? '2' : '5') + '-report-' + tag + '.png');
+    }
+    // 拍完还原视口：收尾的问题收集仍按桌面视口的口径
+    await cdp.send('Emulation.setDeviceMetricsOverride', { width: VIEWPORT.width, height: VIEWPORT.height, deviceScaleFactor: 1, mobile: false });
+
     const problems = cdp.problems();
     log(NL + '控制台/日志问题：' + (problems.length === 0 ? '无' : String(problems.length) + ' 条'));
     for (const problem of problems) log('  - ' + problem);
